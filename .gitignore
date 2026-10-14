@@ -1,0 +1,33 @@
+node_modules/
+dist/
+release/
+.DS_Store
+*.log
+.env
+.env.local
+*.tsbuildinfo
+.npmrc
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+/.claude
+/.codex
+/.gemini
+/.cc-switch
+/.idea
+/.vscode
+vitest-report.json
+nul
+
+# Flatpak build artifacts
+flatpak/cc-switch.deb
+flatpak-build/
+flatpak-repo/
+.worktrees/
+.spec-workflow/
+copilot-api
+.history
+CODEBUDDY.md
+mainWindow.js
+# 本地调试与测试数据目录（PHI_TEST_HOME、Ghostty 构建产物等），不入库
+/tmp/

@@ -1,0 +1,150 @@
+--- a/build.zig
++++ b/build.zig
+@@ -89,6 +89,13 @@
+         &deps,
+     );
+ 
++    // PHI embeds the native library; no Xcode app or xcframework wrapper.
++    if (config.target.result.os.tag == .macos and config.app_runtime == .none) {
++        libghostty_static.install("libghostty.a");
++        libghostty_static.installHeader();
++        resources.install();
++    }
++
+     // Runtime "none" is libghostty, anything else is an executable.
+     if (config.app_runtime != .none) {
+         if (config.emit_exe) {
+@@ -115,7 +122,7 @@
+ 
+     // macOS only artifacts. These will error if they're initialized for
+     // other targets.
+-    if (config.target.result.os.tag.isDarwin()) {
++    if (config.target.result.os.tag.isDarwin() and (config.emit_xcframework or config.emit_macos_app)) {
+         // Ghostty xcframework
+         const xcframework = try buildpkg.GhosttyXCFramework.init(
+             b,
+@@ -170,7 +177,7 @@
+ 
+         // On macOS we can run the macOS app. For "run" we always force
+         // a native-only build so that we can run as quickly as possible.
+-        if (config.target.result.os.tag.isDarwin()) {
++        if (config.target.result.os.tag.isDarwin() and config.emit_macos_app) {
+             const xcframework_native = try buildpkg.GhosttyXCFramework.init(
+                 b,
+                 &deps,
+--- a/src/build/SharedDeps.zig
++++ b/src/build/SharedDeps.zig
+@@ -378,10 +378,8 @@
+     if (step.rootModuleTarget().os.tag.isDarwin()) {
+         try @import("apple_sdk").addPaths(b, step);
+ 
+-        const metallib = self.metallib.?;
+-        metallib.output.addStepDependencies(&step.step);
+-        step.root_module.addAnonymousImport("ghostty_metallib", .{
+-            .root_source_file = metallib.output,
++        step.root_module.addAnonymousImport("ghostty_metal_source", .{
++            .root_source_file = b.path("src/renderer/shaders/shaders.metal"),
+         });
+     }
+ 
+--- a/src/build/LibtoolStep.zig
++++ b/src/build/LibtoolStep.zig
+@@ -31,7 +31,8 @@
+     const self = b.allocator.create(LibtoolStep) catch @panic("OOM");
+ 
+     const run_step = RunStep.create(b, b.fmt("libtool {s}", .{opts.name}));
+-    run_step.addArgs(&.{ "libtool", "-static", "-o" });
++    run_step.addArgs(&.{ "python3" });
++    run_step.addFileArg(b.path("phi_combine_archives.py"));
+     const output = run_step.addOutputFileArg(opts.out_name);
+     for (opts.sources) |source| run_step.addFileArg(source);
+ 
+--- a/src/renderer/metal/shaders.zig
++++ b/src/renderer/metal/shaders.zig
+@@ -335,21 +335,15 @@
+ fn initLibrary(device: objc.Object) !objc.Object {
+     const start = try std.time.Instant.now();
+ 
+-    const data = try macos.dispatch.Data.create(
+-        @embedFile("ghostty_metallib"),
+-        macos.dispatch.queue.getMain(),
+-        macos.dispatch.Data.DESTRUCTOR_DEFAULT,
++    const source = try macos.foundation.String.createWithBytes(
++        @embedFile("ghostty_metal_source"), .utf8, false,
+     );
+-    defer data.release();
+-
++    defer source.release();
+     var err: ?*anyopaque = null;
+     const library = device.msgSend(
+         objc.Object,
+-        objc.sel("newLibraryWithData:error:"),
+-        .{
+-            data,
+-            &err,
+-        },
++        objc.sel("newLibraryWithSource:options:error:"),
++        .{ source, @as(?*anyopaque, null), &err },
+     );
+     try checkError(err);
+ 
+--- a/src/config/CApi.zig
++++ b/src/config/CApi.zig
+@@ -137,3 +137,11 @@
+ const Diagnostic = extern struct {
+     message: [*:0]const u8 = "",
+ };
++
++// PHI: explicit embedding configuration, independent of the host process argv.
++export fn phi_ghostty_config_load(self: *Config, data: [*:0]const u8) bool {
++    var stream = std.io.fixedBufferStream(std.mem.sliceTo(data, 0));
++    var iter: cli.args.LineIterator(@TypeOf(stream.reader())) = .{ .r = stream.reader() };
++    self.loadIter(state.alloc, &iter) catch return false;
++    return true;
++}
+--- a/src/termio/Exec.zig
++++ b/src/termio/Exec.zig
+@@ -1134,8 +1134,10 @@
+                     // and repeatedly kill the process group until all
+                     // descendents are well and truly dead. We will not rest
+                     // until the entire family tree is obliterated.
+-                    while (true) {
+-                        switch (posix.errno(c.killpg(pgid, c.SIGHUP))) {
++                    var attempts: usize = 0;
++                    while (true) : (attempts += 1) {
++                        if (attempts >= 300) return error.KillFailed;
++                        switch (posix.errno(c.killpg(pgid, if (attempts < 100) c.SIGHUP else c.SIGKILL))) {
+                             .SUCCESS => log.debug("process group killed pgid={}", .{pgid}),
+                             else => |err| killpg: {
+                                 if ((comptime builtin.target.os.tag.isDarwin()) and
+@@ -1156,7 +1158,12 @@
+                         // kill them again.
+                         const res = posix.waitpid(pid, std.c.W.NOHANG);
+                         log.debug("waitpid result={}", .{res.pid});
+-                        if (res.pid != 0) break;
++                        if (res.pid != 0) {
++                            // The login wrapper may exit before a HUP-ignoring
++                            // descendant. Finish this owned group before returning.
++                            _ = c.killpg(pgid, c.SIGKILL);
++                            break;
++                        }
+                         std.time.sleep(10 * std.time.ns_per_ms);
+                     }
+                 },
+@@ -1176,8 +1183,15 @@
+         // FIRST thing the child process does and as far as I can tell,
+         // setsid cannot fail. I'm sure that's not true, but I'd rather
+         // have a bug reported than defensively program against it now.
+-        while (true) {
++        var attempts: usize = 0;
++        while (true) : (attempts += 1) {
+             const pgid = c.getpgid(pid);
++            if (attempts >= 100 and pgid == my_pgid) {
++                // Never signal the host group if child setup fails to complete.
++                _ = c.kill(pid, c.SIGKILL);
++                _ = posix.waitpid(pid, std.c.W.NOHANG);
++                return null;
++            }
+             if (pgid == my_pgid) {
+                 log.warn("pgid is our own, retrying", .{});
+                 std.time.sleep(10 * std.time.ns_per_ms);

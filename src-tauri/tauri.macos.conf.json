@@ -1,0 +1,6 @@
+{
+  "bundle": {
+    "resources": { "ghostty-sdk/share/": "ghostty/share/" },
+    "macOS": { "minimumSystemVersion": "13.0" }
+  }
+}

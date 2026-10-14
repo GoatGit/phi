@@ -1,0 +1,1423 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PHI · 应用终端标签交互原型</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+        color: #18181b;
+        background: #efeff2;
+        font-size: 13px;
+        --border: #e4e4e9;
+        --muted: #686871;
+        --orange: #c2410c;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+        color: inherit;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 2px solid #f97316;
+        outline-offset: 3px;
+      }
+      button,
+      input,
+      select {
+        -webkit-tap-highlight-color: transparent;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .demo-bar {
+        min-height: 52px;
+        flex-shrink: 0;
+        padding: 10px 22px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        background: #29292e;
+        color: #f4f4f5;
+      }
+      .demo-title {
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .demo-note {
+        margin-left: 12px;
+        font-size: 12px;
+        color: #c0c0c9;
+      }
+      .demo-tools {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+        font-size: 12px;
+      }
+      .demo-tools select,
+      .demo-tools button {
+        background: #3c3c43;
+        border: 1px solid #62626c;
+        border-radius: 5px;
+        color: #fff;
+        padding: 5px 8px;
+      }
+      .window {
+        margin: 22px auto;
+        width: min(1200px, calc(100% - 44px));
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        background: white;
+        border: 1px solid #d4d4db;
+        border-radius: 12px;
+        box-shadow: 0 12px 38px #18181b14;
+        overflow: hidden;
+      }
+      .sidebar {
+        width: 198px;
+        flex-shrink: 0;
+        padding: 0 10px 12px;
+        background: #f5f5f7;
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+      }
+      .sidebar-head {
+        height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 11px;
+        flex-shrink: 0;
+      }
+      .traffic {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #ff6159;
+        border: 1px solid #ed5149;
+      }
+      .traffic:nth-child(2) {
+        background: #ffbd2e;
+        border-color: #e5a922;
+      }
+      .traffic:nth-child(3) {
+        background: #28c840;
+        border-color: #1eb435;
+      }
+      .brand {
+        margin-left: auto;
+        font-size: 20px;
+        font-weight: 650;
+        letter-spacing: -0.05em;
+      }
+      .nav-scroll {
+        overflow-y: auto;
+        flex: 1;
+        min-height: 0;
+      }
+      .section-label {
+        margin: 19px 12px 7px;
+        color: #777780;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .nav-item {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-height: 36px;
+        margin: 2px 0;
+        padding: 7px 10px;
+        gap: 10px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        text-align: left;
+        color: #52525b;
+      }
+      .nav-item:hover {
+        background: #eaeaf0;
+      }
+      .nav-item.active {
+        color: #18181b;
+        background: #e4e4ea;
+        font-weight: 550;
+      }
+      .app-mark {
+        width: 21px;
+        flex-shrink: 0;
+        font-size: 12px;
+        text-align: center;
+        font-weight: 650;
+        font-family: var(--mono);
+        color: #70707b;
+      }
+      .nav-item.active .app-mark {
+        color: var(--orange);
+      }
+      .nav-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .count {
+        margin-left: auto;
+        color: #087c4c;
+        background: #e4f2e9;
+        min-width: 18px;
+        padding: 1px 4px;
+        font-size: 10px;
+        border-radius: 4px;
+        text-align: center;
+      }
+      .sidebar-foot {
+        padding: 12px 10px 0;
+        margin-top: 8px;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 11px;
+      }
+      .main {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+      .app-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 52px;
+        flex-shrink: 0;
+        border-bottom: 1px solid var(--border);
+        padding: 0 15px 0 22px;
+      }
+      .app-title {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 600;
+        white-space: nowrap;
+        min-width: 75px;
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .header-tabs {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        flex: 1;
+        height: 100%;
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 33px;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        color: var(--muted);
+        flex-shrink: 0;
+      }
+      .tab.active {
+        color: #18181b;
+        background: #f3f3f6;
+        border-color: #e4e4eb;
+      }
+      .tab:hover {
+        background: #f3f3f6;
+      }
+      .config-tab {
+        padding: 0 12px;
+      }
+      .tab-rail {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        overflow-x: auto;
+        scrollbar-width: thin;
+      }
+      .session-tab {
+        max-width: 154px;
+        padding-right: 3px;
+      }
+      .select-tab {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        background: none;
+        border: 0;
+        height: 100%;
+        padding: 0 2px 0 10px;
+      }
+      .tab-name {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        background: #17975b;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .dot.exited {
+        background: #9c9ca5;
+      }
+      .dot.missing-cli,
+      .dot.failed {
+        background: #d97706;
+      }
+      .dot.starting {
+        background: #d97706;
+        animation: pulse 1s ease-in-out infinite;
+      }
+      .close-tab {
+        border: 0;
+        background: none;
+        width: 23px;
+        height: 23px;
+        padding: 0;
+        border-radius: 4px;
+        color: #81818a;
+        font-size: 16px;
+      }
+      .close-tab:hover {
+        background: #e1e1e8;
+        color: #18181b;
+      }
+      .icon-button {
+        width: 30px;
+        height: 30px;
+        flex-shrink: 0;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        font-size: 21px;
+        color: #62626c;
+        padding: 0;
+      }
+      .icon-button:hover {
+        background: #f1f1f4;
+        color: #18181b;
+      }
+      .add {
+        color: var(--orange);
+      }
+      .drag-space {
+        min-width: 18px;
+        flex: 1;
+      }
+      .content {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .config {
+        padding: 28px;
+        overflow: auto;
+        flex: 1;
+      }
+      .eyebrow {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 0 0 8px;
+      }
+      h2 {
+        font-size: 22px;
+        letter-spacing: -0.02em;
+        font-weight: 600;
+        margin: 0 0 10px;
+      }
+      .description {
+        color: var(--muted);
+        line-height: 1.7;
+        margin: 0;
+      }
+      .config-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: #087c4c;
+        background: #eaf7ee;
+        border-radius: 5px;
+        padding: 5px 8px;
+        white-space: nowrap;
+      }
+      .subnav {
+        display: flex;
+        gap: 20px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 23px;
+      }
+      .subnav button {
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: none;
+        padding: 0 0 12px;
+        color: var(--muted);
+      }
+      .subnav button.active {
+        color: var(--orange);
+        border-color: #f97316;
+      }
+      .config-card {
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        padding: 20px;
+        margin-bottom: 14px;
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .supplier-mark {
+        border: 1px solid #e8e8ee;
+        background: #f7f7f9;
+        width: 38px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border-radius: 9px;
+        font-size: 17px;
+        font-weight: 650;
+      }
+      .card-head strong {
+        font-size: 14px;
+      }
+      .card-head .badge {
+        margin-left: auto;
+      }
+      .small {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 5px;
+      }
+      .data-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        color: var(--muted);
+        padding: 12px 0 0;
+        border-top: 1px solid #f0f0f3;
+        margin-top: 12px;
+      }
+      .data-row span:last-child {
+        color: #3f3f46;
+        text-align: right;
+      }
+      .hint {
+        padding: 18px 0;
+        color: var(--muted);
+        line-height: 1.8;
+        font-size: 12px;
+      }
+      .kbd {
+        display: inline-block;
+        padding: 0 5px;
+        border: 1px solid var(--border);
+        background: #f9f9fb;
+        border-radius: 4px;
+        font-size: 11px;
+      }
+      .terminal-toolbar {
+        height: 42px;
+        flex-shrink: 0;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 21px;
+        background: #fcfcfd;
+      }
+      .path {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: #65656e;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .quiet {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        padding: 5px 7px;
+        border-radius: 5px;
+        white-space: nowrap;
+      }
+      .quiet:hover {
+        background: #efeff3;
+        color: #18181b;
+      }
+      .terminal {
+        background: #fbfbfc;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+      .terminal-screen {
+        flex: 1;
+        overflow: auto;
+        padding: 28px;
+        font-family: var(--mono);
+        font-size: 13px;
+        line-height: 1.85;
+      }
+      .command {
+        color: #71717a;
+        margin-bottom: 21px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .cli-banner {
+        border-left: 2px solid #dc8055;
+        padding-left: 18px;
+        margin-bottom: 27px;
+      }
+      .cli-banner strong {
+        color: #bd5c30;
+        font-size: 17px;
+        font-weight: 600;
+      }
+      .cli-banner div {
+        color: #71717a;
+        font-size: 12px;
+        margin-top: 4px;
+      }
+      .terminal-lines {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: #555561;
+        margin: 0 0 24px;
+        font: inherit;
+      }
+      .prompt {
+        border-top: 1px solid #dddde5;
+        border-bottom: 1px solid #dddde5;
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        min-height: 48px;
+      }
+      .prompt > span {
+        color: #bd5c30;
+      }
+      .prompt input {
+        width: 100%;
+        min-width: 0;
+        border: 0;
+        background: transparent;
+        outline: none;
+        color: #27272a;
+        padding: 12px 0;
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+      .prompt input:focus-visible {
+        outline: none;
+      }
+      .prompt:focus-within {
+        border-color: #c8774e;
+      }
+      .prompt input::placeholder {
+        color: #9797a0;
+      }
+      .terminal-hint {
+        color: #9898a2;
+        font-size: 11px;
+        margin-top: 9px;
+      }
+      .terminal-status {
+        height: 30px;
+        flex-shrink: 0;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        color: #777780;
+        background: white;
+        font-size: 11px;
+      }
+      .status-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .state-view {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 28px;
+        overflow: auto;
+      }
+      .state-view h2 {
+        font-size: 19px;
+      }
+      .state-symbol {
+        width: 48px;
+        height: 48px;
+        display: grid;
+        place-items: center;
+        background: #f2f2f5;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        color: #868690;
+        font-family: var(--mono);
+        font-size: 21px;
+        margin-bottom: 22px;
+      }
+      .state-view p {
+        max-width: 420px;
+        color: var(--muted);
+        line-height: 1.8;
+        margin: 0 0 22px;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+        justify-content: flex-end;
+      }
+      .button {
+        border: 1px solid #dadae1;
+        border-radius: 6px;
+        background: white;
+        padding: 8px 13px;
+        white-space: nowrap;
+      }
+      .button:hover {
+        background: #f6f6f8;
+      }
+      .button.primary {
+        color: white;
+        background: #dc641f;
+        border-color: #dc641f;
+      }
+      .button.primary:hover {
+        background: #c85818;
+      }
+      .button.danger {
+        color: white;
+        background: #c93636;
+        border-color: #c93636;
+      }
+      .exit-note {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        padding: 13px 20px;
+        background: #f1f1f5;
+        border-top: 1px solid var(--border);
+        color: #686871;
+        font-size: 12px;
+      }
+      .exit-note .button {
+        margin-left: auto;
+        font-size: 12px;
+        padding: 6px 11px;
+      }
+      dialog {
+        border: 1px solid #dedee5;
+        border-radius: 12px;
+        padding: 25px;
+        width: min(440px, calc(100vw - 40px));
+        color: #27272a;
+        box-shadow: 0 24px 70px #0003;
+      }
+      dialog::backdrop {
+        background: #15151b50;
+      }
+      dialog h2 {
+        font-size: 18px;
+      }
+      dialog p {
+        color: var(--muted);
+        line-height: 1.7;
+        margin: 12px 0 24px;
+      }
+      .directory-options {
+        display: grid;
+        gap: 8px;
+        margin: 20px 0 24px;
+      }
+      .directory-option {
+        display: flex;
+        gap: 10px;
+        border: 1px solid var(--border);
+        padding: 12px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .directory-option:has(input:checked) {
+        border-color: #eea178;
+        background: #fff7f1;
+      }
+      .directory-option input {
+        accent-color: #d76b31;
+      }
+      .directory-option span {
+        font-family: var(--mono);
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      .session-choice {
+        width: 100%;
+        background: #fafafb;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        text-align: left;
+        padding: 11px;
+        margin: 4px 0;
+      }
+      .session-choice small {
+        color: var(--muted);
+        margin-left: 8px;
+      }
+      .toast {
+        position: fixed;
+        bottom: 36px;
+        left: 50%;
+        transform: translateX(-50%);
+        max-width: calc(100vw - 40px);
+        background: #27272a;
+        color: #fff;
+        padding: 12px 18px;
+        border-radius: 8px;
+        box-shadow: 0 4px 16px #0002;
+        font-size: 12px;
+        z-index: 10;
+        text-align: center;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.3;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .dot.starting {
+          animation: none;
+        }
+      }
+      @media (max-width: 900px) {
+        .window {
+          margin: 12px auto;
+          width: calc(100% - 24px);
+        }
+        .sidebar {
+          width: 170px;
+        }
+        .app-header {
+          padding-left: 16px;
+          gap: 8px;
+        }
+        .demo-bar {
+          padding: 9px 13px;
+          flex-wrap: wrap;
+        }
+        .demo-note {
+          display: block;
+          margin: 4px 0 0;
+        }
+        .config,
+        .terminal-screen {
+          padding: 23px;
+        }
+        .session-tab {
+          max-width: 126px;
+        }
+        .app-title {
+          max-width: 112px;
+          font-size: 13px;
+        }
+      }
+      @media (max-width: 650px) {
+        .window {
+          border-radius: 0;
+          margin: 0;
+          width: 100%;
+          border: 0;
+        }
+        .sidebar {
+          width: 53px;
+          padding: 0 5px 10px;
+        }
+        .sidebar-head {
+          padding: 0;
+          justify-content: center;
+        }
+        .traffic,
+        .nav-name,
+        .section-label,
+        .sidebar-foot {
+          display: none;
+        }
+        .brand {
+          margin: 0;
+        }
+        .nav-item {
+          padding: 9px;
+          position: relative;
+        }
+        .count {
+          position: absolute;
+          right: 0;
+          top: 0;
+          font-size: 9px;
+          min-width: 13px;
+          padding: 0 2px;
+        }
+        .demo-tools {
+          width: 100%;
+        }
+        .demo-tools select {
+          flex: 1;
+          min-width: 0;
+        }
+        .app-header {
+          gap: 6px;
+          padding: 0 9px;
+        }
+        .app-title {
+          min-width: 56px;
+          max-width: 91px;
+          font-size: 12px;
+        }
+        .header-tabs {
+          gap: 2px;
+        }
+        .config-tab {
+          padding: 0 8px;
+        }
+        .config,
+        .terminal-screen {
+          padding: 18px;
+        }
+        .terminal-toolbar {
+          padding: 0 12px;
+        }
+        .drag-space {
+          min-width: 8px;
+        }
+        .session-tab {
+          max-width: 110px;
+        }
+        .config-top {
+          align-items: flex-start;
+        }
+        .config-top > .badge {
+          display: none;
+        }
+        .data-row {
+          gap: 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo-bar">
+      <div>
+        <span class="demo-title">PHI / 应用终端标签</span
+        ><span class="demo-note">交互原型 · 全部内容为模拟，不执行命令</span>
+      </div>
+      <div class="demo-tools">
+        <label for="scenario">下次启动</label>
+        <select id="scenario">
+          <option value="running">正常</option>
+          <option value="missing-cli">CLI 未安装</option>
+          <option value="failed">启动失败</option>
+        </select>
+        <button id="simulate-exit" disabled>模拟进程退出</button>
+      </div>
+    </div>
+    <div class="window">
+      <aside class="sidebar" aria-label="应用导航">
+        <div class="sidebar-head" aria-hidden="true">
+          <span class="traffic"></span><span class="traffic"></span
+          ><span class="traffic"></span><span class="brand">φ</span>
+        </div>
+        <div class="nav-scroll">
+          <div class="section-label">控制台</div>
+          <button class="nav-item" data-page="suppliers" title="供应商">
+            <span class="app-mark">S</span><span class="nav-name">供应商</span>
+          </button>
+          <button class="nav-item" data-page="routing" title="路由">
+            <span class="app-mark">R</span><span class="nav-name">路由</span>
+          </button>
+          <div class="section-label">应用</div>
+          <div id="app-nav"></div>
+        </div>
+        <div class="sidebar-foot"><span class="dot"></span>本机工作空间</div>
+      </aside>
+      <main class="main">
+        <header class="app-header">
+          <h1 class="app-title" id="app-title">Claude Code</h1>
+          <div
+            class="header-tabs"
+            id="header-tabs"
+            role="tablist"
+            aria-label="应用标签"
+          >
+            <button
+              id="config-tab"
+              role="tab"
+              aria-controls="workspace"
+              aria-selected="true"
+              class="tab config-tab active"
+            >
+              配置
+            </button>
+            <div class="tab-rail" id="tab-rail"></div>
+            <button
+              id="add-terminal"
+              class="icon-button add"
+              aria-label="新建终端"
+              title="新建终端 · ⌘T"
+            >
+              ＋
+            </button>
+            <div class="drag-space" aria-hidden="true"></div>
+          </div>
+          <button
+            id="more"
+            class="icon-button"
+            aria-label="应用菜单"
+            title="应用菜单"
+          >
+            ⋯
+          </button>
+        </header>
+        <section
+          class="content"
+          id="workspace"
+          role="tabpanel"
+          aria-labelledby="config-tab"
+        ></section>
+      </main>
+    </div>
+    <dialog id="close-dialog" aria-labelledby="close-title">
+      <h2 id="close-title">关闭这个终端？</h2>
+      <p id="close-description"></p>
+      <div class="actions">
+        <button class="button" id="cancel-close" autofocus>取消</button
+        ><button class="button danger" id="confirm-close">结束并关闭</button>
+      </div>
+    </dialog>
+    <dialog id="directory-dialog" aria-labelledby="directory-title">
+      <h2 id="directory-title">在其他目录新建终端</h2>
+      <p>原型使用下列示例目录。正式版本会打开系统目录选择器。</p>
+      <div class="directory-options">
+        <label class="directory-option"
+          ><input type="radio" name="cwd" value="~/Projects/phi" checked /><span
+            >~/Projects/phi</span
+          ></label
+        >
+        <label class="directory-option"
+          ><input type="radio" name="cwd" value="~/Projects/api" /><span
+            >~/Projects/api</span
+          ></label
+        >
+        <label class="directory-option"
+          ><input type="radio" name="cwd" value="~/Documents/个人项目" /><span
+            >~/Documents/个人项目</span
+          ></label
+        >
+      </div>
+      <div class="actions">
+        <button class="button" id="cancel-directory">取消</button
+        ><button class="button primary" id="confirm-directory">新建终端</button>
+      </div>
+    </dialog>
+    <dialog id="install-dialog" aria-labelledby="install-title">
+      <h2 id="install-title">安装与更新</h2>
+      <p id="install-description"></p>
+      <div class="actions">
+        <button class="button" id="cancel-install">返回</button
+        ><button class="button primary" id="confirm-install">
+          模拟安装完成
+        </button>
+      </div>
+    </dialog>
+    <dialog id="menu-dialog" aria-labelledby="menu-title">
+      <h2 id="menu-title">应用标签</h2>
+      <div id="session-list"></div>
+      <p>⌘T 新建 · ⌘W 关闭当前终端<br />⌘⇧[ / ⌘⇧] 切换标签</p>
+      <div class="actions">
+        <button class="button" id="close-menu">完成</button>
+      </div>
+    </dialog>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script>
+      const apps = [
+        { id: "claude", name: "Claude Code", mark: "C", command: "claude" },
+        { id: "codex", name: "Codex", mark: "Co", command: "codex" },
+        { id: "gemini", name: "Gemini CLI", mark: "G", command: "gemini" },
+        { id: "grokbuild", name: "Grok Build", mark: "Gr", command: "grok" },
+        { id: "opencode", name: "OpenCode", mark: "Oc", command: "opencode" },
+        {
+          id: "openclaw",
+          name: "OpenClaw",
+          mark: "Cl",
+          command: "openclaw tui",
+        },
+        { id: "hermes", name: "Hermes", mark: "H", command: "hermes" },
+        { id: "pi", name: "Pi", mark: "π", command: "pi" },
+        { id: "mcode", name: "MiniMax Code", mark: "M", command: "mcode" },
+        {
+          id: "claude-desktop",
+          name: "Claude Desktop",
+          mark: "D",
+          command: null,
+        },
+      ];
+      const $ = (selector) => document.querySelector(selector);
+      const escapeHTML = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      const states = Object.fromEntries(
+        apps.map((app) => [
+          app.id,
+          {
+            sessions: [],
+            active: "config",
+            lastCwd: "~/Projects/phi",
+            section: "供应商",
+          },
+        ]),
+      );
+      const phaseNames = {
+        starting: "正在启动",
+        running: "运行中",
+        "missing-cli": "未找到 CLI",
+        failed: "启动失败",
+        exited: "已退出",
+      };
+      let activeApp = "claude";
+      let globalPage = null;
+      let sequence = 0;
+      let pendingClose = null;
+      let pendingInstall = null;
+      let toastTimer;
+      const app = () => apps.find((item) => item.id === activeApp);
+      const state = () => states[activeApp];
+      const session = () =>
+        state().sessions.find((item) => item.id === state().active);
+      const alive = (item) => ["starting", "running"].includes(item.phase);
+      function toast(message) {
+        clearTimeout(toastTimer);
+        $("#toast").textContent = message;
+        $("#toast").hidden = false;
+        toastTimer = setTimeout(() => {
+          $("#toast").hidden = true;
+        }, 3000);
+      }
+      function captureInput() {
+        const item = session();
+        if (item && $("#terminal-input"))
+          item.draft = $("#terminal-input").value;
+        if (item && $(".terminal-screen"))
+          item.scrollTop = $(".terminal-screen").scrollTop;
+      }
+      function renderNav() {
+        $("#app-nav").innerHTML = apps
+          .map((item) => {
+            const count = states[item.id].sessions.filter(alive).length;
+            return `<button class="nav-item ${!globalPage && activeApp === item.id ? "active" : ""}" data-app="${item.id}" title="${item.name}" ${!globalPage && activeApp === item.id ? 'aria-current="page"' : ""}><span class="app-mark">${item.mark}</span><span class="nav-name">${item.name}</span>${count ? `<span class="count" aria-label="${count} 个运行会话">${count}</span>` : ""}</button>`;
+          })
+          .join("");
+        document
+          .querySelectorAll("[data-page]")
+          .forEach((button) =>
+            button.classList.toggle(
+              "active",
+              button.dataset.page === globalPage,
+            ),
+          );
+      }
+      function renderHeader() {
+        const current = app();
+        $("#app-title").textContent = globalPage
+          ? { routing: "路由", suppliers: "供应商" }[globalPage]
+          : current.name;
+        $("#header-tabs").hidden = Boolean(globalPage) || !current.command;
+        $("#more").hidden = Boolean(globalPage) || !current.command;
+        $("#add-terminal").setAttribute(
+          "aria-label",
+          `新建 ${current.name} 终端`,
+        );
+        $("#config-tab").classList.toggle(
+          "active",
+          state().active === "config",
+        );
+        $("#config-tab").setAttribute(
+          "aria-selected",
+          String(state().active === "config"),
+        );
+        $("#config-tab").tabIndex = state().active === "config" ? 0 : -1;
+        $("#tab-rail").innerHTML = state()
+          .sessions.map(
+            (item) =>
+              `<div class="tab session-tab ${item.id === state().active ? "active" : ""}"><button id="tab-${item.id}" class="select-tab" role="tab" aria-controls="workspace" aria-selected="${item.id === state().active}" tabindex="${item.id === state().active ? 0 : -1}" data-select="${item.id}" title="${escapeHTML(current.name + " · " + item.cwd + " · " + phaseNames[item.phase])}"><span class="dot ${item.phase}" aria-label="${phaseNames[item.phase]}"></span><span class="tab-name">${escapeHTML(item.title)}</span></button><button class="close-tab" data-close="${item.id}" aria-label="关闭终端 ${escapeHTML(item.title)}">×</button></div>`,
+          )
+          .join("");
+        $("#simulate-exit").disabled =
+          Boolean(globalPage) || !session() || session().phase !== "running";
+      }
+      function configHTML() {
+        const current = app();
+        const sections =
+          current.id === "openclaw"
+            ? ["供应商", "工作区", "OpenClaw 配置"]
+            : current.id === "hermes"
+              ? ["供应商", "记忆"]
+              : ["供应商"];
+        return `<div class="config"><div class="config-top"><div><p class="eyebrow">应用配置</p><h2>${escapeHTML(current.name)}</h2><p class="description">管理当前应用使用的供应商与连接。</p></div><span class="badge"><span class="dot"></span>已配置</span></div><div class="subnav">${sections.map((name) => `<button data-section="${name}" class="${state().section === name ? "active" : ""}">${name}</button>`).join("")}</div>${state().section === "供应商" ? `<div class="config-card"><div class="card-head"><span class="supplier-mark">P</span><div><strong>我的供应商</strong><div class="small">示例配置</div></div><span class="badge">当前使用</span></div><div class="data-row"><span>连接方式</span><span>沿用当前应用配置</span></div><div class="data-row"><span>模型</span><span>应用默认</span></div></div>` : `<div class="config-card"><strong>${escapeHTML(state().section)}</strong><p class="description" style="margin-top:12px">这里保留 PHI 现有的${escapeHTML(state().section)}页面。</p></div>`}<div class="hint">${current.command ? `点击顶部 <span class="kbd">＋</span>，在这里打开 ${escapeHTML(current.name)} 终端。<br />配置与终端可以随时切换。` : "Claude Desktop 是桌面应用，保留现有配置页面。"}</div></div>`;
+      }
+      function terminalHTML(item) {
+        const current = app();
+        const toolbar = `<div class="terminal-toolbar"><span class="path" title="${escapeHTML(item.cwd)}">${escapeHTML(item.cwd)}</span><button class="quiet" data-action="directory">在其他目录新建</button></div>`;
+        let main;
+        if (item.phase === "starting") {
+          main = `<div class="state-view"><span class="state-symbol">&gt;_</span><h2>正在启动 ${current.name}</h2><p>打开终端并载入应用。</p></div>`;
+        } else if (item.phase === "missing-cli" || item.phase === "failed") {
+          const missing = item.phase === "missing-cli";
+          main = `<div class="state-view"><span class="state-symbol">&gt;_</span><h2>${missing ? `未找到 ${current.name}` : "终端启动失败"}</h2><p>${missing ? "安装 CLI 后，即可在 PHI 内直接使用。" : "无法访问这个工作目录。请选择其他目录新建，或检查目录后重试。"}</p><div class="actions"><button class="button" data-action="retry">${missing ? "重新检测" : "重试"}</button><button class="button primary" data-action="${missing ? "install" : "directory"}">${missing ? "安装与更新" : "选择其他目录"}</button></div></div>`;
+        } else {
+          main = `<div class="terminal"><div class="terminal-screen"><div class="command">${escapeHTML(item.cwd)} $ ${escapeHTML(current.command)}</div><div class="cli-banner"><strong>${current.name}</strong><div>交互会话 · ${escapeHTML(item.cwd)}</div></div><pre class="terminal-lines">${escapeHTML(item.lines.join("\n"))}</pre>${item.phase === "running" ? `<form id="terminal-prompt" class="prompt"><span aria-hidden="true">❯</span><input id="terminal-input" aria-label="模拟 CLI 输入" autocomplete="off" placeholder="描述你想做的事…" value="${escapeHTML(item.draft)}" /></form><div class="terminal-hint">Enter 发送演示输入</div>` : `<p class="terminal-hint">[进程已退出]</p>`}</div>${item.phase === "exited" ? `<div class="exit-note">进程已退出。终端内容保留至关闭标签。<button class="button" data-action="restart">重新启动</button></div>` : ""}</div>`;
+        }
+        return `${toolbar}${main}<div class="terminal-status"><span class="status-label"><span class="dot ${item.phase}"></span>${phaseNames[item.phase]}</span><span>${escapeHTML(current.command)}</span></div>`;
+      }
+      function globalHTML() {
+        if (globalPage === "routing")
+          return `<div class="config"><p class="eyebrow">控制台</p><h2>应用连接</h2><p class="description" style="margin-bottom:25px">切换全局页面时，终端继续运行。</p>${apps
+            .filter(
+              (item) =>
+                states[item.id].sessions.length || item.id === activeApp,
+            )
+            .map(
+              (item) =>
+                `<div class="config-card"><div class="card-head" style="margin:0"><strong>${item.name}</strong><button class="button" style="margin-left:auto" data-config-app="${item.id}">配置</button></div></div>`,
+            )
+            .join("")}</div>`;
+        return `<div class="config"><p class="eyebrow">控制台</p><h2>供应商</h2><p class="description">这里保留现有供应商管理页。切回左侧应用可继续使用终端。</p></div>`;
+      }
+      function render(focus = false) {
+        renderNav();
+        renderHeader();
+        const item = session();
+        $("#workspace").innerHTML = globalPage
+          ? globalHTML()
+          : item
+            ? terminalHTML(item)
+            : configHTML();
+        $("#workspace").setAttribute(
+          "role",
+          globalPage || !app().command ? "region" : "tabpanel",
+        );
+        $("#workspace").setAttribute(
+          "aria-labelledby",
+          globalPage || !app().command
+            ? "app-title"
+            : item
+              ? `tab-${item.id}`
+              : "config-tab",
+        );
+        if (item && $(".terminal-screen"))
+          $(".terminal-screen").scrollTop = item.scrollTop;
+        if (focus && !globalPage) {
+          requestAnimationFrame(() => {
+            $(`#tab-${state().active}`)?.parentElement.scrollIntoView({
+              block: "nearest",
+              inline: "nearest",
+            });
+            $("#terminal-input")?.focus();
+          });
+        }
+      }
+      function start(item, owner, outcome) {
+        item.generation += 1;
+        const generation = item.generation;
+        item.phase = "starting";
+        item.draft = "";
+        item.scrollTop = 0;
+        item.lines = ["准备好了。", "", "输入一个任务，开始当前目录中的工作。"];
+        render();
+        setTimeout(() => {
+          if (
+            !states[owner].sessions.includes(item) ||
+            item.generation !== generation
+          )
+            return;
+          item.phase = outcome;
+          if (outcome === "running") states[owner].lastCwd = item.cwd;
+          if (activeApp === owner && !globalPage && state().active === item.id)
+            render(!$("dialog[open]"));
+          else {
+            renderNav();
+            renderHeader();
+          }
+        }, 450);
+      }
+      function create(cwd) {
+        if (globalPage || !app().command) return;
+        captureInput();
+        const directory = cwd || session()?.cwd || state().lastCwd || "~";
+        const base = directory.split("/").pop() || "终端";
+        let title = base;
+        let ordinal = 2;
+        while (state().sessions.some((item) => item.title === title))
+          title = `${base} · ${ordinal++}`;
+        const item = {
+          id: `s${++sequence}`,
+          cwd: directory,
+          title,
+          phase: "starting",
+          generation: 0,
+          draft: "",
+          scrollTop: 0,
+          lines: [],
+          installed: false,
+        };
+        state().sessions.push(item);
+        state().active = item.id;
+        start(item, activeApp, $("#scenario").value);
+      }
+      function selectTab(id) {
+        captureInput();
+        state().active = id;
+        render(true);
+      }
+      function removeSession(owner, id) {
+        const group = states[owner];
+        const index = group.sessions.findIndex((item) => item.id === id);
+        if (index < 0) return;
+        group.sessions.splice(index, 1);
+        if (group.active === id)
+          group.active = group.sessions[index - 1]?.id || "config";
+        render(true);
+      }
+      function closeSession(id) {
+        captureInput();
+        const item = state().sessions.find((entry) => entry.id === id);
+        if (!item) return;
+        if (item.phase !== "running") return removeSession(activeApp, id);
+        pendingClose = { owner: activeApp, id };
+        $("#close-description").textContent =
+          `“${item.title}”中的 ${app().name} 仍在运行。关闭将结束此终端中的进程。`;
+        $("#close-dialog").showModal();
+      }
+      function showInstall() {
+        pendingInstall = { owner: activeApp, id: session().id };
+        $("#install-description").textContent =
+          `正式版本跳转至现有的 ${app().name} 安装设置。此处仅演示安装完成后返回原标签并重新检测。`;
+        $("#install-dialog").showModal();
+      }
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (!button) return;
+        if (button.dataset.app) {
+          captureInput();
+          activeApp = button.dataset.app;
+          globalPage = null;
+          render(true);
+        }
+        if (button.dataset.page) {
+          captureInput();
+          globalPage = button.dataset.page;
+          render();
+        }
+        if (button.dataset.select) selectTab(button.dataset.select);
+        if (button.dataset.close) closeSession(button.dataset.close);
+        if (button.dataset.section) {
+          state().section = button.dataset.section;
+          render();
+        }
+        if (button.dataset.configApp) {
+          captureInput();
+          activeApp = button.dataset.configApp;
+          state().active = "config";
+          globalPage = null;
+          render();
+        }
+        if (button.dataset.menuSelect) {
+          $("#menu-dialog").close();
+          selectTab(button.dataset.menuSelect);
+        }
+        if (button.dataset.action === "directory")
+          $("#directory-dialog").showModal();
+        if (button.dataset.action === "install") showInstall();
+        if (button.dataset.action === "restart")
+          start(session(), activeApp, "running");
+        if (button.dataset.action === "retry") {
+          const item = session();
+          const outcome =
+            item.phase === "missing-cli" && !item.installed
+              ? "missing-cli"
+              : "running";
+          start(item, activeApp, outcome);
+        }
+      });
+      $("#config-tab").onclick = () => selectTab("config");
+      $("#add-terminal").onclick = () => create();
+      $("#simulate-exit").onclick = () => {
+        captureInput();
+        if (session()) {
+          session().phase = "exited";
+          render();
+        }
+      };
+      $("#cancel-close").onclick = () => $("#close-dialog").close();
+      $("#confirm-close").onclick = () => {
+        $("#close-dialog").close();
+        if (pendingClose) removeSession(pendingClose.owner, pendingClose.id);
+        pendingClose = null;
+      };
+      $("#cancel-directory").onclick = () => $("#directory-dialog").close();
+      $("#confirm-directory").onclick = () => {
+        const cwd = $('input[name="cwd"]:checked').value;
+        $("#directory-dialog").close();
+        create(cwd);
+      };
+      $("#cancel-install").onclick = () => $("#install-dialog").close();
+      $("#confirm-install").onclick = () => {
+        if (pendingInstall) {
+          const item = states[pendingInstall.owner].sessions.find(
+            (entry) => entry.id === pendingInstall.id,
+          );
+          if (item) item.installed = true;
+        }
+        $("#install-dialog").close();
+        toast("已模拟安装完成，点击“重新检测”继续。");
+      };
+      $("#more").onclick = () => {
+        $("#session-list").innerHTML =
+          `<button class="session-choice" data-menu-select="config">配置</button>` +
+          state()
+            .sessions.map(
+              (item) =>
+                `<button class="session-choice" data-menu-select="${item.id}">${escapeHTML(item.title)}<small>${phaseNames[item.phase]}</small></button>`,
+            )
+            .join("");
+        $("#menu-dialog").showModal();
+      };
+      $("#close-menu").onclick = () => $("#menu-dialog").close();
+      document.addEventListener("submit", (event) => {
+        if (event.target.id !== "terminal-prompt") return;
+        event.preventDefault();
+        const value = $("#terminal-input").value.trim();
+        if (!value) return;
+        session().lines.push(
+          "",
+          "❯ " + value,
+          "",
+          "[原型演示] 已收到输入，未执行任何命令。",
+        );
+        session().draft = "";
+        render(true);
+        $(".terminal-screen").scrollTop = $(".terminal-screen").scrollHeight;
+      });
+      document.addEventListener("keydown", (event) => {
+        if ($("dialog[open]") || globalPage || !app().command) return;
+        if (event.metaKey && event.key.toLowerCase() === "t") {
+          event.preventDefault();
+          create();
+        }
+        if (event.metaKey && event.key.toLowerCase() === "w" && session()) {
+          event.preventDefault();
+          closeSession(session().id);
+        }
+        const tabArrow =
+          event.target.getAttribute("role") === "tab" &&
+          ["ArrowLeft", "ArrowRight"].includes(event.key);
+        const shortcut =
+          event.metaKey &&
+          event.shiftKey &&
+          ["BracketLeft", "BracketRight"].includes(event.code);
+        if (tabArrow || shortcut) {
+          event.preventDefault();
+          const ids = ["config", ...state().sessions.map((item) => item.id)];
+          const direction =
+            event.key === "ArrowLeft" || event.code === "BracketLeft" ? -1 : 1;
+          const next =
+            ids[
+              (ids.indexOf(state().active) + direction + ids.length) %
+                ids.length
+            ];
+          selectTab(next);
+          if (tabArrow)
+            requestAnimationFrame(() =>
+              $(next === "config" ? "#config-tab" : `#tab-${next}`)?.focus(),
+            );
+        }
+      });
+      render();
+    </script>
+  </body>
+</html>
