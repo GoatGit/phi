@@ -46,7 +46,7 @@
 - 数据库 17+ 张表：providers、provider_endpoints、mcp_servers、prompts、skills、skill_repos、settings、proxy_config、provider_health、proxy_request_logs、model_pricing、stream_check_logs、proxy_live_backup、usage_daily_rollups、session_log_sync、session_usage_dedup、profiles
 - 凭据现状：API Key 明文存 SQLite；仅 OAuth token（Codex/Claude 订阅、Copilot、xAI）涉及系统 Keychain
 - 支持的 Agent（live 配置读写）：Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build（switch 模式）；OpenCode、OpenClaw、Hermes、Pi、MiniMax Code（coexist 模式）
-- 测试：vitest + MSW（前端）、cargo test + serial_test/tempfile（后端，`CC_SWITCH_TEST_HOME` 隔离）、CI 覆盖 Linux/macOS/Windows
+- 测试：vitest + MSW（前端）、cargo test + serial_test/tempfile（后端，`PHI_TEST_HOME` 隔离）、CI 覆盖 Linux/macOS/Windows
 
 ## 与 V0 产品计划的关系
 

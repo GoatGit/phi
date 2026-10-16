@@ -21,7 +21,7 @@
 
 - `ProfileService`：项目级配置快照（保存/切换）；
 - MCP/Skills/Prompt 同步：`mcp/`、`SkillService`、`PromptService`（V1 继承不动）；
-- 测试隔离：`CC_SWITCH_TEST_HOME` 指向临时目录，避免污染真实 `~/.claude` 等。
+- 测试隔离：`PHI_TEST_HOME` 指向临时目录，避免污染真实 `~/.claude` 等。
 
 **这一层是 fork 价值密度最高的资产**（每个 Agent 的格式怪癖都靠它消化），V1 原则：**结构不动，外围加固**。
 
@@ -65,7 +65,7 @@ switch 回填必须先抽取凭据为引用，之后保存加密版本和变更�
 
 1. 确认模式：switch 还是 coexist（能否多 provider 共存）；
 2. 新建 `<agent>_config.rs`：实现读、写、注入字段、清理字段四接口；**只改必要字段**原则不变；
-3. 补测试：真实格式样例（含注释与极端格式）→ 写入 → 重读 → 幂等性断言；`CC_SWITCH_TEST_HOME` 隔离；
+3. 补测试：真实格式样例（含注释与极端格式）→ 写入 → 重读 → 幂等性断言；`PHI_TEST_HOME` 隔离；
 4. 黄金集：该 Agent 的 inbound 协议组合补录（02 §4）；
 5. 文档：接入指引 + 已知限制。
 

@@ -1,4 +1,4 @@
-// 底本：farion1231/phi#6332 的 tests/components/SessionMessageItem.test.tsx。
+// 底本：farion1231/cc-switch#6332 的 tests/components/SessionMessageItem.test.tsx。
 // 迁入后直接测 SessionMarkdown；原先依赖旧 SessionMessageItem 的折叠与
 // 「原文中的匹配」用例改为断言导出的 createCollapsedMarkdownPreview /
 // hasHighlightableMarkdownMatch（片段展示由阅读页组件负责）。

@@ -8,7 +8,7 @@ PHI is an open-source project maintained by its maintainers. We're happy to help
 
 ### Before Asking
 
-1. **Read the [FAQ](https://github.com/GoatGit/phi#常见问题)** — most common questions are answered there.
+1. **Read the [FAQ](https://github.com/GoatGit/phi/blob/main/README.en.md#faq)** — most common questions are answered there.
 2. **Search [existing issues](https://github.com/GoatGit/phi/issues)** (including closed ones) — someone may have had the same question.
 
 ### Asking a Question
@@ -35,7 +35,7 @@ PHI is an open-source project maintained by its maintainers. We're happy to help
 
 ## 如何获取帮助
 
-CC Switch 是一个由志愿者维护的开源项目。我们很乐意提供帮助，但请使用合适的渠道，以便我们高效响应。
+PHI 是一个开源项目。我们很乐意提供帮助，但请使用合适的渠道，以便我们高效响应。
 
 ### 提问之前
 

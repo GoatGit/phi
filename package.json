@@ -1,7 +1,18 @@
 {
   "name": "phi",
   "version": "1.0.0",
-  "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI",
+  "description": "Local-first AI agent gateway & configuration manager desktop app built with Tauri 2, Rust, React and TypeScript",
+  "keywords": [
+    "tauri",
+    "ai-agent",
+    "llm-gateway",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "mcp",
+    "provider-manager",
+    "usage-analytics"
+  ],
   "type": "module",
   "scripts": {
     "dev": "pnpm tauri dev",

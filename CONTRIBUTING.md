@@ -88,10 +88,10 @@ For a debug build, append `--debug` to the command above. This single-quote form
 
 **Backend**: unit tests live next to the source (`#[cfg(test)]`), and integration tests live in `src-tauri/tests/`. CI runs `cargo test` on Linux, macOS, and Windows.
 
-> **Isolate your real config**: some backend tests read and write directories such as `~/.cc-switch` and `~/.codex`. When running them locally, point `CC_SWITCH_TEST_HOME` at a temporary directory:
+> **Isolate your real config**: some backend tests read and write directories such as `~/.phi` and `~/.codex`. When running them locally, point `PHI_TEST_HOME` at a temporary directory:
 >
 > ```bash
-> CC_SWITCH_TEST_HOME="$(mktemp -d)" cargo test
+> PHI_TEST_HOME="$(mktemp -d)" cargo test
 > ```
 >
 > Set only this variable, not `HOME`: changing `HOME` also changes the default Cargo and rustup directories, which triggers a full rebuild.
@@ -105,7 +105,7 @@ Frontend (React + TypeScript)
   Components ── Hooks ── TanStack Query ── src/lib/api
                               │ Tauri IPC (invoke)
 Backend (Tauri 2 + Rust)
-  Commands ─► Services ─┬─► DAO ─► SQLite (~/.cc-switch/cc-switch.db)
+  Commands ─► Services ─┬─► DAO ─► SQLite (~/.phi/phi.db)
                         ├─► Live config writers (atomic write)
                         │     ~/.claude, ~/.codex, ~/.gemini, ...
                         └─► Local routing (proxy/): forwarding, format
@@ -114,8 +114,8 @@ Backend (Tauri 2 + Rust)
 
 ### Core Design
 
-- **SSOT** (single source of truth): providers, MCP, prompts, Skills, projects, usage, and other data are all stored in `~/.cc-switch/cc-switch.db` (SQLite)
-- **Device-level settings**: settings that belong to this machine only, such as directory overrides and backup policy, are stored in `~/.cc-switch/settings.json` and are not cloud-synced
+- **SSOT** (single source of truth): providers, MCP, prompts, Skills, projects, usage, and other data are all stored in `~/.phi/phi.db` (SQLite)
+- **Device-level settings**: settings that belong to this machine only, such as directory overrides and backup policy, are stored in `~/.phi/settings.json` and are not cloud-synced
 - **Two write modes**: for switch-mode tools (Claude Code, Claude Desktop, Codex, Gemini CLI, Grok Build), switching first backfills the current live config into the current provider (except for Claude Desktop), then writes the new provider; for coexist-mode tools (OpenCode, OpenClaw, Hermes, Pi, MiniMax Code), all providers coexist in a single live file and nothing is backfilled
 - **Atomic writes**: all live configs are written via "temp file + rename" to avoid corruption
 - **Concurrency safety**: the database connection is protected by a Mutex to avoid race conditions
@@ -162,7 +162,7 @@ Backend (Tauri 2 + Rust)
 │   │   ├── proxy/            # Local routing: forwarding, format conversion, circuit breaking, billing
 │   │   ├── mcp/              # MCP sync for each tool
 │   │   ├── session_manager/  # Session scanning and terminal resume
-│   │   ├── deeplink/         # ccswitch:// protocol
+│   │   ├── deeplink/         # phi:// protocol
 │   │   └── *_config.rs, pi_config/  # Live config read/write for each tool
 │   └── tests/                # Backend integration tests
 ├── tests/                    # Frontend tests (vitest)
@@ -230,14 +230,14 @@ By submitting a PR, you agree to the following:
 There are a great many relay and aggregator services, so to keep the preset list short enough for users to actually browse, we limit which services get a built-in preset:
 
 - **Accepted**: model vendors (e.g., DeepSeek, Moonshot AI, Zhipu AI), cloud platforms that serve models under their own brand (e.g., Alibaba Cloud Bailian, Volcano Engine), and a few large, well-established aggregator platforms (e.g., OpenRouter, SiliconFlow).
-- **Sponsors only**: other relay and aggregator services that resell other vendors' models. They are included only as project sponsors; to become one, contact support@ccswitch.io.
-- **Everything else** still works through **Custom Provider** — a service does not need a preset to be usable in CC Switch.
+- **Sponsors only**: other relay and aggregator services that resell other vendors' models. They are included only as project sponsors; to become one, contact admin@semibot.ai.
+- **Everything else** still works through **Custom Provider** — a service does not need a preset to be usable in PHI.
 
 PRs that add a relay or aggregator preset outside the sponsorship program will be closed. If you are unsure whether a service qualifies, open an issue before writing the PR.
 
 ## Internationalization (i18n)
 
-The CC Switch UI supports four languages: Simplified Chinese, Traditional Chinese, English, and Japanese. When modifying user-facing text:
+The PHI UI supports four languages: Simplified Chinese, Traditional Chinese, English, and Japanese. When modifying user-facing text:
 
 1. Update **all four** locale files:
    - `src/i18n/locales/zh.json`
@@ -258,9 +258,9 @@ The CC Switch UI supports four languages: Simplified Chinese, Traditional Chines
 
 # 贡献指南
 
-> [English Version](#contributing-to-cc-switch)
+> [English Version](#contributing-to-phi)
 
-感谢你对 CC Switch 的贡献兴趣！参与之前请阅读我们的[行为准则](./CODE_OF_CONDUCT.md)。
+感谢你对 PHI 的贡献兴趣！参与之前请阅读我们的[行为准则](./CODE_OF_CONDUCT.md)。
 
 ## 如何贡献
 
@@ -346,10 +346,10 @@ pnpm tauri build -c '{"bundle":{"createUpdaterArtifacts":false}}'
 
 **后端**：单元测试写在源码旁边（`#[cfg(test)]`），集成测试放在 `src-tauri/tests/`。CI 会在 Linux、macOS 和 Windows 上运行 `cargo test`。
 
-> **隔离真实配置**：部分后端测试会读写 `~/.cc-switch`、`~/.codex` 等目录。本地运行时，建议把 `CC_SWITCH_TEST_HOME` 指向一个临时目录：
+> **隔离真实配置**：部分后端测试会读写 `~/.phi`、`~/.codex` 等目录。本地运行时，建议把 `PHI_TEST_HOME` 指向一个临时目录：
 >
 > ```bash
-> CC_SWITCH_TEST_HOME="$(mktemp -d)" cargo test
+> PHI_TEST_HOME="$(mktemp -d)" cargo test
 > ```
 >
 > 只设置这个变量即可，不要改 `HOME`：改了 `HOME` 会连带改变 Cargo 和 rustup 的默认目录，导致全量重新编译。
@@ -363,7 +363,7 @@ Frontend (React + TypeScript)
   Components ── Hooks ── TanStack Query ── src/lib/api
                               │ Tauri IPC (invoke)
 Backend (Tauri 2 + Rust)
-  Commands ─► Services ─┬─► DAO ─► SQLite (~/.cc-switch/cc-switch.db)
+  Commands ─► Services ─┬─► DAO ─► SQLite (~/.phi/phi.db)
                         ├─► Live config writers (atomic write)
                         │     ~/.claude, ~/.codex, ~/.gemini, ...
                         └─► Local routing (proxy/): forwarding, format
@@ -372,8 +372,8 @@ Backend (Tauri 2 + Rust)
 
 ### 核心设计
 
-- **SSOT**（单一事实源）：供应商、MCP、提示词、Skills、项目和用量等数据都存储在 `~/.cc-switch/cc-switch.db`（SQLite）
-- **设备级设置**：目录覆盖、备份策略等只属于本机的设置存放在 `~/.cc-switch/settings.json`，不参与云同步
+- **SSOT**（单一事实源）：供应商、MCP、提示词、Skills、项目和用量等数据都存储在 `~/.phi/phi.db`（SQLite）
+- **设备级设置**：目录覆盖、备份策略等只属于本机的设置存放在 `~/.phi/settings.json`，不参与云同步
 - **两种写入模式**：切换式工具（Claude Code、Claude Desktop、Codex、Gemini CLI、Grok Build）切换时，先把当前 live 配置回填到当前供应商（Claude Desktop 除外），再写入新供应商；共存式工具（OpenCode、OpenClaw、Hermes、Pi、MiniMax Code）的所有供应商共存于同一个 live 文件，不做回填
 - **原子写入**：所有 live 配置都通过“临时文件 + 重命名”写入，避免配置损坏
 - **并发安全**：数据库连接由 Mutex 保护，避免竞态条件
@@ -420,7 +420,7 @@ Backend (Tauri 2 + Rust)
 │   │   ├── proxy/            # 本地路由：转发、格式转换、熔断、计费
 │   │   ├── mcp/              # 各工具的 MCP 同步
 │   │   ├── session_manager/  # 会话扫描与终端恢复
-│   │   ├── deeplink/         # ccswitch:// 协议
+│   │   ├── deeplink/         # phi:// 协议
 │   │   └── *_config.rs、pi_config/  # 各工具 live 配置的读写
 │   └── tests/                # 后端集成测试
 ├── tests/                    # 前端测试（vitest）
@@ -488,14 +488,14 @@ chore(deps): update dependencies
 中转站和聚合平台数量非常多，为了让预设列表保持在用户翻得过来的长度，我们限制可以内置预设的服务范围：
 
 - **可以收录**：模型原厂（如 DeepSeek、月之暗面、智谱）、以自有品牌提供模型服务的云平台（如阿里云百炼、火山引擎），以及少数规模大、运营成熟的聚合平台（如 OpenRouter、硅基流动）。
-- **仅限赞助商**：其余转售其他厂商模型的中转站、聚合平台，只作为项目赞助商收录；如需赞助，请联系 support@ccswitch.io。
-- **其余服务**照样可以通过「**自定义供应商**」接入——没有预设也不影响在 CC Switch 里使用。
+- **仅限赞助商**：其余转售其他厂商模型的中转站、聚合平台，只作为项目赞助商收录；如需赞助，请联系 admin@semibot.ai。
+- **其余服务**照样可以通过「**自定义供应商**」接入——没有预设也不影响在 PHI 里使用。
 
 赞助计划之外新增中转站或聚合平台预设的 PR 会被关闭。拿不准某个服务是否符合条件时，请先开 Issue 再写 PR。
 
 ## 国际化（i18n）
 
-CC Switch 的界面支持简体中文、繁体中文、英文和日文四种语言。修改用户可见文本时：
+PHI 的界面支持简体中文、繁体中文、英文和日文四种语言。修改用户可见文本时：
 
 1. **同时更新四个**语言文件：
    - `src/i18n/locales/zh.json`

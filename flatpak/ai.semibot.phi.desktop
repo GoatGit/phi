@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PHI
+Comment=Local-first AI agent gateway & configuration manager
+Exec=phi
+Icon=ai.semibot.phi
+Terminal=false
+Categories=Utility;Development;
+StartupNotify=true
