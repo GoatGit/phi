@@ -1,9 +1,10 @@
 # phi 官网
 
-phi 的产品官网，单页静态站点，零构建、零运行时依赖（仅引用 Google Fonts CDN）。
+phi 的产品官网，浅色单页静态站点，零构建、无外部字体或运行时依赖。
 
 - 线上地址：<https://phi.semibot.ai>
-- 页面结构：`index.html`（全部内容与交互脚本） + `css/style.css`（全部样式）
+- 页面结构：`index.html`（全部内容） + `css/style.css`（全部样式）。
+- `assets/phi-app.svg` 内嵌 App 的原始 PNG（`src/assets/icons/phi/256x256.png`），未重绘图标。
 
 ## 本地预览
 
@@ -43,6 +44,7 @@ python3 -m http.server 4173
 ## 维护要点
 
 - 下载入口统一指向 GitHub Releases：<https://github.com/GoatGit/phi/releases/latest>。
-- 版本徽章（`v1.0.0`）在 `index.html` 的 `.dl-badge` 元素中，发版后手动更新。
-- 新增受管 Agent 应用时，同步更新「受管应用」区块（`.apps-grid`）与 Hero 路由示意图（`assets` 无需改动，示意图为纯 SVG 抽象图）。
+- 不硬编码版本号，平台与版本以 Releases 页面为准。
+- 新增受管 Agent 应用时，同步更新 `.apps` 中的应用列表。
+- 更新样式后递增 `index.html` 中 CSS URL 的版本参数，避免长期缓存沿用旧样式。
 - 页面文案、JSON-LD 结构化数据均以仓库根 `README.md` 的产品描述为准，修改产品定位时两处同步。

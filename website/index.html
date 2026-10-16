@@ -1,402 +1,70 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>phi — 本地优先的 AI Agent 网关 · 所有模型，自由使用</title>
-<meta name="description" content="phi（φ）是本地优先的 AI Agent 网关与配置管理桌面应用。接入任意供应商，跨协议使用所有模型，统一管理 10 个 AI 编程工具的配置、凭据与用量。开源（MIT），基于 Tauri 2 与 Rust。">
-<link rel="canonical" href="https://phi.semibot.ai">
-<meta property="og:title" content="phi — 本地优先的 AI Agent 网关">
-<meta property="og:description" content="所有模型，自由使用。接入任意供应商，跨协议路由，统一管理 MCP、Skills 与提示词。开源 MIT。">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://phi.semibot.ai">
-<meta name="theme-color" content="#0B0D10">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230B0D10'/%3E%3Ctext x='32' y='45' font-family='Georgia,serif' font-style='italic' font-size='38' fill='%23D9A93E' text-anchor='middle'%3E%CF%86%3C/text%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css">
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "phi",
-  "operatingSystem": "macOS, Windows, Linux",
-  "applicationCategory": "DeveloperApplication",
-  "description": "本地优先的 AI Agent 网关与配置管理桌面应用：接入任意供应商，跨协议使用所有模型。",
-  "url": "https://phi.semibot.ai",
-  "downloadUrl": "https://github.com/GoatGit/phi/releases/latest",
-  "codeRepository": "https://github.com/GoatGit/phi",
-  "license": "https://opensource.org/licenses/MIT",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
-}
-</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#faf9f6">
+  <title>phi — 在一处管理你的 AI 编程工具</title>
+  <meta name="description" content="phi 是本地优先的 AI Agent 网关与配置管理桌面应用。管理模型供应商、MCP、Skills 和用量，支持 macOS、Windows 与 Linux。">
+  <link rel="canonical" href="https://phi.semibot.ai">
+  <meta property="og:title" content="phi — 在一处管理你的 AI 编程工具">
+  <meta property="og:description" content="连接模型，管理配置，看清用量。在自己的电脑上完成。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://phi.semibot.ai">
+  <link rel="icon" type="image/svg+xml" href="assets/phi-app.svg">
+  <link rel="stylesheet" href="css/style.css?v=light-1">
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"SoftwareApplication","name":"phi","operatingSystem":"macOS, Windows, Linux","applicationCategory":"DeveloperApplication","description":"本地优先的 AI Agent 网关与配置管理桌面应用。","url":"https://phi.semibot.ai","downloadUrl":"https://github.com/GoatGit/phi/releases/latest","codeRepository":"https://github.com/GoatGit/phi","license":"https://opensource.org/licenses/MIT"}
+  </script>
 </head>
 <body>
-<div class="grain" aria-hidden="true"></div>
-
-<!-- ======================= NAV ======================= -->
-<header class="nav" id="nav">
-  <div class="nav-inner">
-    <a class="brand" href="#top" aria-label="phi 首页">
-      <span class="glyph">&phi;</span><span class="word">phi</span>
-    </a>
-    <nav class="nav-links" aria-label="主导航">
+  <a class="skip-link" href="#main">跳到正文</a>
+  <header class="header wrap">
+    <a class="brand" href="#top" aria-label="phi 首页"><img src="assets/phi-app.svg" width="36" height="36" alt=""><span>phi</span></a>
+    <nav aria-label="主导航">
       <a href="#features">功能</a>
-      <a href="#apps">应用</a>
-      <a href="#philosophy">理念</a>
-      <a href="#download">下载</a>
-      <a class="nav-gh" href="https://github.com/GoatGit/phi" target="_blank" rel="noopener">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-        GitHub
-      </a>
+      <a href="https://github.com/GoatGit/phi">GitHub</a>
+      <a class="nav-download" href="#download">下载</a>
     </nav>
-  </div>
-</header>
-
-<main id="top">
-
-<!-- ======================= HERO ======================= -->
-<section class="hero">
-  <!-- 黄金螺旋（斐波那契分割，装饰） -->
-  <svg class="hero-spiral" viewBox="0 0 233 377" aria-hidden="true">
-    <g class="sub">
-      <rect x="168" y="272" width="1" height="1"/>
-      <rect x="169" y="272" width="1" height="1"/>
-      <rect x="168" y="273" width="2" height="2"/>
-      <rect x="165" y="272" width="3" height="3"/>
-      <rect x="165" y="267" width="5" height="5"/>
-      <rect x="170" y="267" width="8" height="8"/>
-      <rect x="165" y="275" width="13" height="13"/>
-      <rect x="144" y="267" width="21" height="21"/>
-      <rect x="144" y="233" width="34" height="34"/>
-      <rect x="178" y="233" width="55" height="55"/>
-      <rect x="144" y="288" width="89" height="89"/>
-      <rect x="0" y="233" width="144" height="144"/>
-      <rect x="0" y="0" width="233" height="233"/>
-    </g>
-    <path class="arc" pathLength="1" d="M 168,273 A 1,1 0 0 0 169,272 A 1,1 0 0 0 170,273 A 2,2 0 0 0 168,275 A 3,3 0 0 0 165,272 A 5,5 0 0 0 170,267 A 8,8 0 0 0 178,275 A 13,13 0 0 0 165,288 A 21,21 0 0 0 144,267 A 34,34 0 0 0 178,233 A 55,55 0 0 0 233,288 A 89,89 0 0 0 144,377 A 144,144 0 0 0 0,233 A 233,233 0 0 0 233,0"/>
-  </svg>
-
-  <div class="hero-copy">
-    <p class="eyebrow">&phi; &middot; LOCAL-FIRST AI AGENT GATEWAY</p>
-    <h1>所有模型，<br><em>自由使用</em>。</h1>
-    <p class="hero-sub">
-      <b>phi</b> 是本地优先的 AI Agent 网关与配置管理桌面应用。它在<b>你自己的电脑</b>上路由每一次模型调用——接入任意供应商，跨协议使用所有模型，统一管理 10 个 AI 编程工具的配置、凭据与用量。
-    </p>
-    <div class="cta-row">
-      <a class="btn btn-primary" href="https://github.com/GoatGit/phi/releases/latest" target="_blank" rel="noopener">
-        下载最新版本 <span class="arr">&darr;</span>
-      </a>
-      <a class="btn btn-ghost" href="https://github.com/GoatGit/phi" target="_blank" rel="noopener">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-        <span class="star">&#9733;</span> GoatGit/phi
-      </a>
-    </div>
-    <p class="hero-meta">macOS &middot; Windows &middot; Linux<span class="sep">/</span>Tauri 2 &middot; Rust &middot; React &middot; TypeScript<span class="sep">/</span>MIT 开源</p>
-  </div>
-
-  <!-- 网关路由示意（抽象图，非截图） -->
-  <div class="hero-art" aria-label="phi 网关路由示意图：10 个 Agent 工具经本机网关连接任意模型供应商">
-    <svg viewBox="0 0 480 560" role="img">
-      <text class="col-head" x="8" y="24">AGENTS &times; 10</text>
-      <text class="col-head" x="472" y="24" text-anchor="end">PROVIDERS &infin;</text>
-
-      <!-- wires in -->
-      <path class="wire" d="M 60,55 C 140,55 160,280 214,280"/>
-      <path class="wire flow" style="animation-delay:.4s" d="M 60,105 C 140,105 160,280 214,280"/>
-      <path class="wire" d="M 60,155 C 140,155 160,280 214,280"/>
-      <path class="wire" d="M 60,205 C 140,205 160,280 214,280"/>
-      <path class="wire flow" style="animation-delay:1.1s" d="M 60,255 C 140,255 160,280 214,280"/>
-      <path class="wire" d="M 60,305 C 140,305 160,280 214,280"/>
-      <path class="wire" d="M 60,355 C 140,355 160,280 214,280"/>
-      <path class="wire flow" style="animation-delay:.75s" d="M 60,405 C 140,405 160,280 214,280"/>
-      <path class="wire" d="M 60,455 C 140,455 160,280 214,280"/>
-      <path class="wire" d="M 60,505 C 140,505 160,280 214,280"/>
-
-      <!-- wires out -->
-      <path class="wire" d="M 286,280 C 330,280 370,85 425,85"/>
-      <path class="wire" d="M 286,280 C 330,280 370,155 425,155"/>
-      <path class="wire flow" style="animation-delay:.25s" d="M 286,280 C 330,280 370,225 425,225"/>
-      <path class="wire" d="M 286,280 C 330,280 370,295 425,295"/>
-      <path class="wire" d="M 286,280 C 330,280 370,365 425,365"/>
-      <path class="wire flow" style="animation-delay:.9s" d="M 286,280 C 330,280 370,435 425,435"/>
-      <path class="wire" d="M 286,280 C 330,280 370,505 425,505"/>
-
-      <!-- gateway core -->
-      <circle class="gw-orbit" cx="250" cy="280" r="48"/>
-      <circle class="gw-ring" cx="250" cy="280" r="36"/>
-      <circle class="gw-ring r2" cx="250" cy="280" r="36"/>
-      <circle class="gw-core" cx="250" cy="280" r="36"/>
-      <text class="gw-phi" x="250" y="292" text-anchor="middle">&phi;</text>
-      <text class="gw-tag" x="250" y="342" text-anchor="middle">LOCAL GATEWAY</text>
-      <text class="gw-tag" x="250" y="358" text-anchor="middle">127.0.0.1 &middot; 0 UPLOAD</text>
-
-      <!-- agent nodes -->
-      <g>
-        <rect class="node-box" x="8" y="40" width="52" height="30" rx="7"><title>Claude Code</title></rect>
-        <text class="node-label" x="34" y="59" text-anchor="middle">CC</text>
-        <rect class="node-box" x="8" y="90" width="52" height="30" rx="7"><title>Claude Desktop</title></rect>
-        <text class="node-label" x="34" y="109" text-anchor="middle">CD</text>
-        <rect class="node-box" x="8" y="140" width="52" height="30" rx="7"><title>Codex</title></rect>
-        <text class="node-label" x="34" y="159" text-anchor="middle">CX</text>
-        <rect class="node-box" x="8" y="190" width="52" height="30" rx="7"><title>Gemini CLI</title></rect>
-        <text class="node-label" x="34" y="209" text-anchor="middle">GM</text>
-        <rect class="node-box" x="8" y="240" width="52" height="30" rx="7"><title>Grok Build</title></rect>
-        <text class="node-label" x="34" y="259" text-anchor="middle">GK</text>
-        <rect class="node-box" x="8" y="290" width="52" height="30" rx="7"><title>OpenCode</title></rect>
-        <text class="node-label" x="34" y="309" text-anchor="middle">OC</text>
-        <rect class="node-box" x="8" y="340" width="52" height="30" rx="7"><title>OpenClaw</title></rect>
-        <text class="node-label" x="34" y="359" text-anchor="middle">OW</text>
-        <rect class="node-box" x="8" y="390" width="52" height="30" rx="7"><title>Hermes Agent</title></rect>
-        <text class="node-label" x="34" y="409" text-anchor="middle">HR</text>
-        <rect class="node-box" x="8" y="440" width="52" height="30" rx="7"><title>Pi</title></rect>
-        <text class="node-label" x="34" y="459" text-anchor="middle">PI</text>
-        <rect class="node-box" x="8" y="490" width="52" height="30" rx="7"><title>MiniMax Code</title></rect>
-        <text class="node-label" x="34" y="509" text-anchor="middle">MM</text>
-      </g>
-
-      <!-- provider nodes -->
-      <g>
-        <circle class="prov-dot" cx="430" cy="85" r="4.5"/><text class="prov-label" x="418" y="89" text-anchor="end">OpenAI</text>
-        <circle class="prov-dot" cx="430" cy="155" r="4.5"/><text class="prov-label" x="418" y="159" text-anchor="end">Anthropic</text>
-        <circle class="prov-dot" cx="430" cy="225" r="4.5"/><text class="prov-label" x="418" y="229" text-anchor="end">Google</text>
-        <circle class="prov-dot" cx="430" cy="295" r="4.5"/><text class="prov-label" x="418" y="299" text-anchor="end">xAI</text>
-        <circle class="prov-dot" cx="430" cy="365" r="4.5"/><text class="prov-label" x="418" y="369" text-anchor="end">Moonshot</text>
-        <circle class="prov-dot" cx="430" cy="435" r="4.5"/><text class="prov-label" x="418" y="439" text-anchor="end">DeepSeek</text>
-        <circle class="prov-dot" cx="430" cy="505" r="4.5"/><text class="prov-label" x="418" y="509" text-anchor="end">&#20219;意&#20013;转</text>
-      </g>
-    </svg>
-  </div>
-</section>
-
-<!-- φ 数字流 -->
-<div class="digits" aria-hidden="true">
-  <div class="digits-track">
-    <span><b class="phi-sign">&phi; =</b> 1.6180339887 4989484820 4586834365 6381177203 0917980576 2862135448 6227052604 6281890244 9707207204 1893911374 8475408807 5386891757&hellip;</span>
-    <span><b class="phi-sign">&phi; =</b> 1.6180339887 4989484820 4586834365 6381177203 0917980576 2862135448 6227052604 6281890244 9707207204 1893911374 8475408807 5386891757&hellip;</span>
-  </div>
-</div>
-
-<!-- ======================= STATS ======================= -->
-<div class="stats">
-  <div class="stats-inner">
-    <div class="stat reveal"><div class="num">10</div><div class="lbl">受管 AGENT 应用</div></div>
-    <div class="stat reveal" style="--d:.08s"><div class="num">&infin;</div><div class="lbl">供应商与模型接入</div></div>
-    <div class="stat reveal" style="--d:.16s"><div class="num">0</div><div class="lbl">数据上传 · 密钥不出本机</div></div>
-    <div class="stat reveal" style="--d:.24s"><div class="num">MIT</div><div class="lbl">开源许可</div></div>
-  </div>
-</div>
-
-<!-- ======================= FEATURES ======================= -->
-<section class="block" id="features">
-  <div class="sec-head reveal">
-    <span class="sec-no">&sect; 01 &mdash; CAPABILITIES</span>
-    <h2>一个网关，管好每一件事</h2>
-    <p class="sec-sub">从供应商接入到请求路由，从配置管理到费用账本——phi 把 AI 编程工具背后那些琐碎、易错、看不见的部分，变成一台安静运转的本机网关。</p>
-  </div>
-  <div class="feat-grid">
-    <div class="feat reveal">
-      <span class="idx">i</span>
-      <span class="tag">PROVIDERS &middot; PROTOCOLS</span>
-      <h3>模型自由</h3>
-      <p>接入任意 API 供应商与订阅账号，跨协议调用所有模型。官方渠道、第三方中转、自建网关随意组合，不被任何单一生态锁定。</p>
-    </div>
-    <div class="feat reveal" style="--d:.08s">
-      <span class="idx">ii</span>
-      <span class="tag">ROUTE &middot; FAILOVER</span>
-      <h3>本地路由与故障转移</h3>
-      <p>请求在你的本机路由：协议转换、模型聚合、熔断与故障转移全部在回环地址上完成，延迟不增加，数据不出网。</p>
-    </div>
-    <div class="feat reveal" style="--d:.16s">
-      <span class="idx">iii</span>
-      <span class="tag">MCP &middot; SKILLS &middot; PROMPTS</span>
-      <h3>统一配置中心</h3>
-      <p>MCP、Skills、提示词与项目配置一处管理，配置版本化、可对比、可回滚。不用再手改 JSON / TOML / YAML。</p>
-    </div>
-    <div class="feat reveal">
-      <span class="idx">iv</span>
-      <span class="tag">USAGE &middot; COST &middot; BUDGET</span>
-      <h3>请求级账本</h3>
-      <p>Token 用量、费用归因、预算阈值与用量报表，逐请求记录。看清每一个请求由哪个模型处理、花了多少钱。</p>
-    </div>
-    <div class="feat reveal" style="--d:.08s">
-      <span class="idx">v</span>
-      <span class="tag">GHOSTTY &middot; TERMINAL</span>
-      <h3>内嵌原生终端</h3>
-      <p>CLI 应用页内嵌基于 Ghostty 的原生终端标签页，点击 ＋ 直接启动应用，网关与终端同屏（macOS 13+）。</p>
-    </div>
-    <div class="feat reveal" style="--d:.16s">
-      <span class="idx">vi</span>
-      <span class="tag">KEYCHAIN &middot; ENCRYPTED</span>
-      <h3>凭据安全</h3>
-      <p>API Key 加密存储，OAuth 令牌交给系统 Keychain。菜单栏面板随时查看额度、路由状态与今日用量。</p>
-    </div>
-  </div>
-</section>
-
-<!-- ======================= APPS ======================= -->
-<section class="block" id="apps">
-  <div class="sec-head reveal">
-    <span class="sec-no">&sect; 02 &mdash; MANAGED AGENTS</span>
-    <h2>统辖你的全部 AI 编程工具</h2>
-    <p class="sec-sub">phi 直接读写十个主流 AI 编程工具的本地配置，让它们共享同一个供应商池与网关策略。</p>
-  </div>
-  <div class="apps-grid">
-    <div class="app-chip reveal"><div class="app-name">Claude Code</div><span class="app-mode">SWITCH / 直切</span></div>
-    <div class="app-chip reveal" style="--d:.05s"><div class="app-name">Codex</div><span class="app-mode">SWITCH / 直切</span></div>
-    <div class="app-chip reveal" style="--d:.1s"><div class="app-name">Gemini CLI</div><span class="app-mode">SWITCH / 直切</span></div>
-    <div class="app-chip reveal" style="--d:.15s"><div class="app-name">Grok Build</div><span class="app-mode">SWITCH / 直切</span></div>
-    <div class="app-chip reveal" style="--d:.2s"><div class="app-name">Claude Desktop</div><span class="app-mode">独立配置</span></div>
-    <div class="app-chip coexist reveal"><div class="app-name">OpenCode</div><span class="app-mode">COEXIST / 共存</span></div>
-    <div class="app-chip coexist reveal" style="--d:.05s"><div class="app-name">OpenClaw</div><span class="app-mode">COEXIST / 共存</span></div>
-    <div class="app-chip coexist reveal" style="--d:.1s"><div class="app-name">Hermes Agent</div><span class="app-mode">COEXIST / 共存</span></div>
-    <div class="app-chip coexist reveal" style="--d:.15s"><div class="app-name">Pi</div><span class="app-mode">COEXIST / 共存</span></div>
-    <div class="app-chip coexist reveal" style="--d:.2s"><div class="app-name">MiniMax Code</div><span class="app-mode">COEXIST / 共存</span></div>
-  </div>
-  <p class="apps-note reveal">&raquo; <b>直切</b>：phi 直接切换该工具的生效供应商；<b>共存</b>：phi 写入配置、由你在应用内自选；两者均支持经本机网关路由。</p>
-</section>
-
-<!-- ======================= PHILOSOPHY ======================= -->
-<section class="block" id="philosophy">
-  <div class="sec-head reveal">
-    <span class="sec-no">&sect; 03 &mdash; PHILOSOPHY</span>
-    <h2>本地优先，且完全开源</h2>
-  </div>
-  <div class="philo-grid">
-    <div class="philo reveal">
-      <span class="glyph">&phi;</span>
-      <h3>本地优先</h3>
-      <p>phi 的网关常驻你的电脑，所有请求在回环地址上转发；数据、凭据与请求记录保存在本地 SQLite 数据库，不上传任何遥测。你的模型、你的密钥、你的账单，只属于你。</p>
-      <ul>
-        <li>回环监听 127.0.0.1 · 网关进程内嵌</li>
-        <li>API Key 加密存储 · OAuth 令牌入系统 Keychain</li>
-        <li>本地 SQLite · 配置版本化 · 可回滚</li>
-        <li>零遥测 · 零上传 · 无账号要求</li>
-      </ul>
-    </div>
-    <div class="philo reveal" style="--d:.12s">
-      <span class="glyph">&#8619;</span>
-      <h3>开源 MIT</h3>
-      <p>phi 基于 CC Switch 的一次性源码快照独立开发，保留 MIT 许可证与原作者版权声明。代码完全公开，欢迎 Star、Issue 与 PR。</p>
-      <ul>
-        <li><a href="https://github.com/GoatGit/phi" target="_blank" rel="noopener">github.com/GoatGit/phi</a></li>
-        <li>Rust · Tauri 2 · React · TypeScript</li>
-      </ul>
-      <p class="src-note">致谢上游项目 <a href="https://github.com/farion1231/cc-switch" target="_blank" rel="noopener">cc-switch</a>（MIT &copy; Jason Young）。</p>
-    </div>
-  </div>
-</section>
-
-<!-- ======================= DOWNLOAD ======================= -->
-<section class="block" id="download">
-  <div class="sec-head reveal">
-    <span class="sec-no">&sect; 04 &mdash; DOWNLOAD</span>
-    <h2>把网关装进你的电脑</h2>
-  </div>
-
-  <div class="download-panel reveal">
-    <div class="dl-badge"><span class="dot"></span>v1.0.0 &middot; MIT &middot; GITHUB RELEASES</div>
-    <h2>下载 phi</h2>
-    <p class="dl-sub">安装包发布在 GitHub Releases。phi 处于早期版本，欢迎尝鲜并与我们共建。</p>
-
-    <div class="dl-platforms">
-      <a class="platform" href="https://github.com/GoatGit/phi/releases/latest" target="_blank" rel="noopener">
-        <svg viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="10" fill="none" stroke="#D9A93E" stroke-width="1.6"/><circle cx="19" cy="8" r="4.2" fill="#0B0D10"/></svg>
-        <div class="p-name">macOS</div>
-        <span class="p-fmt">.dmg &middot; 13+</span>
-      </a>
-      <a class="platform" href="https://github.com/GoatGit/phi/releases/latest" target="_blank" rel="noopener">
-        <svg viewBox="0 0 26 26" aria-hidden="true"><g fill="none" stroke="#D9A93E" stroke-width="1.6"><rect x="4" y="4" width="8" height="8" rx="1"/><rect x="14" y="4" width="8" height="8" rx="1"/><rect x="4" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></g></svg>
-        <div class="p-name">Windows</div>
-        <span class="p-fmt">.msi</span>
-      </a>
-      <a class="platform" href="https://github.com/GoatGit/phi/releases/latest" target="_blank" rel="noopener">
-        <svg viewBox="0 0 26 26" aria-hidden="true"><path d="M13 3 L22 8 V18 L13 23 L4 18 V8 Z" fill="none" stroke="#D9A93E" stroke-width="1.6"/><circle cx="13" cy="13" r="2.6" fill="#D9A93E"/></svg>
-        <div class="p-name">Linux</div>
-        <span class="p-fmt">AppImage &middot; .deb</span>
-      </a>
-    </div>
-
-    <div class="dl-btn-row">
-      <a class="btn btn-primary" href="https://github.com/GoatGit/phi/releases/latest" target="_blank" rel="noopener">
-        前往 GitHub Releases <span class="arr">&darr;</span>
-      </a>
-      <a class="btn btn-ghost" href="https://github.com/GoatGit/phi" target="_blank" rel="noopener">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-        查看源码
-      </a>
-    </div>
-    <p class="dl-note">若某平台安装包尚未发布，可在 Releases 页查看全部可用资产；开发者亦可从源码构建，见仓库 README。</p>
-  </div>
-
-  <div class="steps">
-    <div class="step reveal"><span class="s-no">i.</span><div class="s-t">下载安装</div><div class="s-d">从 GitHub Releases 获取对应平台安装包，拖入应用目录。</div></div>
-    <div class="step reveal" style="--d:.08s"><span class="s-no">ii.</span><div class="s-t">添加供应商</div><div class="s-d">填入 API Key 或订阅账号，导入模型清单，组成你的资源池。</div></div>
-    <div class="step reveal" style="--d:.16s"><span class="s-no">iii.</span><div class="s-t">连接 Agent</div><div class="s-d">为各工具选择直连或路由组，开始自由使用所有模型。</div></div>
-  </div>
-</section>
-
-</main>
-
-<!-- ======================= FOOTER ======================= -->
-<footer>
-  <div class="foot-mark" aria-hidden="true">&phi;</div>
-  <div class="foot-inner">
-    <div class="foot-top">
-      <div class="foot-brand">
-        <span class="glyph">&phi;</span>
-        <div class="f-name">phi</div>
-        <div class="f-dom"><a href="https://phi.semibot.ai">phi.semibot.ai</a></div>
+  </header>
+  <main id="main" class="wrap">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <img class="app-icon" src="assets/phi-app.svg" width="88" height="88" alt="phi 应用图标">
+      <h1 id="hero-title">在一处管理你的<br>AI 编程工具。</h1>
+      <p class="intro">连接模型，管理配置，看清用量。<br>phi 把这些事放在你的电脑上。</p>
+      <div class="actions">
+        <a class="button" href="https://github.com/GoatGit/phi/releases/latest">下载 phi <span aria-hidden="true">↓</span></a>
+        <a class="text-link" href="https://github.com/GoatGit/phi">查看 GitHub <span aria-hidden="true">↗</span></a>
       </div>
-      <div class="foot-links">
-        <div class="foot-col">
-          <div class="f-head">产品</div>
-          <a href="#features">核心功能</a>
-          <a href="#apps">受管应用</a>
-          <a href="#philosophy">设计理念</a>
-          <a href="#download">下载</a>
-        </div>
-        <div class="foot-col">
-          <div class="f-head">开源</div>
-          <a href="https://github.com/GoatGit/phi" target="_blank" rel="noopener">GitHub 仓库</a>
-          <a href="https://github.com/GoatGit/phi/releases" target="_blank" rel="noopener">Releases</a>
-          <a href="https://github.com/GoatGit/phi/issues" target="_blank" rel="noopener">Issues</a>
-          <a href="https://github.com/GoatGit/phi/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
-        </div>
-        <div class="foot-col">
-          <div class="f-head">致谢</div>
-          <a href="https://github.com/farion1231/cc-switch" target="_blank" rel="noopener">cc-switch 上游</a>
-          <a href="https://tauri.app" target="_blank" rel="noopener">Tauri</a>
-          <a href="https://ghostty.org" target="_blank" rel="noopener">Ghostty</a>
-        </div>
+      <p class="platforms">macOS · Windows · Linux</p>
+    </section>
+    <section class="features" id="features" aria-labelledby="features-title">
+      <div class="section-intro">
+        <h2 id="features-title">工具照常用，<br>配置交给 phi。</h2>
+        <p>换一个模型，不必再逐个修改工具的配置文件。</p>
       </div>
-    </div>
-    <div class="foot-bottom">
-      <span>&copy; 2026 phi contributors &middot; MIT License</span>
-      <span>fork 自 cc-switch（&copy; Jason Young）独立开发 &middot; <a href="https://phi.semibot.ai">phi.semibot.ai</a></span>
-    </div>
-  </div>
-</footer>
-
-<script>
-(function () {
-  var nav = document.getElementById('nav');
-  var onScroll = function () { nav.classList.toggle('scrolled', window.scrollY > 8); };
-  window.addEventListener('scroll', onScroll, { passive: true });
-  onScroll();
-
-  if (!('IntersectionObserver' in window)) {
-    document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('in'); });
-    return;
-  }
-  var io = new IntersectionObserver(function (entries) {
-    entries.forEach(function (e) {
-      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-    });
-  }, { threshold: 0.12, rootMargin: '0px 0px -36px 0px' });
-  document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
-})();
-</script>
+      <div class="feature-list">
+        <article><h3>模型随时换</h3><p>集中管理模型供应商，通过本地网关完成协议转换、模型路由和故障转移。</p></article>
+        <article><h3>配置不用来回找</h3><p>MCP、Skills、提示词与项目配置放在一起，减少重复设置。</p></article>
+        <article><h3>用量看得清</h3><p>查看会话、Token 用量与费用统计，了解模型的实际使用情况。</p></article>
+        <article><h3>终端也在这里</h3><p>在应用页直接启动 CLI 工具。macOS 13 及以上支持内嵌 Ghostty 原生终端。</p></article>
+      </div>
+    </section>
+    <section class="apps" aria-labelledby="apps-title">
+      <h2 id="apps-title">和你常用的工具一起工作</h2>
+      <ul aria-label="支持的应用">
+        <li>Claude Code</li><li>Codex</li><li>Gemini CLI</li><li>Grok Build</li><li>Claude Desktop</li><li>OpenCode</li><li>OpenClaw</li><li>Hermes Agent</li><li>Pi</li><li>MiniMax Code</li>
+      </ul>
+    </section>
+    <section class="download" id="download" aria-labelledby="download-title">
+      <div><h2 id="download-title">从 phi 开始。</h2><p>在 GitHub Releases 选择适合你系统的安装包。</p><p class="download-note">可用平台与版本以发布页为准。</p></div>
+      <a class="button" href="https://github.com/GoatGit/phi/releases/latest">获取最新版本 <span aria-hidden="true">↓</span></a>
+    </section>
+  </main>
+  <footer class="wrap">
+    <div class="footer-main"><a class="brand" href="#top" aria-label="phi 返回顶部"><img src="assets/phi-app.svg" width="28" height="28" alt=""><span>phi</span></a><div class="footer-links"><a href="https://github.com/GoatGit/phi">GitHub</a><a href="https://github.com/GoatGit/phi/issues">反馈</a><a href="https://github.com/GoatGit/phi/blob/main/LICENSE">MIT License</a></div></div>
+    <p class="credits">基于 <a href="https://github.com/farion1231/cc-switch">CC Switch</a> 独立开发，保留原作者版权声明。</p>
+  </footer>
 </body>
 </html>
