@@ -980,6 +980,13 @@ export const iconMetadata: Record<string, IconMetadata> = {
     shape: "tile",
     keywords: ["sssaicode", "ssai", "relay", "gateway"],
   },
+  zcode: {
+    name: "zcode",
+    displayName: "ZCode",
+    category: "ai-provider",
+    shape: "tile",
+    keywords: ["zcode", "z code", "zhipu", "coding agent"],
+  },
 };
 
 export function getIconMetadata(name: string): IconMetadata | undefined {

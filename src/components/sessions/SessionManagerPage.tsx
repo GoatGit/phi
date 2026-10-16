@@ -1149,8 +1149,10 @@ export function SessionManagerPage({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <div className="relative min-w-0 flex-1">
+            <div className="relative flex min-w-0 flex-1 items-center">
               <SearchField
+                collapsible
+                containerClassName="flex-1"
                 id="session-search"
                 ref={searchRef}
                 value={query}

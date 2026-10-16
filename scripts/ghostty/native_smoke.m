@@ -1,6 +1,7 @@
 // Isolated native integration check. No application credentials or paid CLI calls.
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import <Carbon/Carbon.h>
 #import "terminal.h"
 #import "ghostty.h"
 #include <signal.h>
@@ -9,17 +10,32 @@
 - (ghostty_surface_t)surface;
 @end
 static NSMutableSet *events;
+static BOOL systemInput;
+static TISInputSourceRef originalInputSource;
+static void restoreInputSource(void) {
+  if (originalInputSource) {
+    TISSelectInputSource(originalInputSource);
+    CFRelease(originalInputSource);
+    originalInputSource = NULL;
+  }
+}
 static void event(const char *id, const char *name) {
   [events addObject:[NSString stringWithFormat:@"%s:%s", id, name]];
 }
 static void check(BOOL ok, NSString *message) {
-  if (!ok) { fprintf(stderr, "FAIL: %s\n", message.UTF8String); phi_terminal_shutdown(); exit(1); }
+  if (!ok) { fprintf(stderr, "FAIL: %s\n", message.UTF8String); restoreInputSource(); phi_terminal_shutdown(); exit(1); }
   fprintf(stderr, "PASS: %s\n", message.UTF8String);
 }
 static void pump(double seconds) {
   NSDate *until = [NSDate dateWithTimeIntervalSinceNow:seconds];
-  while (until.timeIntervalSinceNow > 0)
-    [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+  while (until.timeIntervalSinceNow > 0) {
+    // Process queued native events too. Running NSRunLoop alone skips AppKit's
+    // input-method dispatch and can only test direct NSTextInputClient calls.
+    NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny
+      untilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]
+      inMode:NSDefaultRunLoopMode dequeue:YES];
+    if (event) [NSApp sendEvent:event];
+  }
 }
 static NSString *contents(NSView *view) {
   ghostty_selection_s selection = {
@@ -45,6 +61,19 @@ static void submit(NSView *view, NSString *command) {
 }
 // Exercise AppKit key dispatch, not insertText (which Ghostty treats as paste).
 static void pressKey(NSView *view, NSString *characters, unsigned short keyCode, NSEventModifierFlags flags) {
+  if (systemInput) {
+    // NSEvent.keyEventWithType supplies immutable characters and bypasses the
+    // system IME. CG-backed events exercise AppKit's reusable mutable commits.
+    // Post only to this application's event queue; no OS-wide key injection.
+    for (NSUInteger release = 0; release < 2; release++) {
+      CGEventRef key = CGEventCreateKeyboardEvent(NULL, keyCode, !release);
+      CGEventSetFlags(key, (CGEventFlags)flags);
+      [NSApp postEvent:[NSEvent eventWithCGEvent:key] atStart:NO];
+      CFRelease(key);
+    }
+    pump(0.08);
+    return;
+  }
   for (NSUInteger release = 0; release < 2; release++) {
     NSEvent *key = [NSEvent keyEventWithType:release ? NSEventTypeKeyUp : NSEventTypeKeyDown
       location:NSZeroPoint modifierFlags:flags timestamp:NSProcessInfo.processInfo.systemUptime
@@ -71,6 +100,19 @@ static BOOL hasLine(NSView *view, NSString *line) {
   for (NSString *row in [contents(view) componentsSeparatedByString:@"\n"])
     if ([[row stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] isEqual:line]) return YES;
   return NO;
+}
+static void composeChinese(NSView *view) {
+  view.inputContext.selectedKeyboardInputSource = @"com.apple.inputmethod.SCIM.ITABC";
+  pump(0.2);
+  check([view.inputContext.selectedKeyboardInputSource isEqual:@"com.apple.inputmethod.SCIM.ITABC"], @"system Pinyin input source selected");
+  physicalType(view, @"zhongwen"); pump(0.2);
+  check([(id<NSTextInputClient>)view hasMarkedText], @"system Pinyin creates preedit through real input-method callbacks");
+  NSRect candidate = [(id<NSTextInputClient>)view firstRectForCharacterRange:NSMakeRange(0, 0) actualRange:NULL];
+  check(!NSIsEmptyRect(candidate) && NSIntersectsRect(candidate, view.window.frame), @"system IME candidate anchor stays in the terminal window");
+  pressKey(view, @" ", 49, 0); pump(0.2);
+  check(![(id<NSTextInputClient>)view hasMarkedText] && [contents(view) containsString:@"中文"], @"system Pinyin space selection commits Chinese to the PTY");
+  view.inputContext.selectedKeyboardInputSource = @"com.apple.keylayout.ABC";
+  pump(0.2);
 }
 static BOOL backgroundMatches(NSView *view, NSString *hex) {
   NSBitmapImageRep *rep = [view bitmapImageRepForCachingDisplayInRect:view.bounds];
@@ -99,7 +141,7 @@ static BOOL pixelMatches(NSView *view, CGFloat x, CGFloat y, NSString *hex) {
     && fabs(color.blueComponent - (expected & 255) / 255.0) < 0.04;
 }
 int main(int argc, const char **argv) { @autoreleasepool {
-  if (argc != 6) return 2;
+  if (argc != 6 && argc != 8) return 2;
   [NSApplication sharedApplication];
   [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
   events = [NSMutableSet new];
@@ -121,10 +163,56 @@ int main(int argc, const char **argv) { @autoreleasepool {
   [web evaluateJavaScript:@"document.querySelector('input').focus()" completionHandler:nil];
   pump(0.2);
   check(phi_terminal_init(event, argv[1]), @"engine initializes without Ghostty.app");
+  systemInput = getenv("PHI_TEST_SYSTEM_IME") != NULL;
+  if (systemInput) {
+    originalInputSource = TISCopyCurrentKeyboardInputSource();
+    atexit(restoreInputSource);
+  }
+  if (argc == 8) {
+    check(phi_terminal_create((__bridge void *)window, "codex:1", argv[6], "/tmp", argv[7]), @"installed Codex starts in an isolated configuration");
+    NSView *codex = window.contentView.subviews.lastObject;
+    phi_terminal_present("codex:1", 175, 84, 725, 472, true, true, false, NULL, NULL);
+    pump(12);
+    if (![contents(codex) containsString:@"Codex"])
+      fprintf(stderr, "Isolated CLI startup failure:\n%s\n", contents(codex).UTF8String);
+    check(![contents(codex) containsString:@"stdin is not a terminal"], @"CLI stdin is reconnected to its controlling PTY");
+    check([contents(codex) containsString:@"Codex"], @"installed Codex renders its interactive UI");
+    check(![contents(codex) containsString:@"PHI_SHELL_READY"], @"supervisor keeps the CLI running beyond ten seconds");
+    if (systemInput) {
+      codex.inputContext.selectedKeyboardInputSource = @"com.apple.keylayout.ABC";
+      physicalType(codex, @"phiinput"); pump(0.2);
+      check([contents(codex) containsString:@"phiinput"], @"system English character commits remain visible inside Codex");
+      composeChinese(codex);
+      // Clear the local composer; never submit a model request.
+      pressKey(codex, @"\025", 32, NSEventModifierFlagControl);
+    }
+    pressKey(codex, @"\003", 8, NSEventModifierFlagControl); pump(5);
+    if (![contents(codex) containsString:@"PHI_SHELL_READY"] && !phi_terminal_exited("codex:1")) {
+      pressKey(codex, @"\003", 8, NSEventModifierFlagControl); pump(1);
+    }
+    check([contents(codex) containsString:@"PHI_SHELL_READY"] && !phi_terminal_exited("codex:1"), @"real Codex exits to a live shell after Ctrl-C");
+    check([contents(codex) containsString:@"PHI_SHELL_TTY"], @"shell inherits terminal stdin after Codex exits");
+    physicalType(codex, @"echo recovered"); pump(0.2);
+    check([contents(codex) containsString:@"echo recovered"], @"real Codex exit leaves physical letters visible before Return");
+    NSBitmapImageRep *codexImage = [codex bitmapImageRepForCachingDisplayInRect:codex.bounds];
+    [codex cacheDisplayInRect:codex.bounds toBitmapImageRep:codexImage];
+    NSString *codexScreenshot = [[NSString stringWithUTF8String:argv[2]] stringByReplacingOccurrencesOfString:@"native.png" withString:@"codex.png"];
+    [[codexImage representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:codexScreenshot atomically:YES];
+    pressKey(codex, @"\r", 36, 0); pump(0.3);
+    check(hasLine(codex, @"recovered"), @"physical shell command executes after real Codex exit");
+    physicalType(codex, @"echo ");
+    if (systemInput) composeChinese(codex); else input(codex, @"中文");
+    pump(0.2);
+    check([contents(codex) containsString:@"echo 中文"], @"Chinese commit remains visible after real Codex exit");
+    pressKey(codex, @"\r", 36, 0); pump(0.3);
+    check(hasLine(codex, @"中文"), @"Chinese shell command executes after real Codex exit");
+    phi_terminal_close("codex:1");
+  }
   check(phi_terminal_create((__bridge void *)window, "first:1",
     "/bin/sh -c 'printf \"READY / 中文 / \\033[32mANSI PASS\\033[0m\\n\"; read line; printf \"INPUT:%s\\n\" \"$line\"; read line; printf \"PHYSICAL:%s\\n\" \"$line\"; read line; exit 7'", "/tmp", "{}"), @"real shell/PTY created");
   NSView *first = window.contentView.subviews.lastObject;
   phi_terminal_present("first:1", 175, 84, 725, 472, true, true, false, NULL, NULL);
+  if (systemInput) first.inputContext.selectedKeyboardInputSource = @"com.apple.keylayout.ABC";
   pump(2);
   check([contents(first) containsString:@"READY / 中文 / ANSI PASS"], @"PTY output and wide characters rendered");
   check(window.firstResponder == first && first.superview == web.superview, @"native sibling receives focus inside WebView layout");
@@ -143,6 +231,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
   check([first performKeyEquivalent:shortcut] && [events containsObject:@"first:1:new"], @"native Command-T reaches workspace action");
   check(phi_terminal_create((__bridge void *)window, "second:1", "/bin/sh -c 'printf SECOND; read line'", "/tmp", "{}"), @"second independent surface created");
   NSView *second = window.contentView.subviews.lastObject;
+  phi_terminal_set_visible("[\"second:1\"]");
   phi_terminal_present("second:1", 175, 84, 725, 472, true, true, true, NULL, NULL); pump(0.5);
   check(first.hidden && !second.hidden && [contents(second) containsString:@"SECOND"], @"switching surfaces preserves first process");
   phi_terminal_hide();
@@ -275,8 +364,12 @@ int main(int argc, const char **argv) { @autoreleasepool {
   pressKey(dirty, @"\r", 36, 0); pump(0.3);
   check(hasLine(dirty, @"recovered"), @"after Ctrl-C the physically typed shell command executes");
   physicalType(dirty, @"echo ");
-  [(id<NSTextInputClient>)dirty setMarkedText:@"中文" selectedRange:NSMakeRange(2, 0) replacementRange:NSMakeRange(NSNotFound, 0)];
-  input(dirty, @"中文"); pump(0.2);
+  if (systemInput) composeChinese(dirty);
+  else {
+    [(id<NSTextInputClient>)dirty setMarkedText:@"中文" selectedRange:NSMakeRange(2, 0) replacementRange:NSMakeRange(NSNotFound, 0)];
+    input(dirty, @"中文");
+  }
+  pump(0.2);
   check([contents(dirty) containsString:@"echo 中文"], @"after Ctrl-C Chinese IME commit is visible before Return");
   pressKey(dirty, @"\r", 36, 0); pump(0.3);
   check(hasLine(dirty, @"中文"), @"after Ctrl-C Chinese shell input executes");

@@ -8,6 +8,7 @@ import type { Settings } from "@/types";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -119,7 +120,9 @@ export function ConfigDirectoryDialog({
                   label={t("settings.enableClaudePluginIntegration")}
                   help={{
                     title: t("settings.enableClaudePluginIntegration"),
-                    body: t("settings.enableClaudePluginIntegrationDescription"),
+                    body: t(
+                      "settings.enableClaudePluginIntegrationDescription",
+                    ),
                   }}
                   checked={!!settings?.enableClaudePluginIntegration}
                   onCheckedChange={(value) =>
@@ -177,6 +180,12 @@ export function ConfigDirectoryDialog({
                 {t("settings.restartRequiredMessage")}
               </p>
             )}
+            {/* 遮罩点击与 ESC 之外必须有一个可见的关闭入口；目录未改动时它是唯一按钮 */}
+            <DialogClose asChild>
+              <Button type="button" variant="outline" size="compact">
+                {t("common.close")}
+              </Button>
+            </DialogClose>
             {isDirty && (
               <Button
                 variant="solid"

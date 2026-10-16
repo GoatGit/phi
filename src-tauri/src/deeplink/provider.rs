@@ -162,6 +162,11 @@ pub(crate) fn build_provider_from_request(
                 "Pi providers must be added from the Pi provider page".to_string(),
             ));
         }
+        AppType::Zcode => {
+            return Err(AppError::InvalidInput(
+                "ZCode providers are read from its native session database".into(),
+            ))
+        }
     };
 
     // Build usage script configuration if provided

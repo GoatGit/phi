@@ -40,43 +40,6 @@ export function useModeActions(app: AppId) {
     providersApi.updateTrayMenu().catch(() => undefined);
   }, [app, queryClient]);
 
-  /** 进入路由 / 聚合模式；已经在另一种代理模式时后端一次写完，不经过直连。抛出错误给确认框显示。 */
-  const enter = useCallback(
-    async (
-      mode: Exclude<AppMode, "direct">,
-      route: string | null,
-      routeName?: string,
-    ) => {
-      setPending(true);
-      try {
-        await proxyApi.setProxyTakeoverForApp(
-          app,
-          true,
-          mode === "stack",
-          route,
-        );
-        await refresh();
-        toast.success(
-          mode === "route"
-            ? t("mode.toast.enteredRoute", {
-                app: appName,
-                provider: routeName ?? "",
-              })
-            : t(
-                app === "codex"
-                  ? "mode.toast.enteredStack"
-                  : "mode.toast.enteredStackLive",
-                { app: appName },
-              ),
-          { closeButton: true },
-        );
-      } finally {
-        setPending(false);
-      }
-    },
-    [app, appName, refresh, t],
-  );
-
   /**
    * 回到直连。`useProviderId` 不为空时回到直连后改用这家（「回到直连并使用」）。
    * `previous` 是离开前的模式，用来撤销。
@@ -154,5 +117,5 @@ export function useModeActions(app: AppId) {
     [app, appName, refresh, restartHint, t],
   );
 
-  return { enter, exitToDirect, pending, restartHint };
+  return { exitToDirect, pending, restartHint };
 }

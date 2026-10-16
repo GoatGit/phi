@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { ChevronDown, Trash2 } from "lucide-react";
 import { getAppLabel } from "@/config/appConfig";
 import {
   gatewayApi,
@@ -8,6 +9,8 @@ import {
   type GatewaySupplier,
   type GatewaySupplierUpsert,
 } from "@/lib/api";
+import { SearchField } from "@/components/ui/search-field";
+import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Field,
@@ -80,14 +83,24 @@ export function ResourcePoolSection({
   const save = useSaveOrReport();
   const [search, setSearch] = useState("");
   const [protocolFilter, setProtocolFilter] = useState("all");
+  // 协议筛选只在池子里确实存在多种协议时才出现，避免常驻无效控件。
+  const presentProtocols = [
+    ...new Set(catalog.suppliers.map((s) => s.endpoint.protocol)),
+  ];
+  const showProtocolFilter = presentProtocols.length > 1;
   const visibleSuppliers = catalog.suppliers.filter(
     (supplier) =>
-      (protocolFilter === "all" ||
+      (!showProtocolFilter ||
+        protocolFilter === "all" ||
         supplier.endpoint.protocol === protocolFilter) &&
       [supplier.name, supplier.endpoint.baseUrl, ...supplier.models]
         .join(" ")
         .toLowerCase()
         .includes(search.toLowerCase()),
+  );
+  // 引用关系默认只显示数量，按行展开完整列表。
+  const [expandedRefs, setExpandedRefs] = useState<ReadonlySet<string>>(
+    () => new Set(),
   );
   const [editorRevision, setEditorRevision] = useState(catalog.revision);
   // 弹窗打开瞬间锁定当前 catalog revision，供保存时做乐观并发校验。
@@ -108,35 +121,39 @@ export function ResourcePoolSection({
       className="flex flex-col gap-3"
       aria-label={t("gateway.pool.title")}
     >
-      <div className="flex flex-wrap items-center gap-3">
-        <Input
-          className="max-w-sm"
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchField
+          collapsible
+          containerClassName="w-56"
           aria-label={t("gateway.pool.search")}
           placeholder={t("gateway.pool.search")}
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onValueChange={setSearch}
+          clearLabel={t("gateway.pool.clearSearch")}
         />
-        <Select value={protocolFilter} onValueChange={setProtocolFilter}>
-          <SelectTrigger
-            className="w-48"
-            aria-label={t("gateway.pool.protocol")}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="all">
-                {t("gateway.pool.allProtocols")}
-              </SelectItem>
-              {SUPPLIER_PROTOCOLS.map((protocol) => (
-                <SelectItem key={protocol} value={protocol}>
-                  {protocol}
+        {showProtocolFilter && (
+          <Select value={protocolFilter} onValueChange={setProtocolFilter}>
+            <SelectTrigger
+              className="w-40"
+              aria-label={t("gateway.pool.protocol")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="all">
+                  {t("gateway.pool.allProtocols")}
                 </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        <span className="text-sm text-muted-foreground">
+                {presentProtocols.map((protocol) => (
+                  <SelectItem key={protocol} value={protocol}>
+                    {protocol}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        )}
+        <span className="text-xs text-fg-3">
           {t("gateway.pool.count", { count: visibleSuppliers.length })}
         </span>
       </div>
@@ -150,103 +167,145 @@ export function ResourcePoolSection({
           <TableHeader>
             <TableRow>
               <TableHead>{t("gateway.pool.name")}</TableHead>
-              <TableHead>{t("gateway.pool.protocol")}</TableHead>
               <TableHead>{t("gateway.pool.endpoint")}</TableHead>
               <TableHead>{t("gateway.pool.models")}</TableHead>
               <TableHead>{t("gateway.pool.usedBy")}</TableHead>
-              <TableHead className="w-28">{t("gateway.actions")}</TableHead>
+              <TableHead className="w-24">{t("gateway.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visibleSuppliers.map((supplier) => (
-              <TableRow key={supplier.id}>
-                <TableCell className="max-w-48 break-words">
-                  {supplier.name}
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">{supplier.endpoint.protocol}</Badge>
-                </TableCell>
-                <TableCell className="max-w-64 break-all font-mono text-xs">
-                  {supplier.endpoint.baseUrl}
-                </TableCell>
-                <TableCell>
-                  <ModelBadges models={supplier.models} />
-                </TableCell>
-                <TableCell className="max-w-48 break-words">
-                  <div className="flex flex-wrap gap-1">
-                    {catalog.policies
-                      .filter((policy) =>
-                        policy.candidates.some(
-                          (candidate) => candidate.supplierId === supplier.id,
-                        ),
-                      )
-                      .map((policy) => (
+            {visibleSuppliers.map((supplier) => {
+              const policyRefs = catalog.policies.filter((policy) =>
+                policy.candidates.some(
+                  (candidate) => candidate.supplierId === supplier.id,
+                ),
+              );
+              const groupRefs = (catalog.groups ?? []).filter(
+                (g) =>
+                  g.members.some((m) => m.supplierId === supplier.id) ||
+                  g.classifier?.supplierId === supplier.id,
+              );
+              const refCount = policyRefs.length + groupRefs.length;
+              const refsOpen = expandedRefs.has(supplier.id);
+              return (
+                <TableRow key={supplier.id}>
+                  <TableCell className="max-w-56">
+                    <span
+                      className="block truncate font-medium"
+                      title={supplier.name}
+                    >
+                      {supplier.name}
+                    </span>
+                    <span className="block font-mono text-xs text-fg-3">
+                      {supplier.endpoint.protocol}
+                    </span>
+                  </TableCell>
+                  <TableCell className="max-w-48">
+                    <span
+                      className="block truncate font-mono text-xs text-fg-2"
+                      title={supplier.endpoint.baseUrl}
+                    >
+                      {endpointHost(supplier.endpoint.baseUrl)}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <ModelBadges models={supplier.models} />
+                  </TableCell>
+                  <TableCell className="max-w-48">
+                    {refCount === 0 ? (
+                      <span className="text-xs text-fg-3">
+                        {t("gateway.pool.unused")}
+                      </span>
+                    ) : (
+                      <div className="flex flex-col gap-1">
                         <Button
-                          key={policy.id}
                           variant="link"
                           size="sm"
-                          onClick={() => onOpenPolicy?.(policy.id)}
+                          className="h-auto py-0 text-xs"
+                          aria-expanded={refsOpen}
+                          aria-label={t(
+                            refsOpen
+                              ? "gateway.pool.hideReferences"
+                              : "gateway.pool.showReferences",
+                          )}
+                          onClick={() =>
+                            setExpandedRefs((current) => {
+                              const next = new Set(current);
+                              if (next.has(supplier.id))
+                                next.delete(supplier.id);
+                              else next.add(supplier.id);
+                              return next;
+                            })
+                          }
                         >
-                          {getAppLabel(policy.appId)} · {policy.name}
-                          {!policy.enabled
-                            ? ` (${t("gateway.policy.disabled")})`
-                            : ""}
+                          {t("gateway.pool.usedBySummary", {
+                            count: refCount,
+                          })}
+                          <ChevronDown
+                            data-icon="inline-end"
+                            aria-hidden
+                            className={cn(
+                              "transition-transform",
+                              refsOpen && "rotate-180",
+                            )}
+                          />
                         </Button>
-                      ))}
-                    {(catalog.groups ?? [])
-                      .filter(
-                        (g) =>
-                          g.members.some((m) => m.supplierId === supplier.id) ||
-                          g.classifier?.supplierId === supplier.id,
-                      )
-                      .map((g) => (
-                        <Badge key={g.id} variant="secondary">
-                          {g.name}
-                          {g.classifier?.supplierId === supplier.id
-                            ? ` · ${t("gateway.groups.classifier")}`
-                            : ""}
-                        </Badge>
-                      ))}
-                    {!(catalog.groups ?? []).some(
-                      (g) =>
-                        g.members.some((m) => m.supplierId === supplier.id) ||
-                        g.classifier?.supplierId === supplier.id,
-                    ) &&
-                      !catalog.policies.some((policy) =>
-                        policy.candidates.some(
-                          (candidate) => candidate.supplierId === supplier.id,
-                        ),
-                      ) && (
-                        <span className="text-fg-3">
-                          {t("gateway.pool.unused")}
-                        </span>
-                      )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setEditorTarget(supplier);
-                        setEditorRevision(catalog.revision);
-                        setEditorOpen(true);
-                      }}
-                    >
-                      {t("gateway.pool.edit")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDeleteTarget(supplier)}
-                    >
-                      {t("gateway.pool.remove")}
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+                        {refsOpen && (
+                          <div className="flex flex-wrap gap-1">
+                            {policyRefs.map((policy) => (
+                              <Button
+                                key={policy.id}
+                                variant="link"
+                                size="sm"
+                                className="h-auto py-0 text-xs"
+                                onClick={() => onOpenPolicy?.(policy.id)}
+                              >
+                                {getAppLabel(policy.appId)} · {policy.name}
+                                {!policy.enabled
+                                  ? ` (${t("gateway.policy.disabled")})`
+                                  : ""}
+                              </Button>
+                            ))}
+                            {groupRefs.map((g) => (
+                              <Badge key={g.id} variant="secondary">
+                                {g.name}
+                                {g.classifier?.supplierId === supplier.id
+                                  ? ` · ${t("gateway.groups.classifier")}`
+                                  : ""}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditorTarget(supplier);
+                          setEditorRevision(catalog.revision);
+                          setEditorOpen(true);
+                        }}
+                      >
+                        {t("gateway.pool.edit")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-compact"
+                        aria-label={t("gateway.pool.remove")}
+                        title={t("gateway.pool.removeTitle")}
+                        onClick={() => setDeleteTarget(supplier)}
+                      >
+                        <Trash2 data-icon="inline-start" aria-hidden />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       )}
@@ -320,6 +379,15 @@ function useSaveOrReport() {
       void qc.invalidateQueries({ queryKey: gatewayCatalogKey });
     },
   });
+}
+
+/** 表格里只展示主机名，完整地址放 title，避免长 URL 撑宽列。 */
+function endpointHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 /** 各协议允许的鉴权字段，与后端 auth_field_for 的映射一致。 */

@@ -14,6 +14,7 @@ pub async fn create_gateway_supplier_from_template(
     state
         .db
         .create_gateway_supplier_from_template(&app_id, &provider, revision)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -26,6 +27,7 @@ pub async fn create_gateway_suppliers_from_universal(
     state
         .db
         .create_gateway_suppliers_from_universal(&provider, revision)
+        .await
         .map_err(|e| e.to_string())
 }
 

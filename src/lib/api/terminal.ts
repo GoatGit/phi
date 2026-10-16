@@ -65,4 +65,6 @@ export const terminalApi = {
     }),
   present: (presentation: TerminalPresentation) =>
     invoke<void>("terminal_present", { presentation }),
+  /** 分屏：声明当前恰好可见的会话集合（切标签页/关窗格/离开终端页时收敛） */
+  setVisible: (ids: string[]) => invoke<void>("terminal_set_visible", { ids }),
 };

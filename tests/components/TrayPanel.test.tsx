@@ -80,12 +80,13 @@ beforeEach(() => {
   vi.spyOn(proxyApi, "setProxyTakeoverForApp").mockResolvedValue();
 });
 describe("menu-bar panel", () => {
-  it("shows the first agent, expands others and keeps model management discoverable", async () => {
+  it("shows every app card and keeps model management discoverable", async () => {
     mount();
     await screen.findByText("Claude Code");
-    expect(screen.queryByText("Codex")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "显示其余 1 个" }));
     expect(screen.getByText("Codex")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /应用/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "路由状态" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "额度" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByTitle("打开应用页管理模型"));
     await waitFor(() =>
       expect(trayPanelApi.action).toHaveBeenCalledWith("nav:app:claude"),
@@ -119,7 +120,7 @@ describe("menu-bar panel", () => {
       ),
     );
   });
-  it("shows unavailable data and switch failures without inventing a successful state", async () => {
+  it("shows switch failures without inventing a successful state", async () => {
     vi.mocked(gatewayApi.connectApp).mockRejectedValue(
       new Error("connection failed"),
     );
@@ -129,16 +130,11 @@ describe("menu-bar panel", () => {
     );
     await screen.findByText("Error: connection failed");
     expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "false");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "额度" }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    await screen.findAllByText("暂无额度数据");
   });
   it("uses native lifecycle actions for opening, settings, Escape and quit", async () => {
     const { unmount } = mount();
     await screen.findByText("Claude Code");
-    fireEvent.click(screen.getAllByRole("button", { name: "打开 PHI" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "打开 PHI" }));
     await waitFor(() =>
       expect(trayPanelApi.action).toHaveBeenCalledWith("show_main"),
     );

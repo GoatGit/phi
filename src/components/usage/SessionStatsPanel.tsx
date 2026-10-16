@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { sessionStatsApi } from "@/lib/api/sessionStats";
+import { KNOWN_APP_TYPES } from "@/types/usage";
+import { AppFilterChips } from "./AppFilterChips";
 import { sessionsApi } from "@/lib/api/sessions";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
@@ -56,6 +58,7 @@ export function SessionStatsPanel() {
   const { t } = useTranslation();
   const [days, setDays] = useState(30);
   const [metric, setMetric] = useState<TrendMetric>("tokens");
+  const [appFilter, setAppFilter] = useState("all");
 
   const stats = useQuery({
     queryKey: ["session-stats", days],
@@ -77,8 +80,22 @@ export function SessionStatsPanel() {
     return map;
   }, [sessionList.data]);
 
+  // 按应用过滤后的视图（all 时原样透传）
+  const filtered = useMemo(() => {
+    const data = stats.data;
+    if (!data) return undefined;
+    if (appFilter === "all") return data;
+    return {
+      ...data,
+      sessions: data.sessions.filter((s) => s.appType === appFilter),
+      days: data.days.filter((d) => d.appType === appFilter),
+      hours: data.hours.filter((h) => h.appType === appFilter),
+      contextPoints: data.contextPoints.filter((p) => p.appType === appFilter),
+    };
+  }, [stats.data, appFilter]);
+
   const model = useMemo(() => {
-    const sessions = stats.data?.sessions ?? [];
+    const sessions = filtered?.sessions ?? [];
     const totals = sessions.reduce(
       (acc, s) => {
         acc.input += s.inputTokens;
@@ -153,10 +170,10 @@ export function SessionStatsPanel() {
       topSessions,
       buckets,
     };
-  }, [stats.data, projectMap, t]);
+  }, [filtered, projectMap, t]);
 
   const trend = useMemo(() => {
-    const dayData = stats.data?.days ?? [];
+    const dayData = filtered?.days ?? [];
     const sessionsByDay = new Map(dayData.map((d) => [d.date, d]));
     const start = new Date();
     start.setDate(start.getDate() - Math.max(days - 1, 0));
@@ -178,11 +195,11 @@ export function SessionStatsPanel() {
       });
     }
     return list;
-  }, [stats.data, days]);
+  }, [filtered, days]);
 
   const busiest = useMemo(() => {
     const grid = new Map<string, number>();
-    for (const h of stats.data?.hours ?? []) {
+    for (const h of filtered?.hours ?? []) {
       grid.set(`${h.weekday}-${h.hour}`, h.seconds);
     }
     let best: { key: string; value: number } | null = null;
@@ -190,7 +207,7 @@ export function SessionStatsPanel() {
       if (!best || value > best.value) best = { key, value };
     }
     return { grid, best };
-  }, [stats.data]);
+  }, [filtered]);
 
   const card = (
     label: string,
@@ -220,6 +237,13 @@ export function SessionStatsPanel() {
 
   return (
     <div className="flex flex-col gap-4">
+      <AppFilterChips
+        aria-label={t("usage.appFilter.label")}
+        appTypes={KNOWN_APP_TYPES}
+        value={appFilter}
+        onChange={setAppFilter}
+        className="self-start"
+      />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SegmentedControl
           size="sm"
@@ -325,10 +349,10 @@ export function SessionStatsPanel() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border p-4">
+        <div className="min-w-0 rounded-lg border p-4">
           <h3 className="font-medium">{t("sessionStats.byHour")}</h3>
           <div className="mt-3 flex flex-col gap-1">
-            <div className="grid grid-cols-[auto_repeat(24,1fr)] gap-px text-[10px]">
+            <div className="grid grid-cols-[auto_repeat(24,minmax(0,1fr))] gap-px text-[10px]">
               {[0, 1, 2, 3, 4, 5, 6].map((weekday) => (
                 <div key={weekday} className="contents">
                   <span className="pe-1 text-fg-3 whitespace-nowrap">
@@ -369,7 +393,7 @@ export function SessionStatsPanel() {
           </div>
         </div>
 
-        <div className="rounded-lg border p-4">
+        <div className="min-w-0 rounded-lg border p-4">
           <h3 className="font-medium">{t("sessionStats.topSessions")}</h3>
           <ol className="mt-3 flex flex-col divide-y">
             {model.topSessions.map((session) => {
@@ -404,7 +428,7 @@ export function SessionStatsPanel() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border p-4">
+        <div className="min-w-0 rounded-lg border p-4">
           <h3 className="font-medium">{t("sessionStats.shape")}</h3>
           <p className="mt-0.5 text-xs text-fg-3">
             {t("sessionStats.shapeHint")}
@@ -441,7 +465,7 @@ export function SessionStatsPanel() {
           </div>
         </div>
 
-        <div className="rounded-lg border p-4">
+        <div className="min-w-0 rounded-lg border p-4">
           <h3 className="font-medium">{t("sessionStats.projects")}</h3>
           <ol className="mt-3 flex flex-col gap-2">
             {model.projectRanking.slice(0, 6).map(([name, entry]) => {

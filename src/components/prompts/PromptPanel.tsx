@@ -25,6 +25,8 @@ import {
 } from "./promptUtils";
 
 export interface PromptPanelProps {
+  /** 从应用页下钻进来时的返回 */
+  onBack?: () => void;
   appId: AppId;
   /** 应用下拉里的应用（只列「应用」页里设为显示、且支持提示词的） */
   apps: AppId[];
@@ -36,6 +38,7 @@ export interface PromptPanelProps {
 
 const StandardPromptPanel: React.FC<PromptPanelProps> = ({
   open = true,
+  onBack,
   appId,
   apps,
   onAppChange,
@@ -479,6 +482,7 @@ const StandardPromptPanel: React.FC<PromptPanelProps> = ({
 
   return (
     <PromptPageFrame
+      onBack={onBack}
       app={appId}
       apps={apps}
       onAppChange={onAppChange}
@@ -585,6 +589,7 @@ const PromptPanel: React.FC<PromptPanelProps> = (props) => {
     return (
       <PiPromptPanel
         open={props.open ?? true}
+        onBack={props.onBack}
         apps={props.apps}
         onAppChange={props.onAppChange}
         onInteractionBlockedChange={props.onInteractionBlockedChange}

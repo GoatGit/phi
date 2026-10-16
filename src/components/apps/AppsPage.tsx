@@ -74,11 +74,15 @@ const SOURCE_LABEL: Record<string, string> = {
   pip: "pip",
 };
 
-type Row = { kind: "tool"; tool: ToolName } | { kind: "desktop" };
+type Row =
+  | { kind: "tool"; tool: ToolName }
+  | { kind: "desktop" }
+  | { kind: "observability"; app: "zcode" };
 
 const ROWS: Row[] = [
   { kind: "tool", tool: "claude" },
   { kind: "desktop" },
+  { kind: "observability", app: "zcode" },
   ...TOOL_NAMES.filter((tool) => tool !== "claude").map(
     (tool): Row => ({ kind: "tool", tool }),
   ),
@@ -245,7 +249,26 @@ export function AppsPage({ onBack }: { onBack?: () => void } = {}) {
 
           <div className="divide-y divide-border overflow-hidden rounded-panel border border-border bg-surface">
             {ROWS.map((row) =>
-              row.kind === "desktop" ? (
+              row.kind === "observability" ? (
+                <AppRow
+                  key={row.app}
+                  app={row.app}
+                  name={
+                    <span className="flex items-center gap-1">
+                      {APP_DISPLAY_NAME[row.app]}
+                      <HelpTip title={t("appsPage.observabilityHelp")}>
+                        {t("appsPage.observabilityHelp")}
+                      </HelpTip>
+                    </span>
+                  }
+                  version={
+                    <span className="text-caption text-fg-2">
+                      {t("appsPage.observabilityVersion")}
+                    </span>
+                  }
+                  visibility={visibilitySwitch(row.app)}
+                />
+              ) : row.kind === "desktop" ? (
                 <AppRow
                   key="claude-desktop"
                   app="claude-desktop"

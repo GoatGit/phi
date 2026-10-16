@@ -11,7 +11,7 @@ use std::time::Instant;
 
 // 其余模型类型从 `session_manager::model` 引用
 pub use model::SessionMessage;
-use providers::{claude, codex, gemini, grokbuild, hermes, mcode, openclaw, opencode, pi};
+use providers::{claude, codex, gemini, grokbuild, hermes, mcode, openclaw, opencode, pi, zcode};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,7 +54,7 @@ pub struct DeleteSessionOutcome {
 }
 
 pub fn scan_sessions() -> Vec<SessionMeta> {
-    let (r1, r2, r3, r4, r5, r6, r7, r8) = std::thread::scope(|s| {
+    let (r1, r2, r3, r4, r5, r6, r7, r8, r9) = std::thread::scope(|s| {
         let h1 = s.spawn(codex::scan_sessions);
         let h2 = s.spawn(claude::scan_sessions);
         let h3 = s.spawn(opencode::scan_sessions);
@@ -63,6 +63,7 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
         let h6 = s.spawn(hermes::scan_sessions);
         let h7 = s.spawn(grokbuild::scan_sessions);
         let h8 = s.spawn(pi::scan_sessions);
+        let h9 = s.spawn(zcode::scan_sessions);
         (
             h1.join().unwrap_or_default(),
             h2.join().unwrap_or_default(),
@@ -72,6 +73,7 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
             h6.join().unwrap_or_default(),
             h7.join().unwrap_or_default(),
             h8.join().unwrap_or_default(),
+            h9.join().unwrap_or_default(),
         )
     });
 
@@ -84,6 +86,7 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
     sessions.extend(r6);
     sessions.extend(r7);
     sessions.extend(r8);
+    sessions.extend(r9);
     sessions.extend(mcode::scan_sessions());
 
     sessions.sort_by(|a, b| {
@@ -105,6 +108,9 @@ pub fn load_messages(provider_id: &str, source_path: &str) -> Result<Vec<Session
     }
     if provider_id == "hermes" && source_path.starts_with("sqlite:") {
         return hermes::load_messages_sqlite(source_path);
+    }
+    if provider_id == "zcode" && source_path.starts_with("sqlite:") {
+        return zcode::load_messages_sqlite(source_path);
     }
 
     let path = Path::new(source_path);
@@ -224,6 +230,7 @@ fn provider_roots(provider_id: &str) -> Result<Vec<PathBuf>, String> {
         "grokbuild" => grokbuild::session_roots(),
         "hermes" => vec![crate::hermes_config::get_hermes_dir().join("sessions")],
         "pi" => pi::session_roots(),
+        "zcode" => vec![zcode::zcode_db_dir()],
         _ => return Err(format!("Unsupported provider: {provider_id}")),
     };
 

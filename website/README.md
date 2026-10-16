@@ -13,18 +13,32 @@ python3 -m http.server 4173
 # 打开 http://localhost:4173
 ```
 
-## 部署到 phi.semibot.ai（任选其一）
+## 部署到 phi.semibot.ai（Cloudflare Pages）
 
-### 方式一：GitHub Pages
+官网是零构建静态站点，发布目录固定为 `website/`。仓库根目录的 `wrangler.toml` 已声明 Cloudflare Pages 输出目录，可直接使用 Wrangler 部署：
 
-1. 仓库 Settings → Pages → Source 选择 `main` 分支 `/website` 目录（或建 `gh-pages` 分支）。
-2. 在 `website/` 下放置 `CNAME` 文件，内容为一行：`phi.semibot.ai`。
-3. 到 semibot.ai 域名的 DNS 管理（或 `phi.semibot.ai` 所在托管区）添加解析：
-   - `phi` CNAME → `<org>.github.io`（等待生效并确认 GitHub Pages 的 HTTPS 证书签发）。
+```sh
+npx wrangler login
+npx wrangler pages project create phi-website
+npx wrangler pages deploy website --project-name phi-website
+```
 
-### 方式二：任意静态托管 / 对象存储
+也可以在 Cloudflare Dashboard → Workers & Pages → Create application → Pages → Connect to Git 中连接 `GoatGit/phi`：
 
-上传 `website/` 目录内全部文件（保持相对路径），将 `phi.semibot.ai` 的 DNS 指向托管商分配的地址，并为该子域签发 HTTPS 证书。
+- Framework preset：`None`
+- Build command：留空
+- Build output directory：`website`
+- Root directory：`/`
+
+部署完成后，在 Pages 项目的 Custom domains 中添加 `phi.semibot.ai`。如果 `semibot.ai` 已托管在同一个 Cloudflare 账户，直接添加该子域即可由 Cloudflare 自动创建 DNS 记录并签发 HTTPS。Cloudflare Pages 通过 Custom domains 管理域名，不需要额外的 `CNAME` 文件。
+
+### 本地预览
+
+```sh
+cd website
+python3 -m http.server 4173
+# 打开 http://localhost:4173
+```
 
 ## 维护要点
 

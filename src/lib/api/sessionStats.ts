@@ -19,6 +19,7 @@ export interface SessionStatsEntry {
 
 export interface SessionStatsDay {
   date: string;
+  appType: string;
   requests: number;
   sessions: number;
   inputTokens: number;
@@ -33,6 +34,7 @@ export interface SessionStatsHour {
   /** 0 = 周一 */
   weekday: number;
   hour: number;
+  appType: string;
   seconds: number;
 }
 

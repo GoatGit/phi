@@ -834,7 +834,9 @@ impl RequestForwarder {
 
         if providers.is_empty() {
             return Err(ForwardError {
-                error: ProxyError::NoAvailableProvider,
+                error: {
+                    ProxyError::NoAvailableProvider
+                },
                 provider: None,
             });
         }
@@ -1392,7 +1394,9 @@ impl RequestForwarder {
             self.record_failed_request("所有供应商暂时不可用（熔断器限制）".to_string())
                 .await;
             return Err(ForwardError {
-                error: ProxyError::NoAvailableProvider,
+                error: {
+                    ProxyError::NoAvailableProvider
+                },
                 provider: None,
             });
         }

@@ -32,6 +32,9 @@ pub enum ProxyError {
     #[error("无可用的Provider")]
     NoAvailableProvider,
 
+    #[error("无可用 Provider: {0}")]
+    NoAvailableProviderWithReason(String),
+
     #[error("所有供应商已熔断，无可用渠道")]
     AllProvidersCircuitOpen,
 
@@ -128,7 +131,7 @@ impl IntoResponse for ProxyError {
                         (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
                     }
                     ProxyError::ForwardFailed(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
-                    ProxyError::NoAvailableProvider => {
+                    ProxyError::NoAvailableProvider | ProxyError::NoAvailableProviderWithReason(_) => {
                         (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
                     }
                     ProxyError::AllProvidersCircuitOpen => {

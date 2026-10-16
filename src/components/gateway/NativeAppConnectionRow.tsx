@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { getAppLabel, type ProxyAppId } from "@/config/appConfig";
+import { AppGlyph } from "@/components/shell/AppGlyph";
 import { providersApi, type AppId } from "@/lib/api";
 import { piApi } from "@/lib/api/pi";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,10 @@ async function readConnection(app: NativeAppId): Promise<Connection> {
         .filter((p) => p.meta?.liveConfigManaged === true)
         .map((p) => p.id);
       break;
+    default:
+      // zcode 等新应用的连接方式仍在规划中：归入应用内管理，不报错
+      ids = [];
+      break;
   }
   return {
     targets: [...new Set(ids)].map((id) => providers[id]?.name ?? id),
@@ -81,7 +86,12 @@ export function NativeAppConnectionRow({
   const connection = query.data;
   return (
     <TableRow>
-      <TableCell className="whitespace-nowrap">{getAppLabel(app)}</TableCell>
+      <TableCell className="whitespace-nowrap">
+        <span className="flex items-center gap-2">
+          <AppGlyph app={app} size={16} badgeClassName="bg-surface" />
+          {getAppLabel(app)}
+        </span>
+      </TableCell>
       <TableCell className="max-w-64 break-words">
         {query.isError ? (
           <div role="alert" className="flex items-center gap-2">

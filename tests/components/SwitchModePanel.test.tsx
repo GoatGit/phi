@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,11 +80,55 @@ function mockMode(
   );
 }
 
+const groupMember = (supplierId: string) => ({
+  id: supplierId,
+  supplierId,
+  model: "",
+  enabled: true,
+  weight: 1,
+});
+
+const group = (id: string, name: string, members: unknown[] = []) => ({
+  id,
+  name,
+  enabled: true,
+  appIds: ["claude"],
+  strategy: "ordered",
+  members,
+  sessionAffinity: false,
+  affinityTtlSeconds: 0,
+  failover: true,
+  maxAttempts: 3,
+  rules: [],
+});
+
+function mockCatalog(
+  groups: unknown[],
+  suppliers: { id: string; name: string }[] = [],
+) {
+  server.use(
+    http.post(`${TAURI_ENDPOINT}/get_gateway_catalog`, () =>
+      HttpResponse.json({
+        revision: 7,
+        suppliers: suppliers.map((s) => ({
+          id: s.id,
+          name: s.name,
+          endpoint: { protocol: "anthropic", baseUrl: "https://upstream.test" },
+          models: [],
+        })),
+        policies: [],
+        groups,
+      }),
+    ),
+  );
+}
+
 function renderPanel(
   app: ProxyAppId,
   providers: Record<string, Provider>,
   onSwitch = vi.fn(),
 ) {
+  const onOpenRoutingPage = vi.fn();
   const queryClient = createTestQueryClient();
   const view = render(
     <QueryClientProvider client={queryClient}>
@@ -94,7 +138,7 @@ function renderPanel(
         currentProviderId={Object.keys(providers)[0] ?? ""}
         isLoading={false}
         onSwitch={onSwitch}
-        onOpenRoutingSettings={vi.fn()}
+        onOpenRoutingPage={onOpenRoutingPage}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onDuplicate={vi.fn()}
@@ -102,448 +146,169 @@ function renderPanel(
       />
     </QueryClientProvider>,
   );
-  return { ...view, queryClient };
+  return { ...view, queryClient, onOpenRoutingPage };
 }
 
 beforeEach(() => {
   vi.mocked(toast.info).mockClear();
   vi.mocked(toast.success).mockClear();
+  vi.mocked(toast.error).mockClear();
   // jsdom 没有 scrollIntoView，确认框里的下拉打开时会调
   Element.prototype.scrollIntoView = vi.fn();
+  // 默认空目录：不关心路由组的用例不至于报未处理请求
+  mockCatalog([]);
 });
 
-describe("SwitchModePanel — aggregation within proxy", () => {
-  it("adds and removes Stack members through the backend", async () => {
-    mockMode("stack", "route");
-    const setCalls: unknown[] = [];
+describe("SwitchModePanel — direct view keeps the provider list", () => {
+  it("lists provider cards with switch buttons and no proxy-section tabs", async () => {
+    mockMode("direct", null, "a");
+    renderPanel("claude", { a: provider("a"), kimi: provider("kimi") });
+
+    expect(await screen.findByTestId("card-a")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: "mode.proxySections.stack" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("route-group-list")).not.toBeInTheDocument();
+  });
+});
+
+describe("SwitchModePanel — proxy view lists route groups", () => {
+  it("marks the bound group as current and offers the others for activation", async () => {
+    mockMode("route", "gateway-entry:claude");
+    mockCatalog(
+      [
+        group("g1", "组一", [groupMember("sup-1")]),
+        group("g2", "组二", [groupMember("sup-2")]),
+      ],
+      [
+        { id: "sup-1", name: "供应商一" },
+        { id: "sup-2", name: "供应商二" },
+      ],
+    );
+    renderPanel("claude", { a: provider("a") });
+
+    await screen.findByTestId("route-group-list");
+    // 目录里没有 connection 策略时按组顺序兜底：g1 成为当前绑定
+    expect(
+      await screen.findByText("gateway.groups.current"),
+    ).toBeInTheDocument();
+    const g2 = screen.getByTestId("group-g2");
+    expect(g2).toHaveTextContent("组二");
+    expect(g2).toHaveTextContent("供应商二");
+    expect(
+      within(g2).getByRole("button", { name: "mode.activate.route" }),
+    ).toBeEnabled();
+  });
+
+  it("shows the legacy route target and asks to finish migrating", async () => {
+    mockMode("route", "prov-a");
+    mockCatalog([group("g1", "组一")]);
+    renderPanel("claude", { "prov-a": provider("prov-a") });
+
+    expect(
+      await screen.findByText(/mode\.legacyRouteTarget/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("gateway.connections.legacy")).toBeInTheDocument();
+  });
+
+  it("activates a group through the confirm dialog", async () => {
+    const user = userEvent.setup();
+    mockMode("direct", null, "a");
+    mockCatalog([
+      group("g1", "组一", [groupMember("sup-1")]),
+      group("g2", "组二", [groupMember("sup-2")]),
+    ]);
+    const connectCalls: unknown[] = [];
     server.use(
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-        HttpResponse.json({
-          active: true,
-          members: [
-            { providerId: "route", modelIds: ["m-route"], route: true },
-            { providerId: "kimi", modelIds: ["m-kimi"], route: false },
-          ],
-        }),
-      ),
       http.post(
-        `${TAURI_ENDPOINT}/set_proxy_stack_member`,
+        `${TAURI_ENDPOINT}/connect_gateway_app`,
         async ({ request }) => {
-          setCalls.push(await request.json());
+          connectCalls.push(await request.json());
           return HttpResponse.json(null);
         },
       ),
     );
+    renderPanel("claude", { a: provider("a") });
 
-    renderPanel("claude", {
-      route: provider("route"),
-      kimi: provider("kimi"),
-      other: provider("other"),
-    });
-
-    await userEvent
-      .setup()
-      .click(
-        await screen.findByRole("tab", { name: "mode.proxySections.stack" }),
-      );
-    fireEvent.click(await screen.findByTestId("remove-kimi"));
-    fireEvent.click(await screen.findByTestId("add-other"));
-    await waitFor(() => expect(setCalls).toHaveLength(2));
-    expect(setCalls).toEqual([
-      { appType: "claude", providerId: "kimi", enabled: false },
-      { appType: "claude", providerId: "other", enabled: true },
-    ]);
-  });
-
-  it("says why the Codex model list could not be read", async () => {
-    mockMode("stack", "route");
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-        HttpResponse.json({
-          active: true,
-          members: [{ providerId: "route", modelIds: [], route: true }],
-          notice: "officialModelsUnavailable",
-          noticeReasons: ["loginStale", "noCli"],
-        }),
-      ),
+    await user.click(
+      await screen.findByRole("button", { name: /mode\.names\.route/ }),
     );
-    renderPanel("codex", { route: provider("route") });
-
-    expect(
-      await screen.findByText("provider.officialModelsUnavailable"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("provider.officialModelsReason.loginStale"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("provider.officialModelsReason.noCli"),
-    ).toBeInTheDocument();
-  });
-
-  it("warns about Codex clients on an old model list in every mode", async () => {
-    const stack = (active: boolean) =>
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-        HttpResponse.json({
-          active,
-          members: [{ providerId: "route", modelIds: [], route: true }],
-          staleClients: { daemon: true, others: false },
-        }),
-      );
-
-    mockMode("stack", "route");
-    server.use(stack(true));
-    const view = renderPanel("codex", { route: provider("route") });
-    expect(
-      await screen.findByText("proxy.stackMode.codexStale.title"),
-    ).toBeInTheDocument();
-    view.unmount();
-
-    mockMode("route", "route");
-    server.use(stack(false));
-    renderPanel("codex", { route: provider("route") });
-    expect(
-      await screen.findByText("proxy.stackMode.codexStale.title"),
-    ).toBeInTheDocument();
-  });
-
-  it("shows a dismissed Codex stale notice again once the model list changes again", async () => {
-    let revision = "r1";
-    mockMode("direct", "route");
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-        HttpResponse.json({
-          active: false,
-          members: [],
-          staleClients: { daemon: false, others: true },
-          staleRevision: revision,
-        }),
-      ),
-    );
-    const { queryClient } = renderPanel("codex", { route: provider("route") });
-    await screen.findByText("proxy.stackMode.codexStale.title");
-    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
-    expect(
-      screen.queryByText("proxy.stackMode.codexStale.title"),
-    ).not.toBeInTheDocument();
-
-    // 同一份：再拉一次还是关着。
-    await queryClient.invalidateQueries({ queryKey: ["providers", "codex"] });
-    expect(
-      screen.queryByText("proxy.stackMode.codexStale.title"),
-    ).not.toBeInTheDocument();
-
-    // 同一个供应商又改了一次目录：同样的客户端，但已经是新的一份。
-    revision = "r2";
-    await queryClient.invalidateQueries({ queryKey: ["providers", "codex"] });
-    expect(
-      await screen.findByText("proxy.stackMode.codexStale.title"),
-    ).toBeInTheDocument();
-  });
-
-  it.each(["direct", "route", "stack"] as const)(
-    "shows a cached account notice in %s mode",
-    async (mode) => {
-      mockMode(mode, "route");
-      server.use(
-        http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-          HttpResponse.json({
-            active: mode === "stack",
-            members: [],
-            staleClients: { daemon: true, others: false, auth: true },
-          }),
-        ),
-      );
-      renderPanel("codex", { route: provider("route") });
-      expect(
-        await screen.findByText("proxy.stackMode.codexStale.authTitle"),
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByText("proxy.stackMode.codexStale.title"),
-      ).not.toBeInTheDocument();
-    },
-  );
-
-  it("does not read the Stack list for apps without Stack mode", async () => {
-    mockMode("route", "a");
-    let stackReads = 0;
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () => {
-        stackReads += 1;
-        return HttpResponse.json({ active: false, members: [] });
+    await user.click(
+      within(await screen.findByTestId("group-g2")).getByRole("button", {
+        name: "mode.activate.route",
       }),
     );
+    expect(await screen.findByText("mode.dialog.routeTitle")).toBeVisible();
+    // 预选点的那家组
+    const select = await screen.findByRole("combobox", {
+      name: "mode.dialog.routeTo",
+    });
+    expect(select).toHaveTextContent("组二");
+    await user.click(screen.getByText("mode.dialog.confirmRoute"));
 
-    renderPanel("gemini", { a: provider("a") });
-    await screen.findByTestId("card-a");
-    expect(stackReads).toBe(0);
-    expect(
-      screen.queryByRole("tab", { name: /mode\.stack/ }),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(connectCalls).toEqual([
+        { appId: "claude", groupId: "g2", revision: 7 },
+      ]),
+    );
   });
-});
 
-describe("SwitchModePanel — mode layer", () => {
-  function captureTakeover() {
-    const calls: unknown[] = [];
+  it("exits to direct from the bound group card", async () => {
+    mockMode("route", "gateway-entry:claude");
+    mockCatalog([group("g1", "组一", [groupMember("sup-1")])]);
+    const takeoverCalls: unknown[] = [];
     server.use(
       http.post(
         `${TAURI_ENDPOINT}/set_proxy_takeover_for_app`,
         async ({ request }) => {
-          calls.push(await request.json());
+          takeoverCalls.push(await request.json());
           return HttpResponse.json(null);
         },
       ),
     );
-    return calls;
-  }
-
-  it("enters proxy from the aggregation section and picks the default in the dialog", async () => {
-    const user = userEvent.setup();
-    mockMode("direct", null, "a");
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-        HttpResponse.json({ active: false, members: [] }),
-      ),
-    );
-    const calls = captureTakeover();
-    renderPanel("claude", { a: provider("a"), kimi: provider("kimi") });
-
-    await user.click(
-      await screen.findByRole("button", { name: /mode\.names\.route/ }),
-    );
-    await user.click(
-      await screen.findByRole("tab", { name: "mode.proxySections.stack" }),
-    );
-    // 行上只有名单的添加，「设为默认」在「更多」菜单里；没有会切模式的按钮
-    const row = await screen.findByTestId("card-kimi");
-    expect(
-      Array.from(row.querySelectorAll("button")).map((b) => b.dataset.testid),
-    ).toEqual(["add-kimi", "menu-setDefault-kimi"]);
-    expect(screen.getByTestId("add-kimi")).not.toBeDisabled();
-
-    await user.click(
-      screen.getByRole("button", { name: "mode.activate.route" }),
-    );
-    expect(await screen.findByText("mode.dialog.routeTitle")).toBeVisible();
-    // 预选直连那家，可以在框里换
-    const select = screen.getByRole("combobox", {
-      name: "mode.dialog.routeTo",
-    });
-    expect(select).toHaveTextContent("a");
-    await user.click(select);
-    await user.click(await screen.findByRole("option", { name: "kimi" }));
-    expect(select).toHaveTextContent("kimi");
-    // Claude 官方订阅进不了聚合，没有「官方只能做默认」的提示
-    expect(screen.queryByTestId("stack-official-note")).not.toBeInTheDocument();
-
-    await user.click(screen.getByText("mode.dialog.confirmRoute"));
-    await waitFor(() =>
-      expect(calls).toEqual([
-        { appType: "claude", enabled: true, stack: false, route: "kimi" },
-      ]),
-    );
-  });
-
-  it("records the Stack default from the card menu while direct, without entering the mode", async () => {
-    const user = userEvent.setup();
-    let route: string | null = null;
-    const routeCalls: unknown[] = [];
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_app_mode`, () =>
-        HttpResponse.json({
-          mode: "direct",
-          attached: false,
-          routeProviderId: route,
-          directProviderId: "a",
-        }),
-      ),
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-        HttpResponse.json({ active: false, members: [] }),
-      ),
-      http.post(`${TAURI_ENDPOINT}/set_proxy_route`, async ({ request }) => {
-        const body = (await request.json()) as { providerId: string };
-        routeCalls.push(body);
-        route = body.providerId;
-        return HttpResponse.json(null);
-      }),
-    );
-    const takeover = captureTakeover();
-    const onSwitch = vi.fn();
-    renderPanel(
-      "claude",
-      { a: provider("a"), kimi: provider("kimi") },
-      onSwitch,
-    );
-
-    await user.click(
-      await screen.findByRole("button", { name: /mode\.names\.route/ }),
-    );
-    await user.click(
-      await screen.findByRole("tab", { name: "mode.proxySections.stack" }),
-    );
-    await user.click(await screen.findByTestId("menu-setDefault-kimi"));
-
-    // 只记下选择：不进聚合、不走切换供应商
-    await waitFor(() =>
-      expect(routeCalls).toEqual([{ appType: "claude", providerId: "kimi" }]),
-    );
-    expect(takeover).toEqual([]);
-    expect(onSwitch).not.toHaveBeenCalled();
-    await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith(
-        "mode.toast.defaultRemembered",
-        expect.anything(),
-      ),
-    );
-    // 记下的那家成了「切换后的默认」：自己不再有「设为默认」，原来那家有了
-    await screen.findByTestId("menu-setDefault-a");
-    expect(
-      screen.queryByTestId("menu-setDefault-kimi"),
-    ).not.toBeInTheDocument();
-
-    // 确认框预选它
-    await user.click(
-      screen.getByRole("button", { name: "mode.activate.route" }),
-    );
-    expect(
-      await screen.findByRole("combobox", { name: "mode.dialog.routeTo" }),
-    ).toHaveTextContent("kimi");
-  });
-
-  it("changes the Stack default right away once Stack mode is on", async () => {
-    mockMode("stack", "route");
-    const routeCalls: unknown[] = [];
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-        HttpResponse.json({
-          active: true,
-          members: [
-            { providerId: "route", modelIds: ["m-route"], route: true },
-            { providerId: "kimi", modelIds: ["m-kimi"], route: false },
-          ],
-        }),
-      ),
-      http.post(`${TAURI_ENDPOINT}/set_proxy_route`, async ({ request }) => {
-        routeCalls.push(await request.json());
-        return HttpResponse.json(null);
-      }),
-    );
-    const onSwitch = vi.fn();
-    const kimi = provider("kimi");
-    const other = provider("other");
-    renderPanel("claude", { route: provider("route"), kimi, other }, onSwitch);
+    renderPanel("claude", { a: provider("a") });
 
     await userEvent
       .setup()
       .click(
-        await screen.findByRole("tab", { name: "mode.proxySections.stack" }),
+        await screen.findByRole("button", { name: "mode.notice.backToDirect" }),
       );
-    // 已添加的、还没添加的都能直接设为默认，走的是切换供应商（当场生效）
-    fireEvent.click(await screen.findByTestId("menu-setDefault-kimi"));
-    fireEvent.click(screen.getByTestId("menu-setDefault-other"));
-    expect(onSwitch.mock.calls.map(([p]) => p)).toEqual([kimi, other]);
-    expect(
-      screen.queryByTestId("menu-setDefault-route"),
-    ).not.toBeInTheDocument();
-    expect(routeCalls).toEqual([]);
-  });
-
-  it("can change the default within the unified proxy page", async () => {
-    mockMode("route", "a");
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-        HttpResponse.json({ active: false, members: [] }),
-      ),
-    );
-    renderPanel("claude", { a: provider("a"), kimi: provider("kimi") });
-
-    // 等模式读到了再换页签：生效的模式一变，查看的那格会跳回生效的那格
-    await screen.findByText("→ a");
-    await userEvent
-      .setup()
-      .click(screen.getByRole("tab", { name: "mode.proxySections.stack" }));
-    // 聚合配置属于同一代理模式，关闭故障转移时允许当场换默认
-    expect(
-      await screen.findByTestId("menu-setDefault-kimi"),
-    ).not.toBeDisabled();
-  });
-
-  it("warns that a Codex official account drops out of the Stack unless it is the default", async () => {
-    const user = userEvent.setup();
-    mockMode("direct", null, "kimi");
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_proxy_stack`, () =>
-        HttpResponse.json({ active: false, members: [] }),
-      ),
-    );
-    const account: Provider = {
-      ...provider("account"),
-      category: "official",
-      settingsConfig: { auth: {}, config: "" },
-    };
-    renderPanel("codex", { account, kimi: provider("kimi") });
-
-    await user.click(
-      await screen.findByRole("button", { name: /mode\.names\.route/ }),
-    );
-    await user.click(
-      await screen.findByRole("button", { name: "mode.activate.route" }),
-    );
-    const select = await screen.findByRole("combobox", {
-      name: "mode.dialog.routeTo",
-    });
-    expect(select).toHaveTextContent("kimi");
-    expect(screen.getByTestId("stack-official-note")).toHaveTextContent(
-      "mode.dialog.stackOfficialNote",
-    );
-
-    await user.click(select);
-    await user.click(
-      await screen.findByRole("option", { name: "mode.dialog.officialOption" }),
-    );
-    expect(screen.queryByTestId("stack-official-note")).not.toBeInTheDocument();
-  });
-
-  it("enters routing from the notice with the direct provider preselected, without an acknowledgement checkbox", async () => {
-    mockMode("direct", null, "b");
-    const calls = captureTakeover();
-    renderPanel("claude", { a: provider("a"), b: provider("b") });
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: /mode\.names\.route/ }),
-    );
-    // 行上没有进入路由的按钮，入口只有通知条
-    await screen.findByTestId("card-b");
-    expect(screen.getByTestId("card-b").querySelector("button")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "mode.activate.route" }),
-    );
-    expect(await screen.findByText("mode.dialog.routeTitle")).toBeVisible();
-    // 没有上次的路由目标时，预选直连那家
-    expect(
-      screen.getByRole("combobox", { name: "mode.dialog.routeTo" }),
-    ).toHaveTextContent("b");
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    const confirm = screen.getByText("mode.dialog.confirmRoute");
-    expect(confirm.closest("button")).not.toBeDisabled();
-    fireEvent.click(confirm);
     await waitFor(() =>
-      expect(calls).toEqual([
-        { appType: "claude", enabled: true, stack: false, route: "b" },
+      expect(takeoverCalls).toEqual([
+        { appType: "claude", enabled: false, stack: false, route: null },
       ]),
     );
   });
 
-  it("shows only the route target in the status line, not the local address", async () => {
-    mockMode("route", "route");
+  it("shows an empty state that opens the routing settings when no group exists", async () => {
+    const user = userEvent.setup();
+    mockMode("direct", null, "a");
+    mockCatalog([]);
+    const { onOpenRoutingPage } = renderPanel("claude", {
+      a: provider("a"),
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: /mode\.names\.route/ }),
+    );
+    expect(await screen.findByText("gateway.groups.empty")).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: "gateway.groups.goCreate" }),
+    );
+    expect(onOpenRoutingPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows only the group name in the status line, not the local address", async () => {
+    mockMode("route", "gateway-entry:claude");
+    mockCatalog([group("g1", "组一")]);
     server.use(
       http.post(`${TAURI_ENDPOINT}/get_proxy_status`, () =>
         HttpResponse.json({ running: true, address: "127.0.0.1", port: 15721 }),
       ),
     );
-    renderPanel("gemini", { route: provider("route") });
+    renderPanel("claude", { a: provider("a") });
 
-    expect(await screen.findByText("→ route")).toBeInTheDocument();
+    expect(await screen.findByText("→ 组一")).toBeInTheDocument();
     expect(screen.queryByText(/15721/)).not.toBeInTheDocument();
   });
 });
@@ -565,7 +330,7 @@ describe("SwitchModePanel — tray needs-route request", () => {
           currentProviderId="kimi"
           isLoading={false}
           onSwitch={vi.fn()}
-          onOpenRoutingSettings={vi.fn()}
+          onOpenRoutingPage={vi.fn()}
           onEdit={vi.fn()}
           onDelete={vi.fn()}
           onDuplicate={vi.fn()}
@@ -580,5 +345,52 @@ describe("SwitchModePanel — tray needs-route request", () => {
       await screen.findByText("mode.dialog.needsRouteTitle"),
     ).toBeInTheDocument();
     expect(onHandled).toHaveBeenCalledTimes(1);
+  });
+
+  it("activates the default route group from the needs-routing dialog", async () => {
+    const user = userEvent.setup();
+    mockMode("direct", null);
+    mockCatalog([group("g1", "组一")]);
+    const connectCalls: unknown[] = [];
+    server.use(
+      http.post(
+        `${TAURI_ENDPOINT}/connect_gateway_app`,
+        async ({ request }) => {
+          connectCalls.push(await request.json());
+          return HttpResponse.json(null);
+        },
+      ),
+    );
+    const copilot: Provider = {
+      ...provider("copilot"),
+      meta: { providerType: "github_copilot" },
+    };
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SwitchModePanel
+          app="claude"
+          providers={{ kimi: provider("kimi"), copilot }}
+          currentProviderId="kimi"
+          isLoading={false}
+          onSwitch={vi.fn()}
+          onOpenRoutingPage={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          onDuplicate={vi.fn()}
+          onOpenWebsite={vi.fn()}
+          needsRouteRequest={{ providerId: "copilot", nonce: 1 }}
+          onNeedsRouteHandled={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("mode.dialog.needsRouteTitle");
+    await user.click(
+      screen.getByRole("button", { name: "mode.activate.route" }),
+    );
+    // 不带 groupId：由后端按策略解析默认组（revision 随请求带上但仅在选组时使用）
+    await waitFor(() =>
+      expect(connectCalls).toEqual([{ appId: "claude", revision: 7 }]),
+    );
   });
 });

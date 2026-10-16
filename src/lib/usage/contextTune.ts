@@ -1,7 +1,8 @@
 import type { SessionContextPoint } from "@/lib/api/sessionStats";
 
 /**
- * 上下文压缩调优：移植 magpie internal/tune/tune.go 的重放思路。
+ * 上下文压缩调优：移植自 magpie（MIT License，© 2026 yetone，
+ * https://github.com/yetone/magpie，internal/tune/tune.go）的重放思路。
  *
  * 输入是逐请求的上下文水位序列（会话内累计的 fresh input + cache read + cache creation），
  * 对每个候选「自动压缩阈值」重放同样的调用序列，算出加权 token 成本，取最便宜点推荐。

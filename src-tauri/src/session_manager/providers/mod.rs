@@ -9,6 +9,7 @@ pub mod openclaw;
 pub mod opencode;
 mod opencode_blocks;
 pub mod pi;
+pub mod zcode;
 mod pi_blocks;
 mod utils;
 

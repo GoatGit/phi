@@ -39,6 +39,7 @@ impl McpApps {
             AppType::Mcode => self.mcode,
             AppType::Pi => self.pi,
             AppType::ClaudeDesktop => false,
+            AppType::Zcode => false, // ZCode 暂不支持 PHI 的 MCP 注入
         }
     }
 
@@ -55,6 +56,7 @@ impl McpApps {
             AppType::Mcode => self.mcode = enabled,
             AppType::Pi => self.pi = enabled,
             AppType::ClaudeDesktop => {} // Claude Desktop 3P provider config doesn't support MCP here
+            AppType::Zcode => {}         // ZCode 暂不支持 PHI 的 MCP 注入
         }
     }
 
@@ -136,6 +138,7 @@ impl SkillApps {
             AppType::Mcode => self.mcode,
             AppType::OpenClaw => false, // OpenClaw doesn't support Skills
             AppType::ClaudeDesktop => false,
+            AppType::Zcode => false, // ZCode 暂不支持 PHI 的 Skills 同步
         }
     }
 
@@ -152,6 +155,7 @@ impl SkillApps {
             AppType::Mcode => self.mcode = enabled,
             AppType::OpenClaw => {} // OpenClaw doesn't support Skills, ignore
             AppType::ClaudeDesktop => {} // Claude Desktop 3P profiles don't use PHI skill sync
+            AppType::Zcode => {} // ZCode 暂不支持 PHI 的 Skills 同步
         }
     }
 
@@ -415,6 +419,7 @@ pub enum AppType {
     Hermes,
     Pi,
     Mcode,
+    Zcode,
 }
 
 impl AppType {
@@ -430,6 +435,7 @@ impl AppType {
             AppType::Hermes => "hermes",
             AppType::Pi => "pi",
             AppType::Mcode => "mcode",
+            AppType::Zcode => "zcode",
         }
     }
 
@@ -441,7 +447,12 @@ impl AppType {
     pub fn is_additive_mode(&self) -> bool {
         matches!(
             self,
-            AppType::OpenCode | AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode
+            AppType::OpenCode
+            | AppType::OpenClaw
+            | AppType::Hermes
+            | AppType::Pi
+            | AppType::Mcode
+            | AppType::Zcode
         )
     }
 
@@ -465,6 +476,7 @@ impl AppType {
             AppType::Hermes,
             AppType::Pi,
             AppType::Mcode,
+            AppType::Zcode,
         ]
         .into_iter()
     }
@@ -486,10 +498,11 @@ impl FromStr for AppType {
             "hermes" => Ok(AppType::Hermes),
             "pi" => Ok(AppType::Pi),
             "mcode" => Ok(AppType::Mcode),
+            "zcode" => Ok(AppType::Zcode),
             other => Err(AppError::localized(
                 "unsupported_app",
-                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi。"),
-                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi."),
+                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, zcode。"),
+                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, zcode."),
             )),
         }
     }
@@ -529,7 +542,7 @@ impl CommonConfigSnippets {
             AppType::OpenCode => self.opencode.as_ref(),
             AppType::OpenClaw => self.openclaw.as_ref(),
             AppType::Hermes => self.hermes.as_ref(),
-            AppType::Pi | AppType::Mcode => None,
+            AppType::Pi | AppType::Mcode | AppType::Zcode => None,
         }
     }
 
@@ -544,7 +557,7 @@ impl CommonConfigSnippets {
             AppType::OpenCode => self.opencode = snippet,
             AppType::OpenClaw => self.openclaw = snippet,
             AppType::Hermes => self.hermes = snippet,
-            AppType::Pi | AppType::Mcode => {}
+            AppType::Pi | AppType::Mcode | AppType::Zcode => {}
         }
     }
 }
@@ -871,6 +884,7 @@ impl MultiAppConfig {
             // Pi was added after prompts moved to SQLite. Keeping it out of
             // this legacy config avoids a second, unused prompt state.
             AppType::Pi | AppType::Mcode => return Ok(false),
+            AppType::Zcode => return Ok(false), // ZCode 是累加式新应用，无旧版 prompts 配置
         };
 
         prompts.insert(id, prompt);
@@ -915,6 +929,7 @@ impl MultiAppConfig {
                 AppType::OpenClaw => continue, // OpenClaw MCP is still in development, skip
                 AppType::Hermes => continue,   // Hermes didn't exist in v3.6.x, skip
                 AppType::Pi | AppType::Mcode => continue, // Pi didn't exist in v3.6.x, skip
+                AppType::Zcode => continue, // ZCode didn't exist in v3.6.x, skip
             };
 
             for (id, entry) in old_servers {

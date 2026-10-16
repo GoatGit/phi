@@ -7,6 +7,7 @@ import {
   type ProxyAppId,
   getAppLabel,
   isProxyAppId,
+  isStackAppId,
 } from "@/config/appConfig";
 import {
   gatewayApi,
@@ -15,11 +16,13 @@ import {
   type GatewayCatalog,
 } from "@/lib/api";
 import { proxyApi } from "@/lib/api/proxy";
-import { useProxyStatusQuery } from "@/lib/query/proxy";
+import { useProxyStack, useProxyStatusQuery } from "@/lib/query/proxy";
+import { useAutoFailoverEnabled, useFailoverQueue } from "@/lib/query/failover";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
+import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
+import { AppGlyph } from "@/components/shell/AppGlyph";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageTabs } from "@/components/ui/page-tabs";
 import {
   Table,
   TableBody,
@@ -31,7 +34,6 @@ import {
 import { ResourcePoolSection } from "@/components/gateway/ResourcePoolSection";
 import { NativeAppConnectionRow } from "@/components/gateway/NativeAppConnectionRow";
 import { RoutingStatus } from "@/components/gateway/RoutingStatus";
-import { RoutePreview } from "@/components/gateway/RoutePreview";
 import { appConnectionId, appRouteGroup } from "@/lib/api/gateway";
 import { GatewaySelect, GroupSection } from "@/components/gateway/GroupSection";
 import {
@@ -94,22 +96,26 @@ function GatewayCatalogGate({
  */
 export function ProviderCatalogPage({
   onOpenPolicy,
+  onBack,
 }: {
   onOpenPolicy?: (id: string) => void;
+  /** 从其他页面下钻进来时的返回（与用量 / 会话页同一 drill-in 约定） */
+  onBack?: () => void;
 }) {
   const { t } = useTranslation();
   const [createOpen, setCreateOpen] = useState(false);
   return (
     <>
       <AppPageHeader
+        leading={onBack && <PageHeaderBackButton onClick={onBack} />}
         title={t("gateway.providers")}
         actions={
           <Button
-            variant="outline"
-            size="sm"
+            variant="solid"
+            size="regular"
             onClick={() => setCreateOpen(true)}
           >
-            <Plus data-icon="inline-start" aria-hidden />
+            <Plus className="h-4 w-4" aria-hidden />
             {t("gateway.pool.create")}
           </Button>
         }
@@ -181,6 +187,17 @@ function RouteRow({
       ? "direct"
       : "unconfigured";
   const targetId = isProxy ? state?.routeProviderId : state?.directProviderId;
+  // 旧连接仍由应用页那套路由概念驱动（默认路由 + 故障转移队列 + 聚合模型）；
+  // 这里把它们读出来展示，避免路由页只剩一句「旧连接」。
+  const isLegacy = connection === "legacy";
+  const { data: failoverOn } = useAutoFailoverEnabled(app, isLegacy);
+  const { data: failoverQueue } = useFailoverQueue(app, isLegacy);
+  const { data: stack } = useProxyStack(app, isLegacy && isStackAppId(app));
+  const queueCount = isLegacy && failoverOn ? (failoverQueue ?? []).length : 0;
+  const stackModels = (stack?.members ?? []).reduce(
+    (sum, member) => sum + member.modelIds.length,
+    0,
+  );
   const target = targetId
     ? targetId.startsWith("gateway-entry:")
       ? group
@@ -225,7 +242,12 @@ function RouteRow({
   });
   return (
     <TableRow>
-      <TableCell className="whitespace-nowrap">{getAppLabel(app)}</TableCell>
+      <TableCell className="whitespace-nowrap">
+        <span className="flex items-center gap-2">
+          <AppGlyph app={app} size={16} badgeClassName="bg-surface" />
+          {getAppLabel(app)}
+        </span>
+      </TableCell>
       {failed || pending ? (
         <TableCell>
           {failed ? (
@@ -248,7 +270,23 @@ function RouteRow({
           )}
         </TableCell>
       ) : (
-        <TableCell className="max-w-64 break-words">{target}</TableCell>
+        <TableCell className="max-w-64 break-words">
+          {target}
+          {isLegacy && (queueCount > 0 || stackModels > 0) && (
+            <div className="mt-0.5 text-caption text-fg-2">
+              {[
+                queueCount > 0
+                  ? t("gateway.connections.legacyQueue", { count: queueCount })
+                  : null,
+                stackModels > 0
+                  ? t("gateway.connections.legacyStack", { count: stackModels })
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          )}
+        </TableCell>
       )}
       <TableCell className="w-64">
         <div className="flex items-center gap-2">
@@ -354,12 +392,20 @@ function RouteRow({
 export function RoutingOverviewPage({
   onOpenApp,
   initialPolicyId,
+  initialTab,
+  onBack,
 }: GatewayPageProps & {
   initialPolicyId?: string | null;
+  /** 进入路由页时默认停留的标签（缺省：带策略跳转→路由） */
+  initialTab?: "connections" | "policies" | "status";
+  /** 从其他页面下钻进来时的返回 */
+  onBack?: () => void;
 }) {
   const { t } = useTranslation();
   const status = useProxyStatusQuery();
-  const [tab, setTab] = useState(initialPolicyId ? "status" : "connections");
+  const [tab, setTab] = useState<"connections" | "policies" | "status">(
+    initialTab ?? (initialPolicyId ? "status" : "connections"),
+  );
   const [traceGroupId, setTraceGroupId] = useState<string | null>(null);
   const [tracePolicyId, setTracePolicyId] = useState<string | null>(
     initialPolicyId ?? null,
@@ -368,118 +414,113 @@ export function RoutingOverviewPage({
   return (
     <>
       <AppPageHeader
-        title={t("gateway.routing")}
-        titleExtra={
-          <Badge variant="outline">
-            {t(
-              running === undefined
-                ? "gateway.unknown"
-                : running
-                  ? "gateway.running"
-                  : "gateway.stopped",
-            )}
-          </Badge>
+        leading={onBack && <PageHeaderBackButton onClick={onBack} />}
+        title={null}
+        tabs={
+          <PageTabs
+            size="lg"
+            /* 底边对齐页头并下压 1px：页签下划线压在页头分割线上（同用量页） */
+            className="self-end -mb-px"
+            aria-label={t("gateway.routing")}
+            value={tab}
+            onValueChange={(value) =>
+              setTab(value as "connections" | "policies" | "status")
+            }
+            items={[
+              {
+                value: "connections",
+                label: t("gateway.tabs.connections"),
+              },
+              { value: "policies", label: t("gateway.tabs.policies") },
+              { value: "status", label: t("gateway.routingStatus.title") },
+            ]}
+          />
         }
       />
       <div
         id="main-content"
         className="min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-5"
       >
-        <Tabs
-          value={tab}
-          onValueChange={setTab}
-          className="mx-auto flex max-w-5xl flex-col gap-6"
+        <div
+          className={
+            tab === "connections"
+              ? "mx-auto flex max-w-5xl flex-col gap-6"
+              : "hidden"
+          }
         >
-          <TabsList aria-label={t("gateway.routing")}>
-            <TabsTrigger value="connections">
-              {t("gateway.tabs.connections")}
-            </TabsTrigger>
-            <TabsTrigger value="policies">
-              {t("gateway.tabs.policies")}
-            </TabsTrigger>
-            <TabsTrigger value="status">
-              {t("gateway.routingStatus.title")}
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent
-            value="connections"
-            className="data-[state=active]:flex data-[state=active]:flex-col data-[state=active]:gap-6"
-          >
-            {status.isError && (
-              <div role="alert" className="flex items-center gap-3 text-sm">
-                {t("gateway.statusError")}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={status.isFetching}
-                  onClick={() => void status.refetch()}
-                >
-                  {t("gateway.retry")}
-                </Button>
+          {status.isError && (
+            <div role="alert" className="flex items-center gap-3 text-sm">
+              {t("gateway.statusError")}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={status.isFetching}
+                onClick={() => void status.refetch()}
+              >
+                {t("gateway.retry")}
+              </Button>
+            </div>
+          )}
+          <GatewayCatalogGate>
+            {(gatewayCatalog) => (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("gateway.agent")}</TableHead>
+                    <TableHead>{t("gateway.target")}</TableHead>
+                    <TableHead>{t("gateway.connections.method")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {APP_IDS.map((app) =>
+                    isProxyAppId(app) ? (
+                      <RouteRow
+                        key={app}
+                        app={app}
+                        running={running}
+                        gatewayCatalog={gatewayCatalog}
+                        onOpenApp={onOpenApp}
+                      />
+                    ) : (
+                      <NativeAppConnectionRow
+                        key={app}
+                        app={app}
+                        onOpenApp={onOpenApp}
+                      />
+                    ),
+                  )}
+                </TableBody>
+              </Table>
+            )}
+          </GatewayCatalogGate>
+        </div>
+        {tab === "policies" && (
+          <GatewayCatalogGate>
+            {(catalog) => (
+              <div className="mx-auto flex max-w-5xl flex-col gap-6">
+                <GroupSection
+                  catalog={catalog}
+                  onOpenTraces={(id) => {
+                    setTraceGroupId(id);
+                    setTracePolicyId(null);
+                    setTab("status");
+                  }}
+                />
               </div>
             )}
-            <GatewayCatalogGate>
-              {(gatewayCatalog) => (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("gateway.agent")}</TableHead>
-                      <TableHead>{t("gateway.target")}</TableHead>
-                      <TableHead>{t("gateway.connections.method")}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {APP_IDS.map((app) =>
-                      isProxyAppId(app) ? (
-                        <RouteRow
-                          key={app}
-                          app={app}
-                          running={running}
-                          gatewayCatalog={gatewayCatalog}
-                          onOpenApp={onOpenApp}
-                        />
-                      ) : (
-                        <NativeAppConnectionRow
-                          key={app}
-                          app={app}
-                          onOpenApp={onOpenApp}
-                        />
-                      ),
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-            </GatewayCatalogGate>
-          </TabsContent>
-          <TabsContent value="policies">
-            <GatewayCatalogGate>
-              {(catalog) => (
-                <div className="flex flex-col gap-6">
-                  <GroupSection
-                    catalog={catalog}
-                    onOpenTraces={(id) => {
-                      setTraceGroupId(id);
-                      setTracePolicyId(null);
-                      setTab("status");
-                    }}
-                  />
-                  <RoutePreview catalog={catalog} />
-                </div>
-              )}
-            </GatewayCatalogGate>
-          </TabsContent>
-          <TabsContent value="status">
-            <GatewayCatalogGate>
-              {(catalog) => (
-                <RoutingStatus
-                  catalog={catalog}
-                  policyId={tracePolicyId}
-                  groupId={traceGroupId}
-                />
-              )}
-            </GatewayCatalogGate>
-          </TabsContent>
-        </Tabs>
+          </GatewayCatalogGate>
+        )}
+        {tab === "status" && (
+          <GatewayCatalogGate>
+            {(catalog) => (
+              <RoutingStatus
+                catalog={catalog}
+                policyId={tracePolicyId}
+                groupId={traceGroupId}
+              />
+            )}
+          </GatewayCatalogGate>
+        )}
       </div>
     </>
   );

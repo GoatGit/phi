@@ -127,6 +127,13 @@ pub async fn get_config_status(
 
             Ok(ConfigStatus { exists, path })
         }
+        AppType::Zcode => {
+            let db_path = crate::services::session_usage_zcode::get_zcode_db_path();
+            let exists = db_path.exists();
+            let path = db_path.to_string_lossy().to_string();
+
+            Ok(ConfigStatus { exists, path })
+        }
         AppType::Hermes => {
             let config_path = crate::hermes_config::get_hermes_config_path();
             let exists = config_path.exists();
@@ -180,6 +187,7 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
             .parent()
             .unwrap()
             .to_path_buf(),
+        AppType::Zcode => crate::services::session_usage_zcode::get_zcode_db_dir(),
     };
 
     Ok(dir.to_string_lossy().to_string())
@@ -203,6 +211,7 @@ pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, 
             .parent()
             .unwrap()
             .to_path_buf(),
+        AppType::Zcode => crate::services::session_usage_zcode::get_zcode_db_dir(),
     };
 
     if !config_dir.exists() {

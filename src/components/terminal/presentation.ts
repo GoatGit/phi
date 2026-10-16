@@ -5,6 +5,15 @@ export function focusNativeTerminal() {
   window.dispatchEvent(new Event(TERMINAL_FOCUS_EVENT));
 }
 
+/**
+ * present 的全局单调序号：后端用 layout_revision 丢弃乱序更新，
+ * 单窗格页（TerminalPane）和分屏区（SplitTerminalArea）必须共用一个计数器。
+ */
+let terminalRevision = Date.now() * 1000;
+export function nextTerminalRevision() {
+  return ++terminalRevision;
+}
+
 // Only content nodes count: empty Radix positioners and closing/hidden poppers
 // must not leave the terminal permanently unable to accept input.
 export function terminalOverlays(bounds: DOMRect) {

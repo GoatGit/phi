@@ -16,14 +16,12 @@ import {
   useUpdateGlobalProxyConfig,
 } from "@/lib/query/proxy";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
-import { PROXY_APP_IDS, type ProxyAppId } from "@/config/appConfig";
+import { PROXY_APP_IDS } from "@/config/appConfig";
 import { providerNeedsRouting } from "@/utils/providerCapabilities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HelpTip } from "@/components/ui/help-tip";
-import { SegmentedControl } from "@/components/ui/segmented-control";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { AutoFailoverConfigPanel } from "@/components/proxy/AutoFailoverConfigPanel";
 import { RectifierConfigPanel } from "@/components/settings/RectifierConfigPanel";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
 import { MODE_TONE } from "@/components/providers/mode/ModeTabs";
@@ -97,7 +95,6 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
   const [clientHost, setClientHost] = useState("");
   const [clientHostError, setClientHostError] = useState<string | null>(null);
   const [confirmExitAll, setConfirmExitAll] = useState(false);
-  const [failoverApp, setFailoverApp] = useState<ProxyAppId>("claude");
 
   useEffect(() => {
     if (config) {
@@ -420,28 +417,6 @@ export function RoutingSection({ onOpenApp }: RoutingSectionProps) {
             {t("routingSettings.exitAll")}
           </Button>
         )}
-      </SettingsBlock>
-
-      <SettingsBlock
-        title={t("settings.advanced.failover.title")}
-        help={{
-          title: t("settings.advanced.failover.title"),
-          body: t("routingSettings.failoverHelp"),
-        }}
-      >
-        <div className="space-y-4 rounded-panel border border-border bg-surface p-5">
-          <SegmentedControl
-            size="sm"
-            aria-label={t("settings.advanced.failover.title")}
-            value={failoverApp}
-            onValueChange={setFailoverApp}
-            items={PROXY_APP_IDS.map((app) => ({
-              value: app,
-              label: APP_DISPLAY_NAME[app],
-            }))}
-          />
-          <AutoFailoverConfigPanel key={failoverApp} appType={failoverApp} />
-        </div>
       </SettingsBlock>
 
       <SettingsBlock

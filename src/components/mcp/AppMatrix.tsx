@@ -358,6 +358,8 @@ interface MatrixSearchProps {
   className?: string;
   onEnter?: () => void;
   inputId?: string;
+  /** 无内容且未聚焦时收成图标位，降低常驻视觉占用 */
+  collapsible?: boolean;
 }
 
 export function MatrixSearch({
@@ -369,6 +371,7 @@ export function MatrixSearch({
   className,
   onEnter,
   inputId,
+  collapsible,
 }: MatrixSearchProps) {
   const { t } = useTranslation();
   return (
@@ -382,6 +385,7 @@ export function MatrixSearch({
         aria-label={ariaLabel}
         autoComplete="off"
         containerClassName={className}
+        collapsible={collapsible}
         onKeyDown={(event) => {
           if (event.key === "Enter" && onEnter) {
             event.preventDefault();

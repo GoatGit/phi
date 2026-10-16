@@ -147,7 +147,6 @@ beforeEach(() => {
   vi.mocked(proxyApi.setProxyTakeoverForApp)
     .mockReset()
     .mockResolvedValue(undefined);
-  vi.mocked(gatewayApi.previewRoute).mockReset();
   vi.mocked(gatewayApi.getTraces).mockReset().mockResolvedValue([]);
   vi.mocked(gatewayApi.getTracePage)
     .mockReset()
@@ -230,7 +229,8 @@ describe("gateway navigation", () => {
       expect(readStoredView()).toBe(view);
     }
     expect(parseView("providers")).toBe("providers");
-    expect(parseView("openclawEnv")).toBe("openclawConfig");
+    // 旧 OpenClaw 环境页已并入工作区（见 navigation.ts LEGACY_VIEWS）
+    expect(parseView("openclawEnv")).toBe("workspace");
     localStorage.removeItem(VIEW_STORAGE_KEY);
   });
 });
@@ -275,6 +275,12 @@ describe("provider catalog", () => {
     mount(<ProviderCatalogPage />);
     const row = (await screen.findByText("Shared provider")).closest("tr")!;
     expect(screen.getAllByText("Shared provider")).toHaveLength(1);
+    // 引用默认折叠成摘要，展开后才能看到各策略链接
+    fireEvent.click(
+      within(row).getByRole("button", {
+        name: "gateway.pool.showReferences",
+      }),
+    );
     expect(
       within(row).getByRole("button", { name: "Claude · claude" }),
     ).toBeInTheDocument();
@@ -489,7 +495,8 @@ describe("routing overview", () => {
       "gateway.target",
       "gateway.connections.method",
     ]);
-    expect(screen.getAllByText("gateway.stopped")).toHaveLength(1);
+    // 网关可用性横幅已随启停控件一起移除
+    expect(screen.queryByText("gateway.stopped")).not.toBeInTheDocument();
     expect(
       screen.queryByText("gateway.connection.stopped"),
     ).not.toBeInTheDocument();
@@ -998,8 +1005,11 @@ describe("gateway resource to request workflow", () => {
     vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
     mount(<ProviderCatalogPage onOpenPolicy={open} />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Claude · claude" }),
+      await screen.findByRole("button", {
+        name: "gateway.pool.showReferences",
+      }),
     );
+    fireEvent.click(screen.getByRole("button", { name: "Claude · claude" }));
     expect(open).toHaveBeenCalledWith("claude");
     fireEvent.change(
       screen.getByRole("textbox", { name: "gateway.pool.search" }),
@@ -1013,53 +1023,7 @@ describe("gateway resource to request workflow", () => {
     expect(screen.getByText("Shared provider")).toBeInTheDocument();
   });
 
-  it("previews a selected group without a matching-rule editor", async () => {
-    const user = userEvent.setup();
-    const catalog = { ...sharedCatalog, groups: [routeGroup] };
-    vi.mocked(gatewayApi.previewRoute).mockResolvedValue({
-      revision: catalog.revision,
-      policy: {
-        ...catalog.policies[0],
-        name: "Production",
-        groupId: "production",
-        candidates: [],
-      },
-      reason: "group",
-    });
-    vi.mocked(gatewayApi.getCatalog).mockResolvedValue(catalog);
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    await user.click(
-      screen.getByRole("tab", { name: "gateway.tabs.policies" }),
-    );
-    await user.click(
-      await screen.findByRole("button", { name: "gateway.preview.title" }),
-    );
-    await user.type(
-      screen.getByRole("textbox", { name: "gateway.preview.model" }),
-      "client-model",
-    );
-    await user.click(
-      screen.getByRole("button", { name: "gateway.preview.run" }),
-    );
-    await waitFor(() =>
-      expect(gatewayApi.previewRoute).toHaveBeenCalledWith(
-        "claude",
-        "client-model",
-      ),
-    );
-    expect(await screen.findByText(/gateway.preview.group/)).toHaveTextContent(
-      "Production",
-    );
-    expect(
-      screen.queryByRole("region", { name: "gateway.policy.title" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "gateway.policy.new" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/gateway.policy.priority/),
-    ).not.toBeInTheDocument();
-  });
+  // 「路由预览」功能已随 RoutePreview 一起移除，相关用例同步删除。
 
   it.each([false, true])(
     "selects a group and restores the native configuration (configured: %s)",
@@ -1192,6 +1156,10 @@ describe("gateway resource to request workflow", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("15 / 6")).toBeInTheDocument();
     expect(screen.getByText("$0.00003")).toBeInTheDocument();
+    // 详情入口移入展开区：先展开行
+    fireEvent.click(
+      screen.getByRole("button", { name: "gateway.trace.routingProcess" }),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "gateway.decisions.details" }),
     );
@@ -1231,6 +1199,9 @@ const routeGroup: GatewayRouteGroup = {
   affinityTtlSeconds: 1800,
   failover: true,
   maxAttempts: 3,
+  streamingFirstByteTimeout: 60,
+  streamingIdleTimeout: 120,
+  nonStreamingTimeout: 600,
   classifier: { supplierId: "shared", model: "model-a" },
   rules: [
     {
@@ -1279,12 +1250,6 @@ describe("route groups and routing data", () => {
     expect(
       screen.queryByRole("region", { name: "gateway.policy.title" }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "gateway.preview.title" }),
-    ).toHaveAttribute("aria-expanded", "false");
-    expect(
-      screen.queryByRole("textbox", { name: "gateway.preview.model" }),
-    ).not.toBeInTheDocument();
     await user.click(
       within(groups).getByRole("button", {
         name: "gateway.policy.viewRequests",
@@ -1297,6 +1262,10 @@ describe("route groups and routing data", () => {
       expect(gatewayApi.getTracePage).toHaveBeenCalledWith(
         expect.objectContaining({ groupId: "production", offset: 0 }),
       ),
+    );
+    // 筛选收进弹层：默认只露出入口，打开后才有窗口下拉
+    await user.click(
+      screen.getByRole("button", { name: /gateway.routingStatus.filter/ }),
     );
     expect(
       screen.getAllByRole("combobox", { name: "gateway.routingStatus.window" }),
@@ -1409,6 +1378,9 @@ describe("route groups and routing data", () => {
       expect(gatewayApi.getTracePage).toHaveBeenLastCalledWith(
         expect.objectContaining({ groupId: "production", offset: 50 }),
       ),
+    );
+    await user.click(
+      screen.getByRole("button", { name: /gateway.routingStatus.filter/ }),
     );
     await user.click(
       screen.getByRole("combobox", { name: "gateway.trace.outcome" }),
@@ -1906,7 +1878,12 @@ describe("route groups and routing data", () => {
       ),
     );
     await user.click(
-      await screen.findByRole("button", { name: "gateway.decisions.details" }),
+      await screen.findByRole("button", {
+        name: "gateway.trace.routingProcess",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "gateway.decisions.details" }),
     );
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Old rule")).toBeInTheDocument();

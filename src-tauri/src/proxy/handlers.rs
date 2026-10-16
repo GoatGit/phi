@@ -2371,7 +2371,9 @@ fn codex_proxy_error_code(error: &ProxyError) -> &'static str {
     match error {
         ProxyError::ForwardFailed(_) => "phi_forward_failed",
         ProxyError::Timeout(_) | ProxyError::StreamIdleTimeout(_) => "phi_timeout",
-        ProxyError::NoAvailableProvider => "phi_no_available_provider",
+        ProxyError::NoAvailableProvider | ProxyError::NoAvailableProviderWithReason(_) => {
+            "phi_no_available_provider"
+        }
         ProxyError::AllProvidersCircuitOpen => "phi_all_providers_circuit_open",
         ProxyError::NoProvidersConfigured => "phi_no_providers_configured",
         ProxyError::MaxRetriesExceeded => "phi_max_retries_exceeded",

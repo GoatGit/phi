@@ -62,7 +62,7 @@ function SortableItem({
         aria-label={t("gateway.groups.dragItem", { name: label })}
         title={t("gateway.groups.dragHint")}
       >
-        <GripVertical data-icon="inline-start" aria-hidden />
+        <GripVertical className="h-3.5 w-3.5" aria-hidden />
       </Button>
       <div className="min-w-0 flex-1">{children}</div>
     </li>

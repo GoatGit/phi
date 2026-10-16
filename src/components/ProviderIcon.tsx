@@ -30,7 +30,9 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({
   // 获取内联 SVG 字符串
   const iconSvg = useMemo(() => {
     if (icon && !isUrlIcon(icon) && hasIcon(icon)) {
-      return getIcon(icon);
+      // 图标源自带的 <title> 会和旁边的名称重复播报/重复匹配，渲染前剥掉；
+      // 可访问名称由外层 title 或相邻文字提供。
+      return getIcon(icon).replace(/<title>[\s\S]*?<\/title>/g, "");
     }
     return "";
   }, [icon]);

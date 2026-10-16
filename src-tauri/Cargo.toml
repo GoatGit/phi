@@ -111,7 +111,10 @@ windows-sys = { version = "0.61", features = [
 rquickjs = { version = "0.8", features = ["bindgen"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.5"
+# macOS Swift-backed Foundation collections can report signed/unsigned
+# encodings differently for ABI-identical integer returns (e.g. NSScreen count).
+# Keep message verification while accepting that signedness difference.
+objc2 = { version = "0.5", features = ["relax-sign-encoding"] }
 objc2-app-kit = { version = "0.2", features = ["NSColor", "NSWindow", "NSView", "NSButton", "NSControl", "NSResponder", "NSEvent", "NSScreen"] }
 
 # dev 构建只用行号表代替完整调试信息：体积大幅缩小（磁盘紧张时的取舍），

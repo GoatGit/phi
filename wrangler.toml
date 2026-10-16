@@ -1,0 +1,5 @@
+# Cloudflare Pages deployment for the phi marketing site.
+# Deploy from the repository root with: npx wrangler pages deploy website
+name = "phi-website"
+pages_build_output_dir = "website"
+compatibility_date = "2026-10-16"

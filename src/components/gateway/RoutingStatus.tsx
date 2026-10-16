@@ -8,11 +8,18 @@ import {
   type GatewayTraceQuery,
 } from "@/lib/api/gateway";
 import { getAppLabel } from "@/config/appConfig";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, SlidersHorizontal } from "lucide-react";
 import { TraceSection } from "./TraceSection";
 import { RoutingFlow } from "./RoutingFlow";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Notice } from "@/components/ui/notice";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { useGlobalProxyConfig } from "@/lib/query/proxy";
 import { GatewaySelect } from "./GroupSection";
 import { GATEWAY_APPS, useGatewayErrorMessage } from "./useGatewayCatalog";
@@ -48,6 +55,13 @@ export function useRoutingData(filters: RoutingFilters, offset = 0) {
     refetchInterval: 5_000,
   });
 }
+function countActiveFilters(filters: RoutingFilters): number {
+  return (
+    Object.keys(defaultRoutingFilters) as (keyof RoutingFilters)[]
+  ).filter((key) => filters[key] !== defaultRoutingFilters[key]).length;
+}
+
+/** 筛选收进单个紧凑入口，弹层内按需调整，避免四个下拉常驻占一行。 */
 export function RoutingFilterBar({
   filters,
   onChange,
@@ -58,72 +72,120 @@ export function RoutingFilterBar({
   catalog?: GatewayCatalog;
 }) {
   const { t } = useTranslation();
+  const active = countActiveFilters(filters);
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-      <GatewaySelect
-        label={t("gateway.routingStatus.window")}
-        value={String(filters.hours)}
-        onChange={(hours) => onChange({ ...filters, hours: Number(hours) })}
-        options={[1, 24, 168, 720].map((hours) => ({
-          value: String(hours),
-          label: t("gateway.routingStatus.hours", { hours }),
-        }))}
-      />
-      <GatewaySelect
-        label={t("gateway.agent")}
-        value={filters.appId}
-        onChange={(appId) => onChange({ ...filters, appId })}
-        options={[
-          { value: "all", label: t("gateway.routingStatus.allApps") },
-          ...GATEWAY_APPS.map((value) => ({
-            value,
-            label: getAppLabel(value),
-          })),
-        ]}
-      />
-      <GatewaySelect
-        label={t("gateway.groups.group")}
-        value={filters.groupId}
-        onChange={(groupId) => onChange({ ...filters, groupId })}
-        options={[
-          { value: "all", label: t("gateway.routingStatus.allGroups") },
-          ...(catalog?.groups ?? []).map((g) => ({
-            value: g.id,
-            label: g.name,
-          })),
-          ...(!catalog?.groups?.some((g) => g.id === filters.groupId) &&
-          filters.groupId !== "all"
-            ? [{ value: filters.groupId, label: filters.groupId }]
-            : []),
-        ]}
-      />
-      <GatewaySelect
-        label={t("gateway.trace.outcome")}
-        value={filters.outcome}
-        onChange={(outcome) => onChange({ ...filters, outcome })}
-        options={[
-          { value: "all", label: t("gateway.routingStatus.allOutcomes") },
-          ...[
-            "completed",
-            "interrupted",
-            "response_error",
-            "authentication",
-            "rate_limit",
-            "upstream_unavailable",
-            "request_rejected",
-            "timeout",
-            "circuit_open",
-            "configuration",
-            "transport",
-            "pending",
-            "upstream_accepted",
-          ].map((value) => ({
-            value,
-            label: t(`gateway.trace.outcomes.${value}`),
-          })),
-        ]}
-      />
-    </div>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm">
+          <SlidersHorizontal data-icon="inline-start" aria-hidden />
+          {t("gateway.routingStatus.filter")}
+          {active > 0 && (
+            <Badge
+              variant="secondary"
+              className="ms-0.5 h-4 min-w-4 px-1 text-[10px] tabular-nums"
+            >
+              {active}
+            </Badge>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-4">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-fg-2">
+              {t("gateway.routingStatus.window")}
+            </span>
+            <GatewaySelect
+              label={t("gateway.routingStatus.window")}
+              value={String(filters.hours)}
+              onChange={(hours) =>
+                onChange({ ...filters, hours: Number(hours) })
+              }
+              options={[1, 24, 168, 720].map((hours) => ({
+                value: String(hours),
+                label: t("gateway.routingStatus.hours", { hours }),
+              }))}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-fg-2">{t("gateway.agent")}</span>
+            <GatewaySelect
+              label={t("gateway.agent")}
+              value={filters.appId}
+              onChange={(appId) => onChange({ ...filters, appId })}
+              options={[
+                { value: "all", label: t("gateway.routingStatus.allApps") },
+                ...GATEWAY_APPS.map((value) => ({
+                  value,
+                  label: getAppLabel(value),
+                })),
+              ]}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-fg-2">
+              {t("gateway.groups.group")}
+            </span>
+            <GatewaySelect
+              label={t("gateway.groups.group")}
+              value={filters.groupId}
+              onChange={(groupId) => onChange({ ...filters, groupId })}
+              options={[
+                { value: "all", label: t("gateway.routingStatus.allGroups") },
+                ...(catalog?.groups ?? []).map((g) => ({
+                  value: g.id,
+                  label: g.name,
+                })),
+                ...(!catalog?.groups?.some((g) => g.id === filters.groupId) &&
+                filters.groupId !== "all"
+                  ? [{ value: filters.groupId, label: filters.groupId }]
+                  : []),
+              ]}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-fg-2">
+              {t("gateway.trace.outcome")}
+            </span>
+            <GatewaySelect
+              label={t("gateway.trace.outcome")}
+              value={filters.outcome}
+              onChange={(outcome) => onChange({ ...filters, outcome })}
+              options={[
+                { value: "all", label: t("gateway.routingStatus.allOutcomes") },
+                ...[
+                  "completed",
+                  "interrupted",
+                  "response_error",
+                  "authentication",
+                  "rate_limit",
+                  "upstream_unavailable",
+                  "request_rejected",
+                  "timeout",
+                  "circuit_open",
+                  "configuration",
+                  "transport",
+                  "pending",
+                  "upstream_accepted",
+                ].map((value) => ({
+                  value,
+                  label: t(`gateway.trace.outcomes.${value}`),
+                })),
+              ]}
+            />
+          </div>
+          {active > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onChange(defaultRoutingFilters)}
+            >
+              {t("gateway.trace.clearFilter")}
+            </Button>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 export function RoutingSummary({
@@ -146,60 +208,78 @@ export function RoutingSummary({
     s.unknownCost > 0 &&
       t("gateway.routingStatus.unknown", { count: s.unknownCost }),
   ].filter(Boolean) as string[];
+  // 主指标回答“路由是否健康”；用量与费用是次级观测，视觉上降一级。
   const metrics = [
-    [
-      t("gateway.routingStatus.requests"),
-      String(s.requests),
-      s.requests > 0
-        ? t("gateway.routingStatus.completedFailed", {
-            completed: s.completed,
-            failed: s.failed,
-            interrupted: s.interrupted,
-          })
-        : null,
-    ],
-    [
-      t("gateway.routingStatus.successRate"),
-      s.requests ? `${((s.completed / s.requests) * 100).toFixed(1)}%` : "—",
-      s.failovers > 0
-        ? t("gateway.routingStatus.failovers", { count: s.failovers })
-        : null,
-    ],
-    [
-      t("gateway.routingStatus.latency"),
-      s.requests ? `${s.p50LatencyMs} / ${s.p95LatencyMs} ms` : "—",
-      null,
-    ],
-    [
-      t("gateway.trace.tokens"),
-      `${s.inputTokens.toLocaleString()} / ${s.outputTokens.toLocaleString()}`,
-      s.unknownUsage > 0
-        ? t("gateway.routingStatus.unknown", { count: s.unknownUsage })
-        : null,
-    ],
-    [
-      t("gateway.trace.cost"),
-      `$${s.estimatedCost}`,
-      costHints.join(" · ") || null,
-    ],
-  ] as const;
+    {
+      label: t("gateway.routingStatus.requests"),
+      value: String(s.requests),
+      hint:
+        s.requests > 0
+          ? t("gateway.routingStatus.completedFailed", {
+              completed: s.completed,
+              failed: s.failed,
+              interrupted: s.interrupted,
+            })
+          : null,
+      primary: true,
+    },
+    {
+      label: t("gateway.routingStatus.successRate"),
+      value: s.requests
+        ? `${((s.completed / s.requests) * 100).toFixed(1)}%`
+        : "—",
+      hint:
+        s.failovers > 0
+          ? t("gateway.routingStatus.failovers", { count: s.failovers })
+          : null,
+      primary: true,
+    },
+    {
+      label: t("gateway.routingStatus.latency"),
+      value: s.requests ? `${s.p50LatencyMs} / ${s.p95LatencyMs} ms` : "—",
+      hint: null,
+      primary: true,
+    },
+    {
+      label: t("gateway.trace.tokens"),
+      value: `${s.inputTokens.toLocaleString()} / ${s.outputTokens.toLocaleString()}`,
+      hint:
+        s.unknownUsage > 0
+          ? t("gateway.routingStatus.unknown", { count: s.unknownUsage })
+          : null,
+      primary: false,
+    },
+    {
+      label: t("gateway.trace.cost"),
+      value: `$${s.estimatedCost}`,
+      hint: costHints.join(" · ") || null,
+      primary: false,
+    },
+  ];
   return (
     <>
       <dl className="grid grid-cols-2 gap-4 rounded-lg border p-4 sm:grid-cols-3 lg:grid-cols-5">
-        {metrics.map(([label, value, hint]) => (
-          <div key={label} className="min-w-0">
-            <dt className="text-xs text-fg-2">{label}</dt>
+        {metrics.map((metric) => (
+          <div key={metric.label} className="min-w-0">
+            <dt className="text-xs text-fg-2">{metric.label}</dt>
             <dd
-              className="mt-1 text-lg font-medium tabular-nums break-words"
+              className={cn(
+                "mt-1 tabular-nums break-words",
+                metric.primary
+                  ? "text-lg font-medium"
+                  : "text-sm font-medium text-fg-2",
+              )}
               title={
-                label === t("gateway.trace.cost")
+                metric.label === t("gateway.trace.cost")
                   ? t("gateway.routingStatus.costNote")
                   : undefined
               }
             >
-              {value}
+              {metric.value}
             </dd>
-            {hint && <dd className="mt-1 text-xs text-fg-3">{hint}</dd>}
+            {metric.hint && (
+              <dd className="mt-1 text-xs text-fg-3">{metric.hint}</dd>
+            )}
           </div>
         ))}
       </dl>
@@ -249,9 +329,6 @@ export function RoutingStatus({
       setOffset(Math.max(0, Math.ceil(query.data.total / 50) - 1) * 50);
     }
   }, [query.data, offset]);
-  const filtered = Object.entries(defaultRoutingFilters).some(
-    ([key, value]) => filters[key as keyof RoutingFilters] !== value,
-  );
   return (
     <section
       className="flex flex-col gap-4"
@@ -263,21 +340,18 @@ export function RoutingStatus({
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-action opacity-60" />
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-action" />
           </span>
-          {t("gateway.routingStatus.description")}
+          {t("gateway.routingStatus.description")} ·{" "}
+          {t("gateway.routingStatus.hours", { hours: filters.hours })}
         </p>
         <div className="flex items-center gap-2">
-          {filtered && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setFilters(defaultRoutingFilters);
-                setOffset(0);
-              }}
-            >
-              {t("gateway.trace.clearFilter")}
-            </Button>
-          )}
+          <RoutingFilterBar
+            filters={filters}
+            onChange={(next) => {
+              setFilters(next);
+              setOffset(0);
+            }}
+            catalog={catalog}
+          />
           <Button
             variant="outline"
             size="sm"
@@ -289,14 +363,6 @@ export function RoutingStatus({
           </Button>
         </div>
       </div>
-      <RoutingFilterBar
-        filters={filters}
-        onChange={(next) => {
-          setFilters(next);
-          setOffset(0);
-        }}
-        catalog={catalog}
-      />
       {config.data?.enableLogging === false && (
         <Notice tone="warning" title={t("gateway.routingStatus.loggingOff")} />
       )}

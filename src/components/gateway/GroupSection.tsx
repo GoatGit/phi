@@ -6,7 +6,7 @@ import type {
   GatewayRouteGroup,
   GatewayStrategy,
 } from "@/lib/api/gateway";
-import { ChevronDown, Trash2 } from "lucide-react";
+import { ChevronDown, History, Trash2 } from "lucide-react";
 import { SortableGroupList } from "./SortableGroupList";
 import {
   Collapsible,
@@ -175,6 +175,10 @@ export function GroupSection({
                 affinityTtlSeconds: 1800,
                 failover: true,
                 maxAttempts: 3,
+                // 与后端 ProxyConfig 默认值一致（秒）
+                streamingFirstByteTimeout: 60,
+                streamingIdleTimeout: 120,
+                nonStreamingTimeout: 600,
                 rules: [],
               },
             });
@@ -202,106 +206,129 @@ export function GroupSection({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {groups.map((group) => (
-              <TableRow key={group.id}>
-                <TableCell>
-                  <Switch
-                    size="sm"
-                    aria-label={`${group.name} ${t("gateway.policy.enabled")}`}
-                    checked={group.enabled}
-                    disabled={save.isPending}
-                    onCheckedChange={(enabled) =>
-                      save.mutate({
-                        ...catalog,
-                        groups: groups.map((g) =>
-                          g.id === group.id ? { ...g, enabled } : g,
-                        ),
-                      })
-                    }
-                  />
-                </TableCell>
-                <TableCell>
-                  <span className="font-medium">{group.name}</span>
-                  <code
-                    className="block max-w-48 truncate text-xs text-fg-3"
-                    title={`group/${group.id}`}
-                  >
-                    group/{group.id}
-                  </code>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1">
-                    <Badge variant="secondary">
-                      {t(`gateway.groups.strategies.${group.strategy}`)}
-                    </Badge>
-                    {group.failover && (
-                      <Badge variant="outline">
-                        {t("gateway.policy.failover")}
+            {groups.map((group) => {
+              // 辅助策略只作低强调摘要，不再叠加成排徽标。
+              const aux = [
+                group.failover ? t("gateway.policy.failover") : null,
+                group.sessionAffinity ? t("gateway.groups.affinity") : null,
+                group.rules.some((r) => r.enabled)
+                  ? t("gateway.groups.intent")
+                  : null,
+              ].filter(Boolean) as string[];
+              const disabledCount = group.members.filter(
+                (m) => !m.enabled,
+              ).length;
+              // 完整成员（含停用、权重）放悬浮提示；行内只保留摘要。
+              const membersTitle = group.members
+                .map(
+                  (member) =>
+                    memberLabel(member, catalog) +
+                    (!member.enabled ? ` · ${t("gateway.groups.off")}` : "") +
+                    (group.strategy === "weighted"
+                      ? ` · ${t("gateway.groups.weight")} ${member.weight}`
+                      : ""),
+                )
+                .join("\n");
+              const shownMembers = group.members.slice(0, 3);
+              const restMembers = group.members.length - shownMembers.length;
+              return (
+                <TableRow key={group.id}>
+                  <TableCell>
+                    <Switch
+                      size="sm"
+                      aria-label={`${group.name} ${t("gateway.policy.enabled")}`}
+                      checked={group.enabled}
+                      disabled={save.isPending}
+                      onCheckedChange={(enabled) =>
+                        save.mutate({
+                          ...catalog,
+                          groups: groups.map((g) =>
+                            g.id === group.id ? { ...g, enabled } : g,
+                          ),
+                        })
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-medium" title={group.name}>
+                      {group.name}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col items-start gap-1">
+                      <Badge variant="secondary">
+                        {t(`gateway.groups.strategies.${group.strategy}`)}
                       </Badge>
-                    )}
-                    {group.sessionAffinity && (
-                      <Badge variant="outline">
-                        {t("gateway.groups.affinity")}
-                      </Badge>
-                    )}
-                    {group.rules.some((r) => r.enabled) && (
-                      <Badge variant="outline">
-                        {t("gateway.groups.intent")}
-                      </Badge>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex max-w-64 flex-col gap-1">
-                    {group.members.map((member) => (
-                      <span
-                        key={member.id}
-                        className="truncate text-xs text-fg-2"
-                        title={memberLabel(member, catalog)}
+                      {aux.length > 0 && (
+                        <span className="whitespace-nowrap text-xs text-fg-3">
+                          {aux.join(" · ")}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="max-w-64">
+                      {group.members.length ? (
+                        <span
+                          className="block truncate text-xs text-fg-2"
+                          title={membersTitle}
+                        >
+                          {shownMembers
+                            .map((member) => memberLabel(member, catalog))
+                            .join(" · ")}
+                          {restMembers > 0 ? ` +${restMembers}` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-fg-3">—</span>
+                      )}
+                      {disabledCount > 0 && (
+                        <span className="block text-xs text-fg-3">
+                          {t("gateway.groups.disabledMembers", {
+                            count: disabledCount,
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="icon-compact"
+                        variant="ghost"
+                        aria-label={t("gateway.policy.viewRequests")}
+                        title={t("gateway.policy.viewRequests")}
+                        onClick={() => onOpenTraces(group.id)}
                       >
-                        {memberLabel(member, catalog)}
-                        {!member.enabled && ` · ${t("gateway.groups.off")}`}
-                        {group.strategy === "weighted" && ` · ${member.weight}`}
-                      </span>
-                    ))}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onOpenTraces(group.id)}
-                    >
-                      {t("gateway.policy.viewRequests")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        save.reset();
-                        setEditing({
-                          group: structuredClone(group),
-                          revision: catalog.revision,
-                          isNew: false,
-                        });
-                      }}
-                    >
-                      {t("gateway.policy.edit")}
-                    </Button>
-                    <Button
-                      size="icon-compact"
-                      variant="ghost"
-                      aria-label={t("gateway.groups.removeTitle")}
-                      title={t("gateway.groups.removeTitle")}
-                      onClick={() => setDeleting(group)}
-                    >
-                      <Trash2 data-icon="inline-start" aria-hidden />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+                        <History data-icon="inline-start" aria-hidden />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          save.reset();
+                          setEditing({
+                            group: structuredClone(group),
+                            revision: catalog.revision,
+                            isNew: false,
+                          });
+                        }}
+                      >
+                        {t("gateway.policy.edit")}
+                      </Button>
+                      <Button
+                        size="icon-compact"
+                        variant="ghost"
+                        aria-label={t("gateway.groups.removeTitle")}
+                        title={t("gateway.groups.removeTitle")}
+                        onClick={() => setDeleting(group)}
+                      >
+                        <Trash2 data-icon="inline-start" aria-hidden />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       )}
@@ -499,6 +526,8 @@ function GroupDialog({
           <DialogDescription>
             {t("gateway.groups.editorHint")}
           </DialogDescription>
+          {/* 技术 ID 从列表移除后，编辑弹窗成为它的固定查看入口。 */}
+          <p className="font-mono text-xs text-fg-3">group/{draft.id}</p>
         </DialogHeader>
         {(error || validation || stale) && (
           <div

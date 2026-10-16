@@ -31,6 +31,9 @@ export function UsagePage({ initialAppType, onBack }: UsagePageProps = {}) {
         tabs={
           <PageTabs
             size="lg"
+            /* 底边对齐页头并下压 1px：页签自己的底线正好压在页头分割线上，
+               不然居中布局会在两者之间留出一条白缝 */
+            className="self-end -mb-px"
             aria-label={t("nav.usage")}
             value={tab}
             onValueChange={(value) => setTab(value as UsageTab)}

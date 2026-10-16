@@ -16,6 +16,7 @@ import {
 import { DialogTitle } from "@/components/ui/dialog";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
+import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
 import { APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 import { useIsMutating } from "@tanstack/react-query";
 import {
@@ -88,6 +89,7 @@ const IMPORT_SOURCE_FILES: Record<
   hermes: { file: "~/.hermes/config.yaml" },
   pi: { file: "~/.pi/agent/mcp.json" },
   mcode: { file: "~/.minimax/mcp.json" },
+  zcode: { file: "~/.zcode/cli/db/db.sqlite" },
 };
 
 /** 先写配置文件、成功后才入库的应用：写失败时开关没变，重试要逐行重写 */
@@ -103,6 +105,8 @@ const failKey = (id: string, app: McpAppId) => `${id}\u0000${app}`;
 
 interface UnifiedMcpPanelProps {
   onInteractionBlockedChange?: (blocked: boolean) => void;
+  /** 从应用页下钻进来时的返回 */
+  onBack?: () => void;
 }
 
 interface ImportReport {
@@ -117,6 +121,7 @@ interface ImportReport {
  */
 const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
   onInteractionBlockedChange,
+  onBack,
 }) => {
   const { t } = useTranslation();
   const appIds = useVisibleAppIds(MCP_APP_IDS);
@@ -567,6 +572,7 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
   return (
     <>
       <AppPageHeader
+        leading={onBack && <PageHeaderBackButton onClick={onBack} />}
         icon={<Server className="h-5 w-5" strokeWidth={1.5} />}
         title="MCP"
         titleExtra={
@@ -638,6 +644,7 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
         {showList && (
           <div className="flex h-14 shrink-0 items-center gap-3 px-6">
             <MatrixSearch
+              collapsible
               className="w-[320px] min-w-[180px] shrink"
               value={searchQuery}
               onValueChange={setSearchQuery}

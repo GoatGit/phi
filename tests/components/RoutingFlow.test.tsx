@@ -61,6 +61,9 @@ const trace: GatewayRequestTrace = {
       affinityTtlSeconds: 30,
       failover: true,
       maxAttempts: 3,
+      streamingFirstByteTimeout: 60,
+      streamingIdleTimeout: 180,
+      nonStreamingTimeout: 600,
       rules: [],
     })),
     candidates: ["a", "b", "c"].map((supplierId) => ({

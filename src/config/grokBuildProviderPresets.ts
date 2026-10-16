@@ -143,7 +143,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "PatewayAI",
     websiteUrl: "https://pateway.ai",
-    apiKeyUrl: "https://pateway.ai/?ch=etzpm8&aff=WB6M6F67#/",
+    apiKeyUrl: "https://pateway.ai/?ch=etzpm8",
     auth: grokAuth(),
     config: grokPresetConfig("PatewayAI", "https://api.pateway.ai/v1"),
     endpointCandidates: ["https://api.pateway.ai/v1"],
@@ -156,7 +156,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
     name: "FennoAI",
     websiteUrl: "https://api.fenno.ai",
     apiKeyUrl:
-      "https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16&aff=P9MR3D3PLCNL",
+      "https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16",
     auth: grokAuth(),
     config: grokPresetConfig("FennoAI", "https://api.fenno.ai"),
     endpointCandidates: ["https://api.fenno.ai"],
@@ -168,7 +168,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "RunAPI",
     websiteUrl: "https://runapi.host",
-    apiKeyUrl: "https://runapi.host/register?aff=iOKB",
+    apiKeyUrl: "https://runapi.host/register",
     auth: grokAuth(),
     config: grokPresetConfig("RunAPI", "https://runapi.host/v1"),
     endpointCandidates: ["https://runapi.host/v1", "https://runapi.co/v1"],
@@ -238,7 +238,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "SubRouter",
     websiteUrl: "https://subrouter.ai",
-    apiKeyUrl: "https://subrouter.ai/register?aff=l3ri",
+    apiKeyUrl: "https://subrouter.ai/register",
     auth: grokAuth(),
     config: grokPresetConfig("SubRouter", "https://subrouter.ai/v1"),
     endpointCandidates: ["https://subrouter.ai/v1"],
@@ -250,7 +250,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "88API",
     websiteUrl: "https://88api.ai",
-    apiKeyUrl: "https://88api.ai/sign-up?aff=HSGY",
+    apiKeyUrl: "https://88api.ai/sign-up",
     auth: grokAuth(),
     config: grokPresetConfig("88API", "https://api.88api.ai/v1"),
     endpointCandidates: ["https://api.88api.ai/v1", "https://88api.ai/v1"],
@@ -280,7 +280,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "9527CODE",
     websiteUrl: "https://9527.codes",
-    apiKeyUrl: "https://9527.codes/register?aff=e5zI",
+    apiKeyUrl: "https://9527.codes/register",
     auth: grokAuth(),
     config: grokPresetConfig("9527CODE", "https://9527.codes/v1"),
     endpointCandidates: [
@@ -308,8 +308,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "TeamoRouter",
     websiteUrl: "https://teamorouter.cn",
-    apiKeyUrl:
-      "https://teamorouter.cn/?utm_source=phi&utm_medium=referral&utm_campaign=ai_directory",
+    apiKeyUrl: "https://teamorouter.cn/",
     auth: grokAuth(),
     config: grokPresetConfig("TeamoRouter", "https://api.teamorouter.cn/v1"),
     endpointCandidates: [
@@ -324,7 +323,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "ClaudeCN",
     websiteUrl: "https://claudecn.top",
-    apiKeyUrl: "https://claudecn.ai/register?aff=HEL9",
+    apiKeyUrl: "https://claudecn.ai/register",
     auth: grokAuth(),
     config: grokPresetConfig("ClaudeCN", "https://claudecn.top/v1"),
     category: "third_party",
@@ -335,7 +334,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "A6API",
     websiteUrl: "https://www.a6api.com",
-    apiKeyUrl: "https://a6api.com/register?aff=AqNr",
+    apiKeyUrl: "https://a6api.com/register",
     auth: grokAuth(),
     config: grokPresetConfig("A6API", "https://api.a6api.com/v1"),
     endpointCandidates: ["https://api.a6api.com/v1"],
@@ -426,7 +425,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "Micu",
     websiteUrl: "https://www.micuapi.ai",
-    apiKeyUrl: "https://www.micuapi.ai/register?aff=aOYQ",
+    apiKeyUrl: "https://www.micuapi.ai/register",
     auth: grokAuth(),
     config: grokPresetConfig("Micu", "https://www.micuapi.ai/v1"),
     endpointCandidates: ["https://www.micuapi.ai/v1"],
@@ -469,7 +468,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
   {
     name: "CrazyRouter",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm",
+    apiKeyUrl: "https://www.crazyrouter.com/register",
     auth: grokAuth(),
     config: grokPresetConfig("CrazyRouter", "https://cn.crazyrouter.com/v1"),
     endpointCandidates: ["https://cn.crazyrouter.com/v1"],
@@ -493,7 +492,7 @@ export const grokBuildProviderPresets: GrokBuildProviderPreset[] = [
     name: "SudoCode.chat",
     family: "sudocode",
     websiteUrl: "https://sudocode.chat",
-    apiKeyUrl: "https://sudocode.chat/sign-up?&utm_medium=sponsor",
+    apiKeyUrl: "https://sudocode.chat/sign-up?",
     auth: grokAuth(),
     config: grokPresetConfig("SudoCode.chat", "https://api.sudocode.chat/v1"),
     endpointCandidates: [

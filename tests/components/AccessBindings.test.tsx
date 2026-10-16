@@ -49,6 +49,9 @@ const group: GatewayRouteGroup = {
   affinityTtlSeconds: 600,
   failover: true,
   maxAttempts: 2,
+  streamingFirstByteTimeout: 60,
+  streamingIdleTimeout: 180,
+  nonStreamingTimeout: 600,
   rules: [],
 };
 beforeEach(() => {

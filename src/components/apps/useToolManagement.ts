@@ -192,6 +192,14 @@ export const TOOL_APP_IDS: Record<ToolName, AppId> = {
   mcode: "mcode",
 };
 
+/** 应用 ID → CLI 工具名（无 CLI 的应用返回 undefined，如 Claude Desktop / ZCode） */
+export function toolNameForApp(app: AppId): ToolName | undefined {
+  const entry = (Object.entries(TOOL_APP_IDS) as [ToolName, AppId][]).find(
+    ([, appId]) => appId === app,
+  );
+  return entry?.[0];
+}
+
 // 工具版本探测代价高：每个工具一次 `--version` 子进程 + 一次 npm/github/pypi 网络请求。
 // 「应用」页离开就卸载，每次回来都重挂，若都全量重查纯属浪费。用「模块级」缓存（生命周期 = JS 模块 = 应用会话，不随组件卸载销毁）
 // 跨重挂存活：重挂时若缓存仍新鲜（距上次全量加载 < TTL）直接复用、跳过探测；超期或用户

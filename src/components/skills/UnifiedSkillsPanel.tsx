@@ -26,6 +26,7 @@ import {
 import { HoverTip } from "@/components/ui/hover-tip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
+import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
 import { AppGlyph, APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 import { SkillsIcon } from "@/components/BrandIcons";
 import {
@@ -95,6 +96,8 @@ interface UnifiedSkillsPanelProps {
   initialView?: SkillsView;
   onInteractionBlockedChange?: (blocked: boolean) => void;
   onNavigationBlockedChange?: (blocked: boolean) => void;
+  /** 从应用页下钻进来时的返回 */
+  onBack?: () => void;
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -120,6 +123,7 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
   initialView = "installed",
   onInteractionBlockedChange,
   onNavigationBlockedChange,
+  onBack,
 }) => {
   const { t, i18n } = useTranslation();
   const appIds = useVisibleAppIds(SKILLS_APP_IDS);
@@ -893,6 +897,7 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
 
   const header = (
     <AppPageHeader
+      leading={onBack && <PageHeaderBackButton onClick={onBack} />}
       icon={<SkillsIcon size={20} />}
       title="Skills"
       titleExtra={
@@ -1471,6 +1476,7 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
             loadOk && nInstalled > 0 ? (
               <div className="flex items-center gap-2">
                 <MatrixSearch
+                  collapsible
                   className="w-[280px] min-w-[160px] shrink"
                   value={searchQuery}
                   onValueChange={setSearchQuery}

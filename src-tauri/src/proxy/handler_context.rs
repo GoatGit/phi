@@ -214,6 +214,13 @@ impl RequestContext {
                 let providers = if let Some(route) = &gateway_route {
                     app_config.auto_failover_enabled = route.policy.failover;
                     app_config.max_retries = route.providers.len().saturating_sub(1) as u32;
+                    // 组驱动的路由用自己的故障转移超时策略；策略直连（无组）沿用应用配置
+                    if let Some(timeouts) = &route.timeouts {
+                        app_config.streaming_first_byte_timeout =
+                            timeouts.streaming_first_byte;
+                        app_config.streaming_idle_timeout = timeouts.streaming_idle;
+                        app_config.non_streaming_timeout = timeouts.non_streaming;
+                    }
                     route.providers.clone()
                 } else {
                     state
@@ -231,10 +238,41 @@ impl RequestContext {
                         })?
                 };
 
-                let provider = providers
-                    .first()
-                    .cloned()
-                    .ok_or(ProxyError::NoAvailableProvider)?;
+                let provider = providers.first().cloned().ok_or_else(|| {
+                    // 组内候选全部不可用（如全员冷却中）：把各自原因和剩余时间
+                    // 带给调用方，终端不再只看到一句「无可用 Provider」。
+                    if let Some(route) = &gateway_route {
+                        let now = crate::gateway::routing::now();
+                        let detail = route
+                            .decision
+                            .candidates
+                            .iter()
+                            .map(|c| {
+                                let reason = if c.reason == "cooldown" {
+                                    "冷却中".to_string()
+                                } else {
+                                    c.reason.clone()
+                                };
+                                let remain = c
+                                    .cooldown_until
+                                    .filter(|t| *t > now)
+                                    .map(|t| {
+                                        format!("，冷却剩余 {}s", t.saturating_sub(now) / 1000)
+                                    })
+                                    .unwrap_or_default();
+                                format!("{} · {}：{reason}{remain}", c.supplier_name, c.model)
+                            })
+                            .collect::<Vec<_>>()
+                            .join("；");
+                        if detail.is_empty() {
+                            ProxyError::NoAvailableProvider
+                        } else {
+                            ProxyError::NoAvailableProviderWithReason(detail)
+                        }
+                    } else {
+                        ProxyError::NoAvailableProvider
+                    }
+                })?;
 
                 log::debug!(
                     "[{}] Provider: {}, model: {}, failover chain: {} providers, session: {}",

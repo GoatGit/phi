@@ -1440,6 +1440,7 @@ pub fn run() {
             terminal::terminal_restart,
             terminal::terminal_close,
             terminal::terminal_present,
+            terminal::terminal_set_visible,
             commands::get_gateway_catalog,
             commands::diagnose_gateway,
             commands::diagnose_adapters,

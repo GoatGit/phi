@@ -53,6 +53,7 @@ fn app_display_name(app: &AppType) -> &'static str {
         AppType::Gemini => "Gemini CLI",
         AppType::GrokBuild => "Grok Build",
         AppType::OpenCode => "OpenCode",
+        AppType::Zcode => "ZCode",
         AppType::OpenClaw => "OpenClaw",
         AppType::Hermes => "Hermes",
         AppType::Pi => "Pi",

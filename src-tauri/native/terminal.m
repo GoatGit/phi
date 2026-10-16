@@ -9,6 +9,14 @@
 static ghostty_app_t core;
 static phi_terminal_callback emit;
 static NSMutableDictionary *views;
+// PHI_TERMINAL_TRACE=1 时输出输入链路诊断（keyDown/insertText/present/焦点归属），
+// 用于定位「终端打字无效」类问题： PHI_TERMINAL_TRACE=1 open -n PHI.app 后看 stderr。
+static int traceEnabled = -1;
+static BOOL trace(void) {
+  if (traceEnabled < 0) traceEnabled = getenv("PHI_TERMINAL_TRACE") != NULL;
+  return traceEnabled;
+}
+#define TRACE(...) do { if (trace()) NSLog(@"[phi-terminal] " __VA_ARGS__); } while (0)
 static char background[] = "--background=ffffff";
 static char foreground[] = "--foreground=18181b";
 static char *arguments[] = {"phi-terminal", "--font-family=Menlo", "--font-size=13",
@@ -60,6 +68,8 @@ static void tick(void) {
     }
   }
 }
+// 嵌入式宿主（试验台/诊断工具）没有自己的事件循环时，用这个导出泵 ghostty。
+void phi_terminal_tick(void) { tick(); }
 static void wakeup(void *unused) {
   (void)unused;
   dispatch_async(dispatch_get_main_queue(), ^{ tick(); });
@@ -144,6 +154,9 @@ static ghostty_input_mods_e modifiers(NSEventModifierFlags flags) {
 - (BOOL)becomeFirstResponder {
   if (self.hidden || self.inputBlocked) return NO;
   if (_surface) { ghostty_app_set_focus(core, NSApp.active); ghostty_surface_set_focus(_surface, true); }
+  // 宿主要知道哪个窗格获得了焦点（点击窗格、⌘[ ⌘] 循环都会走到这里）
+  TRACE(@"becomeFirstResponder %@", self.sessionId);
+  report(self, "focus");
   return YES;
 }
 - (BOOL)resignFirstResponder { if (_surface) ghostty_surface_set_focus(_surface, false); return YES; }
@@ -234,23 +247,39 @@ static ghostty_input_mods_e modifiers(NSEventModifierFlags flags) {
   NSString *plain = event.type == NSEventTypeFlagsChanged ? nil : [event charactersByApplyingModifiers:0];
   if (plain.length) { NSData *data = [plain dataUsingEncoding:NSUTF32LittleEndianStringEncoding]; if (data.length >= 4) memcpy(&key.unshifted_codepoint, data.bytes, 4); }
   if (text.length && [text characterAtIndex:0] >= 0x20 && !([text characterAtIndex:0] >= 0xf700 && [text characterAtIndex:0] <= 0xf8ff)) key.text = text.UTF8String;
-  ghostty_surface_key(_surface, key);
+  BOOL handled = ghostty_surface_key(_surface, key);
+  TRACE(@"sendKey textLength=%lu handled=%d", (unsigned long)text.length, handled);
 }
 - (BOOL)performKeyEquivalent:(NSEvent *)event {
   if (self.window.firstResponder != self) return NO;
   if (!(event.modifierFlags & NSEventModifierFlagCommand)) return NO;
+  bool alt = (event.modifierFlags & NSEventModifierFlagOption) != 0;
+  bool shift = (event.modifierFlags & NSEventModifierFlagShift) != 0;
   NSString *key = event.charactersIgnoringModifiers.lowercaseString;
   if ([key isEqual:@"t"]) { report(self, "new"); return YES; }
   if ([key isEqual:@"w"]) { report(self, "close"); return YES; }
   if ([key isEqual:@"q"]) { report(self, "quit"); return YES; }
-  if ((event.modifierFlags & NSEventModifierFlagShift) && (event.keyCode == 33 || event.keyCode == 30)) {
+  if (shift && (event.keyCode == 33 || event.keyCode == 30)) {
     report(self, event.keyCode == 33 ? "previous" : "next"); return YES;
+  }
+  // Ghostty 分屏键位：⌘D 右、⇧⌘D 下；上/左用 Option 组合
+  if ([key isEqual:@"d"]) {
+    report(self, alt ? (shift ? "split:up" : "split:left")
+                    : (shift ? "split:down" : "split:right"));
+    return YES;
+  }
+  // ⌘[ / ⌘] 在窗格间移动（⇧⌘[ / ⇧⌘] 仍是标签页切换）
+  if (!shift && !alt && (event.keyCode == 33 || event.keyCode == 30)) {
+    report(self, event.keyCode == 33 ? "pane-previous" : "pane-next"); return YES;
   }
   if ([key isEqual:@"c"]) { if (_surface) ghostty_surface_binding_action(_surface, "copy_to_clipboard", 17); return YES; }
   if ([key isEqual:@"v"]) { if (_surface) ghostty_surface_binding_action(_surface, "paste_from_clipboard", 20); return YES; }
   [self keyDown:event]; return YES;
 }
 - (void)keyDown:(NSEvent *)event {
+  TRACE(@"keyDown hidden=%d blocked=%d firstResponder=%d",
+    self.hidden, self.inputBlocked,
+    self.window.firstResponder == self);
   if (!_surface || self.inputBlocked || self.hidden) return;
   BOOL composingBefore = self.hasMarkedText;
   self.keyText = [NSMutableArray new];
@@ -282,7 +311,7 @@ static ghostty_input_mods_e modifiers(NSEventModifierFlags flags) {
 }
 - (void)mouseButton:(NSEvent *)event pressed:(BOOL)pressed button:(ghostty_input_mouse_button_e)button {
   if (!_surface || self.inputBlocked || self.hidden) return;
-  if (pressed) [self.window makeFirstResponder:self];
+  if (pressed) { TRACE(@"mouse down -> makeFirstResponder %@", self.sessionId); [self.window makeFirstResponder:self]; }
   [self mouseMoved:event];
   ghostty_surface_mouse_button(_surface, pressed ? GHOSTTY_MOUSE_PRESS : GHOSTTY_MOUSE_RELEASE, button, modifiers(event.modifierFlags));
 }
@@ -310,6 +339,7 @@ static ghostty_input_mods_e modifiers(NSEventModifierFlags flags) {
 - (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }
 - (NSArray<NSAttributedStringKey> *)validAttributesForMarkedText { return @[]; }
 - (void)setMarkedText:(id)text selectedRange:(NSRange)selected replacementRange:(NSRange)replacement {
+  TRACE(@"setMarkedText");
   (void)selected; (void)replacement;
   NSString *string = [text isKindOfClass:NSAttributedString.class] ? [text string] : text;
   [self.marked replaceCharactersInRange:NSMakeRange(0, self.marked.length) withString:string];
@@ -318,7 +348,12 @@ static ghostty_input_mods_e modifiers(NSEventModifierFlags flags) {
 - (void)unmarkText { [self.marked deleteCharactersInRange:NSMakeRange(0, self.marked.length)]; if (_surface) ghostty_surface_preedit(_surface, NULL, 0); }
 - (void)insertText:(id)text replacementRange:(NSRange)replacement {
   (void)replacement;
-  NSString *string = [text isKindOfClass:NSAttributedString.class] ? [text string] : text;
+  // Input methods can hand us a mutable string and clear/reuse it as soon as
+  // this callback returns. keyDown consumes the accumulator only after
+  // interpretKeyEvents returns, so retaining that string loses the text.
+  // Snapshot before unmarkText too, in case the commit aliases preedit storage.
+  NSString *string = [([text isKindOfClass:NSAttributedString.class] ? [text string] : text) copy];
+  TRACE(@"insertText length=%lu inKeyDown=%d", (unsigned long)string.length, self.keyText != nil);
   [self unmarkText];
   if (self.keyText) [self.keyText addObject:string];
   else if (_surface) ghostty_surface_text(_surface, string.UTF8String, strlen(string.UTF8String));
@@ -425,12 +460,17 @@ void phi_terminal_present(const char *id, double x, double y, double width,
                           double height, bool visible, bool focus, bool dark,
                           const char *theme_config, const char *overlay_config) {
   PHITerminalView *view = views[[NSString stringWithUTF8String:id]];
+  TRACE(@"present %s viewMissing=%d frame=(%.0f,%.0f %.0fx%.0f)",
+    id, view == nil, x, y, width, height);
   if (!view) return;
-  for (PHITerminalView *other in views.allValues) if (other != view) {
-    if (other.window.firstResponder == other) [other.window makeFirstResponder:nil];
-    other.hidden = YES; other.restoreFocusOnActivate = NO;
-    ghostty_surface_set_focus(other.surface, false); ghostty_surface_set_occlusion(other.surface, false);
-  }
+  NSDictionary *traceOverlay = overlay_config
+    ? [NSJSONSerialization JSONObjectWithData:
+        [[NSString stringWithUTF8String:overlay_config] dataUsingEncoding:NSUTF8StringEncoding]
+        options:0 error:nil]
+    : nil;
+  TRACE(@"present-detail %s visible=%d focus=%d blocked=%d",
+    id, visible, focus, [traceOverlay[@"blocked"] boolValue]);
+  // 分屏：多个窗格同时可见，谁可见由 set_visible 决定；这里只管自己的几何与焦点。
   NSString *colors = theme_config ? [NSString stringWithUTF8String:theme_config] : @"";
   if (darkTheme != dark || ![activeThemeConfig isEqualToString:colors]) {
     darkTheme = dark;
@@ -451,13 +491,32 @@ void phi_terminal_present(const char *id, double x, double y, double width,
     if (view.window.firstResponder == view) [view.window makeFirstResponder:nil];
     ghostty_surface_set_focus(view.surface, false);
   } else if (focus) {
-    [view.window makeFirstResponder:view];
+    BOOL focused = [view.window makeFirstResponder:view];
     // AppKit can already consider this view first responder after activation;
     // explicitly synchronize Ghostty instead of relying on another callback.
     ghostty_app_set_focus(core, NSApp.active);
     ghostty_surface_set_focus(view.surface, view.window.firstResponder == view);
+    TRACE(@"present focus makeFirstResponder=%d nowFirstResponder=%d",
+      focused, view.window.firstResponder == view);
   }
   [view resizeSurface];
+}
+void phi_terminal_set_visible(const char *ids_json) {
+  // ids_json: ["id:gen", …]；不在此列的视图全部隐藏（切标签页、关窗格、离开终端页）。
+  NSArray *ids = [NSJSONSerialization JSONObjectWithData:
+    [[NSString stringWithUTF8String:ids_json ?: "[]"] dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+  if (![ids isKindOfClass:NSArray.class]) return;
+  TRACE(@"set_visible %@", ids);
+  NSSet *visible = [NSSet setWithArray:ids];
+  for (NSString *key in views) {
+    PHITerminalView *view = views[key];
+    if ([visible containsObject:key]) continue;
+    if (view.window.firstResponder == view) [view.window makeFirstResponder:nil];
+    view.hidden = YES;
+    view.restoreFocusOnActivate = NO;
+    ghostty_surface_set_focus(view.surface, false);
+    ghostty_surface_set_occlusion(view.surface, false);
+  }
 }
 bool phi_terminal_exited(const char *id) {
   PHITerminalView *view = views[[NSString stringWithUTF8String:id]];

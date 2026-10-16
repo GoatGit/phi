@@ -389,10 +389,8 @@ fn group_selection_persists_checks_revision_and_restores_failed_connections() {
         Some("root")
     );
     let entry = db.gateway_entry_provider("claude").unwrap().unwrap();
-    assert_eq!(
-        entry.settings_config["env"]["ANTHROPIC_MODEL"],
-        "group/root"
-    );
+    // 投影进客户端配置的模型是首成员的真实模型（不再是 group/<id> 路由标记）
+    assert_eq!(entry.settings_config["env"]["ANTHROPIC_MODEL"], "m");
     assert!(!entry.settings_config.to_string().contains("secret"));
     let previous = db
         .select_gateway_group("claude", "other", Some(selected.revision))
@@ -455,6 +453,65 @@ async fn materialization_preserves_multiple_models_and_pending_trace_without_log
     t.outcome = "interrupted".into();
     db.gateway_runtime.complete(&t);
     assert!(db.gateway_runtime.active().is_empty());
+}
+
+#[tokio::test]
+async fn group_timeout_policy_defaults_validated_and_carried_into_routes() {
+    // 旧目录 JSON 没有超时字段：反序列化落到默认值
+    let c = catalog();
+    assert_eq!(c.groups[0].streaming_first_byte_timeout, 60);
+    assert_eq!(c.groups[0].streaming_idle_timeout, 180);
+    assert_eq!(c.groups[0].non_streaming_timeout, 600);
+    assert!(validate(&c).is_ok());
+
+    for mutation in 0..4 {
+        let mut c = c.clone();
+        match mutation {
+            0 => c.groups[0].streaming_first_byte_timeout = 0,
+            1 => c.groups[0].streaming_first_byte_timeout = 121,
+            2 => c.groups[0].streaming_idle_timeout = 601,
+            _ => c.groups[0].non_streaming_timeout = 1201,
+        }
+        assert!(validate(&c).is_err(), "mutation {mutation}");
+    }
+
+    // 组驱动的路由把组自己的超时策略带进 ResolvedRoute
+    let mut custom = c.clone();
+    custom.groups[0].streaming_first_byte_timeout = 120;
+    custom.groups[0].streaming_idle_timeout = 0;
+    custom.groups[0].non_streaming_timeout = 1200;
+    assert!(validate(&custom).is_ok());
+
+    let db = Database::memory().unwrap();
+    let c = db
+        .create_gateway_supplier(SupplierUpsert {
+            revision: Some(0),
+            name: Some("A".into()),
+            endpoint: Some(Endpoint {
+                protocol: "anthropic".into(),
+                base_url: "https://a.invalid".into(),
+            }),
+            models: Some(vec!["m".into(), "n".into()]),
+            api_key: Some("secret".into()),
+            auth_field: Some("ANTHROPIC_API_KEY".into()),
+        })
+        .unwrap();
+    let mut group = custom.groups.remove(0);
+    group.members[0].supplier_id = Some(c.suppliers[0].id.clone());
+    group.members[1].supplier_id = Some(c.suppliers[0].id.clone());
+    group.members[1].model = "n".into();
+    let mut saved = c;
+    saved.groups.push(group);
+    db.save_gateway_catalog(saved).unwrap();
+    let (route, _) = db
+        .plan_gateway_request("claude", "group/root", None, &json!({}), false)
+        .await
+        .unwrap()
+        .unwrap();
+    let timeouts = route.timeouts.expect("group timeouts");
+    assert_eq!(timeouts.streaming_first_byte, 120);
+    assert_eq!(timeouts.streaming_idle, 0);
+    assert_eq!(timeouts.non_streaming, 1200);
 }
 
 #[test]

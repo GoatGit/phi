@@ -219,7 +219,7 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
   {
     name: "SubRouter",
     websiteUrl: "https://subrouter.ai",
-    apiKeyUrl: "https://subrouter.ai/register?aff=l3ri",
+    apiKeyUrl: "https://subrouter.ai/register",
     settingsConfig: {
       env: {
         GOOGLE_GEMINI_BASE_URL: "https://subrouter.ai/v1beta",
@@ -238,7 +238,7 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
   {
     name: "88API",
     websiteUrl: "https://88api.ai",
-    apiKeyUrl: "https://88api.ai/sign-up?aff=HSGY",
+    apiKeyUrl: "https://88api.ai/sign-up",
     settingsConfig: {
       env: {
         GOOGLE_GEMINI_BASE_URL: "https://api.88api.ai",
@@ -282,7 +282,7 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
   {
     name: "9527CODE",
     websiteUrl: "https://9527.codes",
-    apiKeyUrl: "https://9527.codes/register?aff=e5zI",
+    apiKeyUrl: "https://9527.codes/register",
     settingsConfig: {
       env: {
         GOOGLE_GEMINI_BASE_URL: "https://9527.codes",
@@ -324,7 +324,7 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
   {
     name: "A6API",
     websiteUrl: "https://www.a6api.com",
-    apiKeyUrl: "https://a6api.com/register?aff=AqNr",
+    apiKeyUrl: "https://a6api.com/register",
     settingsConfig: {
       env: {
         GOOGLE_GEMINI_BASE_URL: "https://api.a6api.com",
@@ -411,7 +411,7 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
   {
     name: "CrazyRouter",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm",
+    apiKeyUrl: "https://www.crazyrouter.com/register",
     settingsConfig: {
       env: {
         GOOGLE_GEMINI_BASE_URL: "https://cn.crazyrouter.com",
@@ -450,7 +450,7 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
   {
     name: "XycAi",
     websiteUrl: "https://xycai.us",
-    apiKeyUrl: "https://xycai.us/register?aff=Uhu9",
+    apiKeyUrl: "https://xycai.us/register",
     settingsConfig: {
       env: {
         GOOGLE_GEMINI_BASE_URL: "https://apicdn.xycai.us",

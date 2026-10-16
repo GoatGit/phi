@@ -118,13 +118,6 @@ export interface GatewayRequestTrace {
   decision?: GatewayRouteDecision | null;
 }
 
-export interface GatewayRoutePreview {
-  revision: number;
-  policy: GatewayRoutePolicy | null;
-  reason: "model_match" | "catch_all" | "no_match" | "group";
-  decision?: GatewayRouteDecision | null;
-}
-
 export type GatewayStrategy =
   | "ordered"
   | "round_robin"
@@ -158,6 +151,12 @@ export interface GatewayRouteGroup {
   affinityTtlSeconds: number;
   failover: boolean;
   maxAttempts: number;
+  /** 流式首字节超时（秒，1-120） */
+  streamingFirstByteTimeout: number;
+  /** 流式静默超时（秒，0-600，0 表示不限） */
+  streamingIdleTimeout: number;
+  /** 非流式总超时（秒，60-1200） */
+  nonStreamingTimeout: number;
   classifier?: { supplierId: string; model: string } | null;
   rules: GatewayIntentRule[];
 }
@@ -271,12 +270,6 @@ export const gatewayApi = {
   },
   async fetchModels(supplierId: string): Promise<string[]> {
     return invoke("fetch_gateway_models", { supplierId });
-  },
-  async previewRoute(
-    appId: string,
-    model: string,
-  ): Promise<GatewayRoutePreview> {
-    return invoke("preview_gateway_route", { appId, model });
   },
   async connectApp(
     appId: string,

@@ -5,10 +5,11 @@ import {
 } from "@/lib/navigation";
 
 describe("visibleSettingsSections", () => {
-  it("keeps the directory lean by default: 应用管理/目录定位/全局代理 are expert-only", () => {
+  it("shows apps unconditionally by default: 应用管理/目录定位/全局代理 are expert-only", () => {
     expect(visibleSettingsSections(false)).toEqual([
       "general",
       "auth",
+      "apps",
       "routing",
       "data",
       "about",

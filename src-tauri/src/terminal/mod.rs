@@ -27,7 +27,10 @@ struct Registry {
     sessions: Vec<Snapshot>,
     requests: HashMap<String, String>,
     closing: bool,
-    layout_revision: u64,
+    /// 每个窗格各自的 present 序号。不能全局比大小：分屏时多个窗格并发
+    /// present，全局门闸会让乱序后到的那一帧被静默丢弃，该窗格从此卡在
+    /// 旧几何（表现为原终端内容消失、新窗格没有 shell）。
+    layout_revisions: HashMap<String, u64>,
 }
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
@@ -302,6 +305,19 @@ pub struct Presentation {
     dimmed: bool,
 }
 #[tauri::command]
+pub fn terminal_set_visible(
+    window: tauri::WebviewWindow,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    authorize(&window)?;
+    if ids.len() > 32 {
+        return Err("terminal-limit".into());
+    }
+    #[cfg(target_os = "macos")]
+    native::set_visible(&ids);
+    Ok(())
+}
+#[tauri::command]
 pub fn terminal_present(
     window: tauri::WebviewWindow,
     presentation: Presentation,
@@ -326,14 +342,25 @@ pub fn terminal_present(
     }
     {
         let mut registry = registry().lock().unwrap();
-        if p.revision <= registry.layout_revision {
-            return Ok(());
-        }
-        registry.layout_revision = p.revision;
         if let Some(id) = &p.id {
             if !registry.sessions.iter().any(|s| &s.id == id) {
                 return Err("unknown-session".into());
             }
+            // 只和同一窗格自己的历史序号比：多窗格并发时互不挤占
+            if p.revision <= registry.layout_revisions.get(id).copied().unwrap_or(0) {
+                return Ok(());
+            }
+            registry.layout_revisions.insert(id.clone(), p.revision);
+        } else {
+            // 无 id 的 present（隐藏全部）用任意比历史大的值即可
+            if p.revision <= registry.layout_revisions.values().copied().max().unwrap_or(0)
+                && !registry.layout_revisions.is_empty()
+            {
+                return Ok(());
+            }
+            registry
+                .layout_revisions
+                .insert(String::new(), p.revision);
         }
     }
     #[cfg(target_os = "macos")]

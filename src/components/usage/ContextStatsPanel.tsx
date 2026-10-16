@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { sessionStatsApi } from "@/lib/api/sessionStats";
@@ -9,6 +10,8 @@ import {
   tuneParamsFor,
   type CompactAdvice,
 } from "@/lib/usage/contextTune";
+import { AppFilterChips } from "./AppFilterChips";
+import { KNOWN_APP_TYPES } from "@/types/usage";
 import { Loader2 } from "lucide-react";
 import { fmtInt } from "./format";
 
@@ -32,15 +35,24 @@ interface SessionCurve {
 /** 上下文统计面板：压缩识别 + 增长事实 + 压缩阈值重放调优 */
 export function ContextStatsPanel() {
   const { t } = useTranslation();
+  const [appFilter, setAppFilter] = useState("all");
   const stats = useQuery({
     queryKey: ["session-stats", 30],
     queryFn: () => sessionStatsApi.get(30),
   });
 
   const model = useMemo(() => {
-    const points = stats.data?.contextPoints ?? [];
+    const allPoints = stats.data?.contextPoints ?? [];
+    const points =
+      appFilter === "all"
+        ? allPoints
+        : allPoints.filter((p) => p.appType === appFilter);
+    const allEntries = stats.data?.sessions ?? [];
+    const entries =
+      appFilter === "all"
+        ? allEntries
+        : allEntries.filter((s) => s.appType === appFilter);
     const seriesMap = seriesBySession(points);
-    const entries = stats.data?.sessions ?? [];
     const sessionsById = new Map<string, (typeof entries)[number]>(
       entries.map((s) => [`${s.appType}\0${s.sessionId}`, s]),
     );
@@ -122,7 +134,7 @@ export function ContextStatsPanel() {
       }));
 
     return { apps: sorted, sessionList };
-  }, [stats.data]);
+  }, [stats.data, appFilter]);
 
   if (stats.isPending) {
     return (
@@ -137,7 +149,15 @@ export function ContextStatsPanel() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-fg-3">{t("contextStats.source")}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <AppFilterChips
+          aria-label={t("usage.appFilter.label")}
+          appTypes={KNOWN_APP_TYPES}
+          value={appFilter}
+          onChange={setAppFilter}
+        />
+        <p className="text-xs text-fg-3">{t("contextStats.source")}</p>
+      </div>
 
       {!model.apps.length && (
         <p className="text-sm text-fg-3">{t("contextStats.empty")}</p>

@@ -5581,8 +5581,9 @@ model_provider = "c"
                 "{app:?}: {connected}"
             );
             assert!(!connected.to_string().contains("pool-upstream-secret"));
+            // 投影进客户端配置的是真实成员模型；组引用改由应用连接（mode/目录）承载
             assert!(
-                connected.to_string().contains("group/primary"),
+                connected.to_string().contains("upstream-model"),
                 "{app:?}: {connected}"
             );
             assert!(state.db.get_all_providers(app.as_str()).unwrap().is_empty());
@@ -5593,7 +5594,7 @@ model_provider = "c"
                 .unwrap();
             let switched = crate::services::provider::read_live_settings(app.clone()).unwrap();
             assert!(
-                switched.to_string().contains("group/secondary"),
+                switched.to_string().contains("upstream-model"),
                 "{app:?}: {switched}"
             );
             assert_eq!(
@@ -5655,7 +5656,7 @@ model_provider = "c"
                 }),
                 api_key: Some("pool-key".into()),
                 auth_field: Some("ANTHROPIC_API_KEY".into()),
-                models: Some(vec!["m".into()]),
+                models: Some(vec!["m".into(), "m2".into()]),
                 ..Default::default()
             })
             .unwrap();
@@ -5664,7 +5665,7 @@ model_provider = "c"
             {"id":"primary", "name":"Primary", "appIds":["claude"],
              "members":[{"id":"one", "supplierId":id, "model":"m"}]},
             {"id":"secondary", "name":"Secondary", "appIds":["claude"],
-             "members":[{"id":"two", "supplierId":id, "model":"m"}]}
+             "members":[{"id":"two", "supplierId":id, "model":"m2"}]}
         ]))
         .unwrap();
         let catalog = state.db.save_gateway_catalog(catalog).unwrap();

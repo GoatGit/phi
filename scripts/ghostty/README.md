@@ -55,12 +55,41 @@ AppKit character key presses/releases (not pasted text), echo before Return,
 command execution, Chinese IME commits, retained output and menu/theme changes.
 The suite also verifies cleanup of an owned HUP-ignoring child. It does not
 invoke installed AI CLIs or read their credentials.
+The ordinary interrupt fixture also starts with detached stdin and checks that
+the supervisor reconnects the real PTY before the CLI reads input.
 The screenshots are saved under `tmp/phi-terminal-native.png` and
 `tmp/phi-terminal-input.png` (typed command before Return). This check requires a
 logged-in macOS graphical session; human IME candidate-window and multi-display
 checks remain separate.
 
 To validate packaged resources, pass `--resources /path/to/PHI.app/Contents/Resources/ghostty/share/ghostty`. This uses the bundle resource directory while retaining the same isolated native test harness.
+
+To additionally exercise an installed Codex, use
+`--codex /absolute/path/to/codex`. This runs its real TUI with a temporary
+`CODEX_HOME` and a local dummy provider; it neither uses the
+user's Codex credentials nor submits a prompt. The check waits beyond ten
+seconds, exits with Ctrl-C, then verifies physical character echo before
+Return, command execution and Chinese text commits in the shell. It also
+simulates detached stdin. `--user-shell` opts into local zsh startup files
+instead of the clean test shell. A screenshot is saved as
+`tmp/phi-terminal-codex.png`. Use `--session-script /path/to/session.sh` for a
+before/after comparison without changing production code.
+
+Codex checks use its default daemon path and stop only the daemon belonging to
+the temporary `CODEX_HOME` before cleanup. Add `--codex-no-daemon` for a separate
+check of the direct path.
+
+Add `--system-ime` to dispatch CG-backed keyboard events through this test
+application's AppKit queue. It temporarily selects ABC and macOS Pinyin, types
+`zhongwen`, checks preedit and the candidate anchor, then selects `中文` with
+Space. With `--codex`, this runs both inside the CLI and in the shell after
+Ctrl-C; no prompt is submitted. It also covers the dirty-mode fixture without
+Codex. The prior input source is restored on exit. ABC and Pinyin must be
+enabled on the test machine. No global keyboard injection or Accessibility
+permission is required. This catches mutable `insertText` strings that AppKit
+clears after the callback; directly committing immutable Chinese text or using
+`NSEvent.keyEventWithType` alone does not reproduce that failure. Candidate
+window appearance and third-party IMEs still need separate visual checks.
 
 ## Terminal themes
 

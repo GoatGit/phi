@@ -7,6 +7,7 @@ import {
   TerminalCloseDialog,
 } from "@/components/terminal/AppTerminalTabs";
 import { TerminalPane } from "@/components/terminal/TerminalPane";
+import { SplitTerminalArea } from "@/components/terminal/SplitTerminalArea";
 import { TerminalThemeMenu } from "@/components/terminal/TerminalThemeMenu";
 import { TerminalLaunchDialog } from "@/components/terminal/TerminalLaunchDialog";
 import {
@@ -26,11 +27,13 @@ import {
   BarChart3,
   BookOpen,
   Brain,
+  Download,
   ExternalLink,
   FolderOpen,
   History,
   Home,
   MoreHorizontal,
+  RefreshCw,
   Route,
   Search,
   Server,
@@ -80,11 +83,11 @@ import {
   APP_STORAGE_KEY,
   appPageBelongsTo,
   isAppPage,
-  readStoredView,
   readStoredSettingsSection,
   sharedFeatureAppOf,
   storeView,
   visibleSettingsSections,
+  type AppPage,
   type GlobalPage,
   type SettingsSection,
   type View,
@@ -110,6 +113,8 @@ import { discardUnsavedChanges, hasUnsavedChanges } from "@/lib/unsavedChanges";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import {
   checkToolUpdatesInBackground,
+  toolNameForApp,
+  useToolManagement,
   useToolUpdatesAvailable,
 } from "@/components/apps/useToolManagement";
 import { UsagePage } from "@/components/usage/UsagePage";
@@ -132,6 +137,7 @@ import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { Button } from "@/components/ui/button";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { PageTabs } from "@/components/ui/page-tabs";
+import { isUpdateAvailable } from "@/lib/version";
 import {
   Dialog,
   DialogContent,
@@ -190,7 +196,7 @@ function App() {
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
   const sharedFeatureApp = sharedFeatureAppOf(activeApp);
   const [gatewayPolicyId, setGatewayPolicyId] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<View>(readStoredView);
+  const [currentView, setCurrentView] = useState<View>("usage");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(
     readStoredSettingsSection,
   );
@@ -296,6 +302,7 @@ function App() {
   const checkToolUpdatesOnStartup =
     settingsData?.checkToolUpdatesOnStartup ?? false;
   const toolUpdatesAvailable = useToolUpdatesAvailable();
+  const { toolVersionByName } = useToolManagement();
   const startupToolCheckDoneRef = useRef(false);
   useEffect(() => {
     if (!checkToolUpdatesOnStartup || startupToolCheckDoneRef.current) return;
@@ -689,21 +696,16 @@ function App() {
     setCurrentView(settingsReturnViewRef.current);
   };
 
-  const selectApp = (app: AppId) => {
+  const selectApp = (app: AppId, page: AppPage = "home") => {
     if (managementBusyRef.current) return;
-    if (confirmLeave(() => selectApp(app))) return;
+    if (confirmLeave(() => selectApp(app, page))) return;
     closeProviderPanels();
     setActiveApp(app);
     localStorage.setItem(APP_STORAGE_KEY, app);
-    setCurrentView("home");
+    setCurrentView(page);
   };
-  const configureApp = (app: AppId) => {
-    const proceed = () => {
-      terminals.showConfig(app);
-      selectApp(app);
-    };
-    if (!confirmLeave(proceed)) proceed();
-  };
+  // 路由页 / 设置路由节的「配置 / 前往」：直达该应用的供应商列表
+  const openAppProviders = (app: AppId) => selectApp(app, "providers");
 
   const openPage = (page: GlobalPage | "settings") => {
     if (page === "settings") {
@@ -758,6 +760,7 @@ function App() {
       openSettings("about");
       return;
     }
+    if (page === "routingOverview") setRoutingInitialTab(undefined);
     if (page === "usage") setUsageAppFilter("all");
     openPage(page);
   };
@@ -767,6 +770,9 @@ function App() {
   const [usageAppFilter, setUsageAppFilter] = useState<AppTypeFilter>("all");
   // 应用页 ⋯ 菜单下钻进全局页时记录来路，目标页顶栏据此显示返回按钮
   const [drillInReturn, setDrillInReturn] = useState<View | null>(null);
+  const [routingInitialTab, setRoutingInitialTab] = useState<
+    "connections" | "policies" | "status" | undefined
+  >(undefined);
   const exitDrillIn = () => {
     const target = drillInReturn;
     setDrillInReturn(null);
@@ -1377,7 +1383,11 @@ function App() {
           isLoading={isLoading}
           scrollRef={providerScrollContainerRef}
           onSwitch={switchProvider}
-          onOpenRoutingSettings={() => openSettings("routing")}
+          onOpenRoutingPage={() => {
+            setDrillInReturn(currentViewRef.current);
+            setRoutingInitialTab("policies");
+            setCurrentView("routingOverview");
+          }}
           needsRouteRequest={
             trayNeedsRoute?.app === proxyAppId ? trayNeedsRoute : undefined
           }
@@ -1449,14 +1459,51 @@ function App() {
 
   // 应用首页的九宫格：按应用能力取舍宫格（路由只给网关应用、终端看支持情况等）
   const buildAppHomeTiles = (): AppHomeTile[] => {
-    const tiles: AppHomeTile[] = [
-      {
-        key: "providers",
-        label: t("gateway.providers"),
-        icon: ArrowLeftRight,
-        onSelect: () => setCurrentView("providers"),
-      },
-    ];
+    const toolName = toolNameForApp(activeApp);
+    const toolVersion = toolName ? toolVersionByName.get(toolName) : undefined;
+    // 未安装的工具后端也会返回条目（version=null + npm 最新版号）：
+    // 已安装看 version 是否非空；可升级复用 AppsPage 同款语义比较。
+    const appInstalled = toolName ? Boolean(toolVersion?.version) : true;
+    const appUpdateAvailable = isUpdateAvailable(
+      toolVersion?.version,
+      toolVersion?.latest_version,
+    );
+
+    const tiles: AppHomeTile[] = [];
+
+    // 首选终端 → 终端打开：动作卡，永远放第一
+    if (terminals.supported) {
+      tiles.push({
+        key: "terminal",
+        label: t("provider.openTerminal"),
+        icon: SquareTerminal,
+        onSelect: () => terminals.newTerminal(),
+      });
+    }
+
+    // 应用未安装 → 安装卡片；有新版本 → 升级卡片（跳应用安装页处理）
+    if (toolName && !appInstalled) {
+      tiles.push({
+        key: "install",
+        label: t("skills.install"),
+        icon: Download,
+        onSelect: () => openSettings("apps"),
+      });
+    } else if (toolName && appUpdateAvailable) {
+      tiles.push({
+        key: "update",
+        label: t("skills.update"),
+        icon: RefreshCw,
+        onSelect: () => openSettings("apps"),
+      });
+    }
+
+    tiles.push({
+      key: "providers",
+      label: t("gateway.providers"),
+      icon: ArrowLeftRight,
+      onSelect: () => setCurrentView("providers"),
+    });
     if (activeApp === "openclaw") {
       tiles.push(
         {
@@ -1486,15 +1533,10 @@ function App() {
         key: "routing",
         label: t("gateway.routing"),
         icon: Route,
-        onSelect: () => openPage("routingOverview"),
-      });
-    }
-    if (terminals.supported) {
-      tiles.push({
-        key: "terminal",
-        label: t("settings.terminal.title"),
-        icon: SquareTerminal,
-        onSelect: () => terminals.newTerminal(),
+        onSelect: () => {
+          setDrillInReturn(currentViewRef.current);
+          openPage("routingOverview");
+        },
       });
     }
     const usageApp = usageAppOf(activeApp);
@@ -1524,7 +1566,10 @@ function App() {
         key: "mcp",
         label: "MCP",
         icon: Server,
-        onSelect: () => openPage("mcp"),
+        onSelect: () => {
+          setDrillInReturn(currentViewRef.current);
+          openPage("mcp");
+        },
       });
     }
     if ((SKILLS_APP_IDS as string[]).includes(activeApp)) {
@@ -1532,7 +1577,10 @@ function App() {
         key: "skills",
         label: "Skills",
         icon: SkillsIcon,
-        onSelect: () => openPage("skills"),
+        onSelect: () => {
+          setDrillInReturn(currentViewRef.current);
+          openPage("skills");
+        },
       });
     }
     if (PROMPT_APP_IDS.includes(sharedFeatureApp)) {
@@ -1540,7 +1588,10 @@ function App() {
         key: "prompts",
         label: t("nav.prompts"),
         icon: BookOpen,
-        onSelect: () => openPage("prompts"),
+        onSelect: () => {
+          setDrillInReturn(currentViewRef.current);
+          openPage("prompts");
+        },
       });
     }
     // 配置目录：claude-desktop 与 Claude 共用目录；mcode 没有目录覆盖
@@ -1586,15 +1637,37 @@ function App() {
       <>
         {renderAppPageHeader()}
         {terminals.current ? (
-          <TerminalPane
-            key={terminals.current.id}
-            session={terminals.current}
-            onDirectory={() => terminals.newTerminal()}
-            onRestart={() => {
-              if (terminals.current) terminals.restart(terminals.current);
-            }}
-            onInstall={() => openSettings("apps")}
-          />
+          terminals.currentTree ? (
+            <SplitTerminalArea
+              key={terminals.current.id}
+              tree={terminals.currentTree}
+              sessions={terminals.currentTreeSessions}
+              activePaneId={terminals.activePaneId}
+              onFocusPane={terminals.focusPane}
+              onRatioChange={(path, ratio) =>
+                terminals.current
+                  ? terminals.resizeDivider(
+                      terminals.activePaneId ?? terminals.current.id,
+                      path,
+                      ratio,
+                    )
+                  : undefined
+              }
+              onRestart={(session) => terminals.restart(session)}
+              onDirectory={() => terminals.newTerminal()}
+              onInstall={() => openSettings("apps")}
+            />
+          ) : (
+            <TerminalPane
+              key={terminals.current.id}
+              session={terminals.current}
+              onDirectory={() => terminals.newTerminal()}
+              onRestart={() => {
+                if (terminals.current) terminals.restart(terminals.current);
+              }}
+              onInstall={() => openSettings("apps")}
+            />
+          )
         ) : (
           <>
             {renderAppSegments()}
@@ -1615,6 +1688,7 @@ function App() {
       case "providerCatalog":
         return (
           <ProviderCatalogPage
+            onBack={drillInReturn ? exitDrillIn : undefined}
             onOpenPolicy={(id) => {
               setGatewayPolicyId(id);
               setCurrentView("routingOverview");
@@ -1624,14 +1698,10 @@ function App() {
       case "routingOverview":
         return (
           <RoutingOverviewPage
+            onBack={drillInReturn ? exitDrillIn : undefined}
             initialPolicyId={gatewayPolicyId}
-            onOpenApp={(app) => {
-              if (app === "claude-desktop" || app === "mcode") {
-                configureApp(app);
-                return;
-              }
-              setConfigDirectoryApp(app);
-            }}
+            initialTab={routingInitialTab}
+            onOpenApp={openAppProviders}
           />
         );
       case "usage":
@@ -1643,13 +1713,17 @@ function App() {
         );
       case "mcp":
         return (
-          <UnifiedMcpPanel onInteractionBlockedChange={setMcpManagementBusy} />
+          <UnifiedMcpPanel
+            onBack={drillInReturn ? exitDrillIn : undefined}
+            onInteractionBlockedChange={setMcpManagementBusy}
+          />
         );
       case "skills":
       case "skillsDiscovery":
         // 「已安装 / 发现」合成一页；旧的 skillsDiscovery 视图直接打开「发现」段
         return (
           <UnifiedSkillsPanel
+            onBack={drillInReturn ? exitDrillIn : undefined}
             initialView={
               currentView === "skillsDiscovery" ? "discover" : "installed"
             }
@@ -1660,6 +1734,7 @@ function App() {
         return (
           <div id="main-content" className="flex min-h-0 flex-1 flex-col">
             <PromptPanel
+              onBack={drillInReturn ? exitDrillIn : undefined}
               appId={promptsApp}
               apps={PROMPT_APP_IDS.filter(
                 (app) =>
@@ -1696,7 +1771,7 @@ function App() {
           onExitSettings={exitSettings}
           onImportSuccess={handleImportSuccess}
           onOpenApps={() => openSettings("apps")}
-          onOpenApp={configureApp}
+          onOpenApp={openAppProviders}
         />
       );
     }
@@ -1788,10 +1863,7 @@ function App() {
       )}
 
       {openclawConfigOpen && (
-        <Dialog
-          open={openclawConfigOpen}
-          onOpenChange={setOpenclawConfigOpen}
-        >
+        <Dialog open={openclawConfigOpen} onOpenChange={setOpenclawConfigOpen}>
           <DialogContent
             variant="fullscreen"
             zIndex="top"

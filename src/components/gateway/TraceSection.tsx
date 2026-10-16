@@ -86,7 +86,6 @@ export function TraceSection({
               <TableHead>{t("gateway.trace.outcome")}</TableHead>
               <TableHead>{t("gateway.trace.latency")}</TableHead>
               <TableHead>{t("gateway.trace.usageCost")}</TableHead>
-              <TableHead>{t("gateway.decisions.details")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -240,7 +239,7 @@ function TraceRows({
           </Button>
         </TableCell>
         <TableCell className="whitespace-nowrap text-xs text-fg-2">
-          {formatTime(trace.createdAt)}
+          <TimeCell ms={trace.createdAt} />
         </TableCell>
         <TableCell>{getAppLabel(trace.appId)}</TableCell>
         <TableCell className="max-w-40 break-words">
@@ -316,20 +315,15 @@ function TraceRows({
               : `$${trace.estimatedCost}`}
           </span>
         </TableCell>
-        <TableCell>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onOpenDetails(trace)}
-          >
-            {t("gateway.decisions.details")}
-          </Button>
-        </TableCell>
       </TableRow>
       {isExpanded && (
         <TableRow className="bg-subtle hover:bg-subtle">
-          <TableCell colSpan={9}>
-            <TraceDetail trace={trace} statuses={statuses} />
+          <TableCell colSpan={8}>
+            <TraceDetail
+              trace={trace}
+              statuses={statuses}
+              onOpenDetails={() => onOpenDetails(trace)}
+            />
           </TableCell>
         </TableRow>
       )}
@@ -340,9 +334,11 @@ function TraceRows({
 function TraceDetail({
   trace,
   statuses,
+  onOpenDetails,
 }: {
   trace: GatewayRequestTrace;
   statuses: Map<string, GatewayMemberStatus>;
+  onOpenDetails: () => void;
 }) {
   const { t } = useTranslation();
   const outcome = (value: string) =>
@@ -383,6 +379,15 @@ function TraceDetail({
         ) : (
           <span className="text-fg-3">{t("gateway.decisions.legacy")}</span>
         )}
+        {/* 完整决策快照与技术细节集中在弹窗，展开区只保留过程摘要。 */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ms-auto"
+          onClick={onOpenDetails}
+        >
+          {t("gateway.decisions.details")}
+        </Button>
       </div>
       <ol className="flex flex-col gap-1.5">
         {trace.events.map((event, index) => (
@@ -463,7 +468,10 @@ function OutletStatusBadge({ status }: { status?: GatewayMemberStatus }) {
         </Badge>
       </span>
       {cooling && (
-        <span className="text-fg-3">
+        <span
+          className="text-fg-3"
+          title={new Date(status!.cooldownUntil!).toLocaleString()}
+        >
           {new Date(status!.cooldownUntil!).toLocaleTimeString()}
         </span>
       )}
@@ -497,10 +505,40 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
   );
 }
 
-function formatTime(ms: number): string {
+/** 紧凑时间：当天只显示时分秒，跨天补月日；完整时间放 title。 */
+function formatTime(ms: number): { label: string; full: string } {
   // 后端写入的是 epoch 毫秒；防御性处理秒级值。
   const date = new Date(ms < 1e12 ? ms * 1000 : ms);
-  return Number.isNaN(date.getTime()) ? String(ms) : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) {
+    return { label: String(ms), full: String(ms) };
+  }
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  const hms = date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const hm = date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return {
+    label: sameDay ? hms : `${date.getMonth() + 1}/${date.getDate()} ${hm}`,
+    full: date.toLocaleString(),
+  };
+}
+
+function TimeCell({ ms }: { ms: number }) {
+  const { label, full } = formatTime(ms);
+  return (
+    <span className="tabular-nums" title={full}>
+      {label}
+    </span>
+  );
 }
 
 function formatTokens(input: number | null, output: number | null): string {

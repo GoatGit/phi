@@ -38,6 +38,8 @@ open -n --env "PHI_TEST_HOME=$PWD/tmp/phi-local-home" "src-tauri/target/debug/bu
 
 主要配置和数据库位于 `tmp/phi-local-home/.phi/`。直接双击应用时默认使用 `~/.phi/`。旧版本的 `.cc-switch/` 数据不会自动迁移。
 
+> 注意：`tmp/` 是本地开发/测试用的隔离 home（含真实请求数据），已被 `.gitignore` 忽略；发布仓库前请勿强制加入版本控制。
+
 当前为本机调试构建，未完成正式签名与公证；独立签名更新通道尚未配置，“检查更新”跳转至 PHI 的 GitHub Releases。
 
 ## 来源与许可

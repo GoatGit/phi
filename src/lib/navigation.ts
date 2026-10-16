@@ -9,11 +9,7 @@ import type { AppId } from "@/lib/api";
  * - 设置：侧栏换成设置目录，包含授权中心和应用管理。
  */
 
-export type AppPage =
-  | "home"
-  | "providers"
-  | "workspace"
-  | "hermesMemory";
+export type AppPage = "home" | "providers" | "workspace" | "hermesMemory";
 
 export type GlobalPage =
   | "providerCatalog"
@@ -54,6 +50,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
 const DEFAULT_SETTINGS_SECTIONS: SettingsSection[] = [
   "general",
   "auth",
+  "apps",
   "routing",
   "data",
   "about",
@@ -65,12 +62,7 @@ export function visibleSettingsSections(
   return expertMode ? SETTINGS_SECTIONS : DEFAULT_SETTINGS_SECTIONS;
 }
 
-const APP_PAGES: AppPage[] = [
-  "home",
-  "providers",
-  "workspace",
-  "hermesMemory",
-];
+const APP_PAGES: AppPage[] = ["home", "providers", "workspace", "hermesMemory"];
 
 const GLOBAL_PAGES: GlobalPage[] = [
   "providerCatalog",

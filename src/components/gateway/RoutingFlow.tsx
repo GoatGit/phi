@@ -46,7 +46,7 @@ export function RoutingFlow({ data }: { data: GatewayTracePage }) {
               },
               ...requests.map((item) => ({
                 value: item.id,
-                label: `${new Date(item.createdAt).toLocaleTimeString()} · ${getAppLabel(item.appId)} · ${item.requestModel || "—"} · ${item.id.slice(-8)}`,
+                label: `${new Date(item.createdAt).toLocaleTimeString()} · ${getAppLabel(item.appId)} · ${item.requestModel || "—"}`,
               })),
             ]}
           />

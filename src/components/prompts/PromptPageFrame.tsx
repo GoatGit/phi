@@ -9,6 +9,7 @@ import {
   Plus,
 } from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
+import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
 import { AppGlyph, APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -44,6 +45,8 @@ export interface PromptMoreItem {
 }
 
 interface PromptPageFrameProps {
+  /** 从应用页下钻进来时的返回 */
+  onBack?: () => void;
   app: AppId;
   apps: AppId[];
   onAppChange: (app: AppId) => void;
@@ -65,6 +68,8 @@ interface PromptPageFrameProps {
     /** 搜索时读给屏幕阅读器的结果数 */
     resultCount?: number;
     width?: number;
+    /** 无内容且未聚焦时缩成图标位，默认开启 */
+    collapsible?: boolean;
   } | null;
   notices?: ReactNode;
   children: ReactNode;
@@ -72,6 +77,7 @@ interface PromptPageFrameProps {
 
 /** 提示词全局页的页头 + 工具行（Prompts.dc.html 第 48–137 行）。 */
 export function PromptPageFrame({
+  onBack,
   app,
   apps,
   onAppChange,
@@ -91,6 +97,7 @@ export function PromptPageFrame({
   return (
     <>
       <AppPageHeader
+        leading={onBack && <PageHeaderBackButton onClick={onBack} />}
         icon={<BookOpen className="h-[18px] w-[18px]" strokeWidth={2} />}
         title={t("nav.prompts")}
         titleExtra={
@@ -196,14 +203,25 @@ function PromptSearch({
   ariaLabel,
   resultCount,
   width = 220,
+  collapsible = true,
 }: NonNullable<PromptPageFrameProps["search"]>) {
   const { t } = useTranslation();
+  const [focused, setFocused] = useState(false);
   const hasQuery = value.trim().length > 0;
+  // 折叠态：无内容且未聚焦时缩成图标位，聚焦展开回动态宽度，降低常驻占用
+  const collapsed = collapsible && !hasQuery && !focused;
   return (
-    <div className="relative shrink-0" style={{ width }}>
+    <div
+      className="relative shrink-0 transition-[width] duration-200 ease-out"
+      style={{ width: collapsed ? 36 : width }}
+    >
       <SearchField
+        collapsible
+        containerClassName="w-full"
         value={value}
         onValueChange={onChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         clearLabel={t("prompts.clearSearch")}
         aria-label={ariaLabel}
         placeholder={placeholder}

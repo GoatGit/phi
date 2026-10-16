@@ -38,6 +38,8 @@ export type PiPromptTab = "global" | "system" | "templates";
 
 interface PiPromptPanelProps {
   open: boolean;
+  /** 从应用页下钻进来时的返回 */
+  onBack?: () => void;
   apps: AppId[];
   onAppChange: (app: AppId) => void;
   onInteractionBlockedChange?: (blocked: boolean) => void;
@@ -53,6 +55,7 @@ function parentDir(path: string): string {
 /** Pi 的提示词页（PromptsPi.dc.html）：提示库 | 系统提示 | 模板 三段。 */
 const PiPromptPanel: React.FC<PiPromptPanelProps> = ({
   open,
+  onBack,
   apps,
   onAppChange,
   onInteractionBlockedChange,
@@ -383,6 +386,7 @@ const PiPromptPanel: React.FC<PiPromptPanelProps> = ({
 
   return (
     <PromptPageFrame
+      onBack={onBack}
       app="pi"
       apps={apps}
       onAppChange={onAppChange}

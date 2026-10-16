@@ -534,6 +534,37 @@ impl ProxyServer {
 
 #[cfg(test)]
 mod tests {
+    /// 隔离设备状态（`~/.phi/live-state.json`）的临时 home：mode_state 走全局
+    /// DeviceStore，不隔离的话本机真实模式（如 Codex 处于路由组代理）会漏进
+    /// 测试，让空目录里的请求 503。Drop 时恢复原值，panic 也不泄漏。
+    struct TestHomeGuard {
+        old_test_home: Option<std::ffi::OsString>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for TestHomeGuard {
+        fn drop(&mut self) {
+            match self.old_test_home.take() {
+                Some(value) => std::env::set_var("PHI_TEST_HOME", value),
+                None => std::env::remove_var("PHI_TEST_HOME"),
+            }
+        }
+    }
+
+    fn with_test_home() -> TestHomeGuard {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let lock = LOCK.get_or_init(|| Mutex::new(()));
+        let _lock = lock.lock().unwrap_or_else(|err| err.into_inner());
+        let old_test_home = std::env::var_os("PHI_TEST_HOME");
+        let tmp = tempfile::tempdir().expect("create test home");
+        std::env::set_var("PHI_TEST_HOME", tmp.path());
+        TestHomeGuard {
+            old_test_home,
+            _lock,
+        }
+    }
+
     use super::*;
     use crate::provider::{Provider, ProviderMeta};
     use crate::AppError;
@@ -591,6 +622,7 @@ mod tests {
     /// standalone path appended to it.
     #[tokio::test]
     async fn codex_standalone_endpoints_derive_from_pasted_full_base_url() {
+        let _test_home = with_test_home();
         let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
         let capture_handler = {
             let captured = captured.clone();
@@ -754,6 +786,7 @@ mod tests {
 
     #[tokio::test]
     async fn codex_images_generation_aliases_forward_and_record_usage() {
+        let _test_home = with_test_home();
         let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
         let mock_app = Router::new().route(
             "/v1/images/generations",
@@ -965,6 +998,7 @@ mod tests {
 
     #[tokio::test]
     async fn codex_images_edit_aliases_forward_and_record_usage() {
+        let _test_home = with_test_home();
         // Real Images API responses carry `input_tokens_details` with text/image
         // splits; the shared Codex usage parser must tolerate them.
         const UPSTREAM_BODY: &str = r#"{"created":1,"data":[{"b64_json":"ZWRpdA=="}],"usage":{"input_tokens":13,"output_tokens":17,"total_tokens":30,"input_tokens_details":{"text_tokens":5,"image_tokens":8}}}"#;
@@ -1192,6 +1226,7 @@ mod tests {
 
     #[tokio::test]
     async fn alpha_search_routes_forward_to_canonical_upstream() {
+        let _test_home = with_test_home();
         let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
         let mock_app = Router::new().route(
             "/v1/alpha/search",

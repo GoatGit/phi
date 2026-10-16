@@ -60,6 +60,7 @@ vi.mock("@/lib/api/terminal", () => ({
     close: vi.fn(),
     restart: vi.fn(),
     present: vi.fn(),
+    setVisible: vi.fn(),
   },
 }));
 
@@ -116,6 +117,7 @@ beforeEach(() => {
   });
   vi.mocked(terminalApi.list).mockResolvedValue([]);
   vi.mocked(terminalApi.present).mockResolvedValue();
+  vi.mocked(terminalApi.setVisible).mockResolvedValue();
   vi.mocked(terminalApi.close).mockResolvedValue();
   vi.mocked(terminalApi.create).mockResolvedValue(snapshot());
   Element.prototype.scrollIntoView = vi.fn();
@@ -470,7 +472,7 @@ describe("terminal workspaces", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(terminalApi.close).not.toHaveBeenCalled();
-    expect(screen.getByRole("tab", { name: "配置" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "首页" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭终端 phi" }));
     fireEvent.click(screen.getByRole("button", { name: "结束并关闭" }));
     await waitFor(() =>

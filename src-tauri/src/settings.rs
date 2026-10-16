@@ -44,31 +44,34 @@ pub struct VisibleApps {
     pub opencode: bool,
     #[serde(default = "default_true")]
     pub openclaw: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub hermes: bool,
     #[serde(default = "default_true")]
     pub pi: bool,
     #[serde(default = "default_true")]
     pub mcode: bool,
+    #[serde(default = "default_true")]
+    pub zcode: bool,
 }
 
 impl Default for VisibleApps {
     fn default() -> Self {
         // 与前端 DEFAULT_VISIBLE_APPS（config/appConfig.tsx）保持一致：
-        // 默认只露出三个核心 CLI，其余应用由用户在设置里手动开启。
+        // 默认列出全部应用，用户可在设置里手动关闭不需要的。
         // 注意：反序列化旧的部分 JSON 仍走各字段的 serde default（保持可见），
         // 这里只影响 visible_apps 为 None 时的缺省（新用户、托盘 unwrap_or_default）。
         Self {
             claude: true,
-            claude_desktop: false,
+            claude_desktop: true,
             codex: true,
             gemini: true,
-            grokbuild: false,
-            opencode: false,
-            openclaw: false,
-            hermes: false,
-            pi: false,
-            mcode: false,
+            grokbuild: true,
+            opencode: true,
+            openclaw: true,
+            hermes: true,
+            pi: true,
+            mcode: true,
+            zcode: true,
         }
     }
 }
@@ -87,6 +90,7 @@ impl VisibleApps {
             AppType::Hermes => self.hermes,
             AppType::Pi => self.pi,
             AppType::Mcode => self.mcode,
+            AppType::Zcode => self.zcode,
         }
     }
 }
@@ -869,6 +873,8 @@ pub fn get_current_provider(app_type: &AppType) -> Option<String> {
         AppType::OpenClaw => settings.current_provider_openclaw.clone(),
         AppType::Hermes => settings.current_provider_hermes.clone(),
         AppType::Pi | AppType::Mcode => None,
+        // ZCode 是只读观测应用，PHI 不接管其 current provider
+        AppType::Zcode => None,
     }
 }
 
@@ -888,6 +894,8 @@ pub fn set_current_provider(app_type: &AppType, id: Option<&str>) -> Result<(), 
         AppType::OpenClaw => settings.current_provider_openclaw = id_owned.clone(),
         AppType::Hermes => settings.current_provider_hermes = id_owned.clone(),
         AppType::Pi | AppType::Mcode => {}
+        // ZCode 是只读观测应用，不记录 current provider
+        AppType::Zcode => {}
     })
 }
 

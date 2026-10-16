@@ -106,8 +106,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     planKey: "payg",
     regionKey: "cn",
     providerKey: "phi-kimi",
-    websiteUrl:
-      "https://platform.kimi.com?track_id=track-7cf2b91dcde043eda6ef9a95951a042c",
+    websiteUrl: "https://platform.kimi.com",
     apiKeyUrl: "https://platform.kimi.com/console/api-keys",
     settingsConfig: {
       name: "Kimi",
@@ -146,8 +145,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     planKey: "payg",
     regionKey: "intl",
     providerKey: "phi-kimi-global",
-    websiteUrl:
-      "https://platform.kimi.ai?track_id=track-674ed6e2af924a5682a87421f7cf753a",
+    websiteUrl: "https://platform.kimi.ai",
     apiKeyUrl: "https://platform.kimi.ai/console/api-keys",
     settingsConfig: {
       name: "Kimi",
@@ -329,7 +327,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     providerKey: "phi-fenno-ai",
     websiteUrl: "https://api.fenno.ai",
     apiKeyUrl:
-      "https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16&aff=P9MR3D3PLCNL",
+      "https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16",
     settingsConfig: {
       name: "FennoAI",
       baseUrl: "https://api.fenno.ai/v1",
@@ -350,7 +348,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     name: "RunAPI",
     providerKey: "phi-run-api",
     websiteUrl: "https://runapi.co",
-    apiKeyUrl: "https://runapi.co/register?aff=iOKB",
+    apiKeyUrl: "https://runapi.co/register",
     settingsConfig: {
       name: "RunAPI",
       baseUrl: "https://runapi.co",
@@ -507,7 +505,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     name: "SubRouter",
     providerKey: "phi-sub-router",
     websiteUrl: "https://subrouter.ai",
-    apiKeyUrl: "https://subrouter.ai/register?aff=l3ri",
+    apiKeyUrl: "https://subrouter.ai/register",
     settingsConfig: {
       name: "SubRouter",
       baseUrl: "https://subrouter.ai/v1",
@@ -568,7 +566,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     name: "88API",
     providerKey: "phi-88api",
     websiteUrl: "https://88api.ai",
-    apiKeyUrl: "https://88api.ai/sign-up?aff=HSGY",
+    apiKeyUrl: "https://88api.ai/sign-up",
     settingsConfig: {
       name: "88API",
       baseUrl: "https://api.88api.ai",
@@ -619,7 +617,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     name: "9527CODE",
     providerKey: "phi-9527-code",
     websiteUrl: "https://9527.codes",
-    apiKeyUrl: "https://9527.codes/register?aff=e5zI",
+    apiKeyUrl: "https://9527.codes/register",
     settingsConfig: {
       name: "9527CODE",
       baseUrl: "https://9527.codes",
@@ -670,8 +668,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     name: "TeamoRouter",
     providerKey: "phi-teamo-router",
     websiteUrl: "https://teamorouter.cn",
-    apiKeyUrl:
-      "https://teamorouter.cn/?utm_source=phi&utm_medium=referral&utm_campaign=ai_directory",
+    apiKeyUrl: "https://teamorouter.cn/",
     settingsConfig: {
       name: "TeamoRouter",
       baseUrl: "https://api.teamorouter.cn/v1",
@@ -721,7 +718,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     name: "ClaudeCN",
     providerKey: "phi-claude-cn",
     websiteUrl: "https://claudecn.top",
-    apiKeyUrl: "https://claudecn.ai/register?aff=HEL9",
+    apiKeyUrl: "https://claudecn.ai/register",
     settingsConfig: {
       name: "ClaudeCN",
       baseUrl: "https://claudecn.top",
@@ -752,9 +749,9 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     planKey: "agentPlan",
     providerKey: "phi-agentplan",
     websiteUrl:
-      "https://www.volcengine.com/activity/agentplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&utm_source=OWO&utm_medium=devrel-1&utm_campaign=hw&&utm_content=hw",
+      "https://www.volcengine.com/activity/agentplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&",
     apiKeyUrl:
-      "https://www.volcengine.com/activity/agentplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&utm_source=OWO&utm_medium=devrel-1&utm_campaign=hw&&utm_content=hw",
+      "https://www.volcengine.com/activity/agentplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&",
     settingsConfig: {
       name: "火山 Agent Plan",
       baseUrl: "https://ark.cn-beijing.volces.com/api/plan/v3",
@@ -778,9 +775,9 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     planKey: "codingPlan",
     providerKey: "phi-codingplan",
     websiteUrl:
-      "https://www.volcengine.com/activity/codingplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+      "https://www.volcengine.com/activity/codingplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&",
     apiKeyUrl:
-      "https://www.volcengine.com/activity/codingplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+      "https://www.volcengine.com/activity/codingplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&",
     settingsConfig: {
       name: "火山 Coding Plan",
       baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3",
@@ -801,10 +798,8 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
   {
     name: "BytePlus",
     providerKey: "phi-byte-plus",
-    websiteUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
-    apiKeyUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+    websiteUrl: "https://www.byteplus.com/en/product/modelark&",
+    apiKeyUrl: "https://www.byteplus.com/en/product/modelark&",
     settingsConfig: {
       name: "BytePlus",
       baseUrl: "https://ark.ap-southeast.bytepluses.com/api/coding/v3",
@@ -829,9 +824,9 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     nameKey: "providerForm.presets.doubaoseed",
     providerKey: "phi-dou-bao-seed",
     websiteUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&",
     apiKeyUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&",
     settingsConfig: {
       name: "Volcengine Doubao",
       baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
@@ -853,7 +848,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     name: "A6API",
     providerKey: "phi-a6-api",
     websiteUrl: "https://www.a6api.com",
-    apiKeyUrl: "https://a6api.com/register?aff=AqNr",
+    apiKeyUrl: "https://a6api.com/register",
     settingsConfig: {
       name: "A6API",
       baseUrl: "https://api.a6api.com/v1",
@@ -948,7 +943,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     name: "Micu",
     providerKey: "phi-micu",
     websiteUrl: "https://www.micuapi.ai",
-    apiKeyUrl: "https://www.micuapi.ai/register?aff=aOYQ",
+    apiKeyUrl: "https://www.micuapi.ai/register",
     settingsConfig: {
       name: "Micu",
       baseUrl: "https://www.micuapi.ai",
@@ -1020,7 +1015,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     name: "CrazyRouter",
     providerKey: "phi-crazy-router",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm",
+    apiKeyUrl: "https://www.crazyrouter.com/register",
     settingsConfig: {
       name: "CrazyRouter",
       baseUrl: "https://cn.crazyrouter.com",
@@ -1071,7 +1066,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     family: "sudocode",
     providerKey: "phi-sudo-code-chat",
     websiteUrl: "https://sudocode.chat",
-    apiKeyUrl: "https://sudocode.chat/sign-up?&utm_medium=sponsor",
+    apiKeyUrl: "https://sudocode.chat/sign-up?",
     settingsConfig: {
       name: "SudoCode.chat",
       baseUrl: "https://api.sudocode.chat/v1",
@@ -1207,7 +1202,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     regionKey: "cn",
     providerKey: "phi-zhipu-glm",
     websiteUrl: "https://open.bigmodel.cn",
-    apiKeyUrl: "https://www.bigmodel.cn/claude-code?ic=RRVJPB5SII",
+    apiKeyUrl: "https://www.bigmodel.cn/claude-code",
     settingsConfig: {
       name: "Zhipu GLM",
       baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4",
@@ -1230,7 +1225,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     regionKey: "intl",
     providerKey: "phi-zhipu-glm-en",
     websiteUrl: "https://z.ai",
-    apiKeyUrl: "https://z.ai/subscribe?ic=8JVLJQFSKB",
+    apiKeyUrl: "https://z.ai/subscribe",
     settingsConfig: {
       name: "Zhipu GLM en",
       baseUrl: "https://api.z.ai/api/coding/paas/v4",
@@ -1252,9 +1247,8 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     family: "qianwen",
     planKey: "payg",
     providerKey: "phi-qianwenai",
-    websiteUrl: "https://platform.qianwenai.com/?utm_content=g_20000002971",
-    apiKeyUrl:
-      "https://platform.qianwenai.com/home/api-keys?utm_content=g_20000002972",
+    websiteUrl: "https://platform.qianwenai.com/",
+    apiKeyUrl: "https://platform.qianwenai.com/home/api-keys",
     settingsConfig: {
       name: "千问AI平台",
       baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -1278,10 +1272,8 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     family: "qianwen",
     planKey: "tokenPlan",
     providerKey: "phi-qianwenai-token-plan",
-    websiteUrl:
-      "https://platform.qianwenai.com/pricing/token-plan?utm_content=g_20000002977",
-    apiKeyUrl:
-      "https://platform.qianwenai.com/home/api-keys?utm_content=g_20000002978",
+    websiteUrl: "https://platform.qianwenai.com/pricing/token-plan",
+    apiKeyUrl: "https://platform.qianwenai.com/home/api-keys",
     settingsConfig: {
       name: "千问AI平台 Token Plan",
       baseUrl:
@@ -1311,8 +1303,8 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     family: "qwencloud",
     planKey: "payg",
     providerKey: "phi-qwencloud",
-    websiteUrl: "https://home.qwencloud.com/?utm_content=g_20000002974",
-    apiKeyUrl: "https://home.qwencloud.com/api-keys?utm_content=g_20000002975",
+    websiteUrl: "https://home.qwencloud.com/",
+    apiKeyUrl: "https://home.qwencloud.com/api-keys",
     settingsConfig: {
       name: "QwenCloud",
       baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
@@ -1366,9 +1358,8 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     family: "qwencloud",
     planKey: "tokenPlan",
     providerKey: "phi-qwencloud-token-plan",
-    websiteUrl:
-      "https://www.qwencloud.com/pricing/token-plan?utm_content=g_20000002980",
-    apiKeyUrl: "https://home.qwencloud.com/api-keys?utm_content=g_20000002981",
+    websiteUrl: "https://www.qwencloud.com/pricing/token-plan",
+    apiKeyUrl: "https://home.qwencloud.com/api-keys",
     settingsConfig: {
       name: "QwenCloud Token Plan",
       baseUrl:

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
@@ -11,7 +11,7 @@ import {
   Settings,
   Signal,
 } from "lucide-react";
-import { APP_ICON_MAP } from "@/config/appConfig";
+import { APP_ICON_MAP, getAppLabel } from "@/config/appConfig";
 import {
   trayPanelApi,
   type TrayAgent,
@@ -22,12 +22,7 @@ import { gatewayApi } from "@/lib/api/gateway";
 import { proxyApi } from "@/lib/api/proxy";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Card,
-  CardHeader,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -37,11 +32,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Notice } from "@/components/ui/notice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -87,7 +77,6 @@ function AgentCard({
   onExpand,
   onAction,
   onToggle,
-  footer,
 }: {
   agent: TrayAgent;
   expanded: boolean;
@@ -95,13 +84,14 @@ function AgentCard({
   onExpand: () => void;
   onAction: (id: string) => void;
   onToggle: (enabled: boolean) => void;
-  footer?: ReactNode;
 }) {
   const { t } = useTranslation();
   const modelText = agent.models.length
     ? agent.models.slice(0, 2).join(", ") +
       (agent.models.length > 2 ? ` +${agent.models.length - 2}` : "")
     : t("trayPanel.noModels");
+  // 卡片摘要展示当前出口（PHI 或直连供应商）；未配置时明确写「未配置」。
+  const outletText = agent.providerName ?? t("trayPanel.unconfigured");
   return (
     <Card className="overflow-hidden rounded-xl">
       <CardHeader className="p-0">
@@ -116,8 +106,8 @@ function AgentCard({
             {APP_ICON_MAP[agent.id]?.icon}
           </span>
           <strong>{agent.name}</strong>
-          <span className="tray-model-summary" title={modelText}>
-            {modelText}
+          <span className="tray-model-summary" title={outletText}>
+            {outletText}
           </span>
           <Signal
             className={cn(
@@ -142,7 +132,7 @@ function AgentCard({
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-baseline gap-2">
-              <span>{agent.providerName ?? "PHI"}</span>
+              <span>{outletText}</span>
               <span className="truncate text-xs text-fg-3">
                 {t(
                   agent.connected ? "trayPanel.connected" : "trayPanel.direct",
@@ -182,9 +172,6 @@ function AgentCard({
           </button>
         </CardContent>
       )}
-      {footer && (
-        <CardFooter className="border-t px-2 py-1">{footer}</CardFooter>
-      )}
     </Card>
   );
 }
@@ -204,7 +191,6 @@ export function TrayPanel() {
   const { t, i18n } = useTranslation();
   const client = useQueryClient();
   const [tab, setTab] = useState("agents");
-  const [showAll, setShowAll] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [visible, setVisible] = useState(true);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -283,12 +269,10 @@ export function TrayPanel() {
   }, [client]);
   const data = snapshot.data;
   const busy = action.isPending || toggle.isPending;
+  // 默认展开第一个已接入的应用（没有已接入时展开第一个），其余卡片收起。
   const first =
     data?.agents.find((a) => a.connected)?.id ?? data?.agents[0]?.id;
   const selected = expanded ?? first;
-  const agents = showAll
-    ? data?.agents
-    : data?.agents.filter((a) => a.id === first);
   const error = snapshot.error ?? action.error ?? toggle.error ?? refresh.error;
   const message = (error: unknown) => {
     const text = String(error);
@@ -302,21 +286,6 @@ export function TrayPanel() {
     refresh.reset();
     action.mutate(id);
   };
-  const showOthers = data && data.agents.length > 1 && (
-    <Button
-      variant="ghost"
-      className="w-full justify-start"
-      onClick={() => setShowAll(!showAll)}
-    >
-      {showAll
-        ? t("trayPanel.collapse")
-        : t("trayPanel.showOthers", { count: data.agents.length - 1 })}
-      <ChevronDown
-        data-icon="inline-end"
-        className={cn(showAll && "rotate-180")}
-      />
-    </Button>
-  );
   return (
     <main className="tray-panel" aria-label={t("trayPanel.title")}>
       <header className="tray-header">
@@ -363,8 +332,8 @@ export function TrayPanel() {
         onValueChange={setTab}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <TabsList className="mx-3 grid grid-cols-4 gap-1 bg-transparent p-0">
-          {(["agents", "quota", "usage", "routes"] as const).map((id) => (
+        <TabsList className="mx-3 grid grid-cols-3 gap-1 bg-transparent p-0">
+          {(["agents", "usage", "routes"] as const).map((id) => (
             <TabsTrigger
               key={id}
               appearance="surface"
@@ -409,7 +378,7 @@ export function TrayPanel() {
             <Skeleton className="h-40 w-full rounded-xl" />
           )}
           <TabsContent value="agents" className="mt-0 flex flex-col gap-2">
-            {agents?.map((agent) => (
+            {data?.agents.map((agent) => (
               <AgentCard
                 key={agent.id}
                 agent={agent}
@@ -425,7 +394,6 @@ export function TrayPanel() {
                   refresh.reset();
                   toggle.mutate({ agent, enabled });
                 }}
-                footer={!showAll ? showOthers : undefined}
               />
             ))}
             {data && data.agents.length === 0 && (
@@ -439,50 +407,6 @@ export function TrayPanel() {
                 </Button>
               </Notice>
             )}
-            {showAll && showOthers}
-          </TabsContent>
-          <TabsContent value="quota" className="mt-0 flex flex-col gap-2">
-            <p className="text-xs text-fg-3">{t("trayPanel.quotaHint")}</p>
-            {data?.agents.map((agent) => (
-              <Card key={agent.id}>
-                <CardHeader className="px-3 py-3">
-                  <strong>{agent.name}</strong>
-                  <span className="text-xs text-fg-3">
-                    {agent.providerName ?? t("trayPanel.unconfigured")}
-                  </span>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2 px-3 pb-3">
-                  {agent.quota.length ? (
-                    agent.quota.map((quota, index) => (
-                      <div key={index} className="flex flex-col gap-1">
-                        <span className="text-sm">{quota.text}</span>
-                        {quota.remaining !== null && (
-                          <progress
-                            className="tray-quota-progress"
-                            value={quota.remaining}
-                            max={100}
-                            aria-label={quota.text}
-                          />
-                        )}{" "}
-                        {quota.resetsAt && (
-                          <span className="text-xs text-fg-3">
-                            {t("trayPanel.resets", {
-                              time: new Date(quota.resetsAt).toLocaleString(
-                                i18n.language,
-                              ),
-                            })}
-                          </span>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-fg-3">
-                      {agent.quotaError ?? t("trayPanel.noQuota")}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
           </TabsContent>
           <TabsContent value="usage" className="mt-0 flex flex-col gap-3">
             <div className="flex items-center justify-between">
@@ -581,7 +505,7 @@ export function TrayPanel() {
                       </CardHeader>
                       <CardContent className="px-3 pb-3">
                         <p className="break-words text-xs text-fg-2">
-                          {trace.appId} →{" "}
+                          {getAppLabel(trace.appId)} →{" "}
                           {trace.events
                             .map(
                               (e) =>
@@ -599,51 +523,19 @@ export function TrayPanel() {
         </div>
       </Tabs>
       <Separator />
-      <footer className="tray-footer">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="ghost" size="sm">
-              {t("trayPanel.profiles")}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="w-72">
-            <div className="flex flex-col gap-3">
-              <strong>{t("trayPanel.profiles")}</strong>
-              {data?.profiles.length ? (
-                data.profiles.map((p) => (
-                  <div key={p.scope} className="flex flex-col gap-1">
-                    <span className="text-xs text-fg-3">{p.name}</span>
-                    <Options
-                      options={p.items}
-                      label={p.name}
-                      busy={busy}
-                      onSelect={act}
-                    />
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-fg-3">{t("trayPanel.noProfiles")}</p>
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => act("show_main")}>
-            {t("trayPanel.open")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            title={
-              data?.routingInUse
-                ? t("trayPanel.quitRouting")
-                : t("trayPanel.quit")
-            }
-            onClick={() => act("quit")}
-          >
-            {t("trayPanel.quit")}
-          </Button>
-        </div>
+      <footer className="tray-footer justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          title={
+            data?.routingInUse
+              ? t("trayPanel.quitRouting")
+              : t("trayPanel.quit")
+          }
+          onClick={() => act("quit")}
+        >
+          {t("trayPanel.quit")}
+        </Button>
       </footer>
     </main>
   );

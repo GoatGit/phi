@@ -29,6 +29,7 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogFooter: ({ children }: any) => <div>{children}</div>,
   DialogTitle: ({ children }: any) => <h2>{children}</h2>,
   DialogDescription: ({ children }: any) => <div>{children}</div>,
+  DialogClose: ({ children }: any) => <>{children}</>,
 }));
 
 vi.mock("@/components/theme-provider", () => ({
@@ -180,7 +181,18 @@ describe("SettingsPage integration", () => {
   });
 
   it("allows browsing and resetting an app's config directory", async () => {
-    renderDialog({ section: "appConfig" });
+    // 「配置目录」不再是设置分区，改在应用配置弹窗里（ConfigDirectoryDialog）
+    const { ConfigDirectoryDialog } = await import(
+      "@/components/app/ConfigDirectoryDialog"
+    );
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <Suspense fallback={<div data-testid="loading">loading</div>}>
+          <ConfigDirectoryDialog app="claude" open onOpenChange={() => {}} />
+        </Suspense>
+      </QueryClientProvider>,
+    );
 
     const claudeInput = (await screen.findByPlaceholderText(
       "settings.browsePlaceholderClaude",
@@ -188,18 +200,18 @@ describe("SettingsPage integration", () => {
     fireEvent.change(claudeInput, { target: { value: "/custom/claude" } });
     await waitFor(() => expect(claudeInput.value).toBe("/custom/claude"));
 
-    const browseButtons = screen.getAllByRole("button", {
+    const browseButton = screen.getByRole("button", {
       name: "settings.browseDirectory",
     });
-    const resetButtons = screen.getAllByRole("button", {
+    const resetButton = screen.getByRole("button", {
       name: "settings.resetDefault",
     });
-    fireEvent.click(browseButtons[0]);
+    fireEvent.click(browseButton);
     await waitFor(() =>
       expect(claudeInput.value).toBe("/custom/claude/picked"),
     );
 
-    fireEvent.click(resetButtons[0]);
+    fireEvent.click(resetButton);
     await waitFor(() => expect(claudeInput.value).toBe("/home/mock/.claude"));
   });
 

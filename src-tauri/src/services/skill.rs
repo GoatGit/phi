@@ -688,6 +688,7 @@ impl SkillService {
             AppType::Pi => {
                 return Ok(crate::pi_config::get_pi_agent_dir()?.join("skills"));
             }
+            AppType::Zcode => {} // ZCode 暂不支持 PHI 的 Skills 同步
         }
 
         // 默认路径：回退到用户主目录下的标准位置。
@@ -706,6 +707,7 @@ impl SkillService {
             AppType::OpenClaw => home.join(".openclaw").join("skills"),
             AppType::Hermes => crate::hermes_config::get_hermes_dir().join("skills"),
             AppType::Pi => crate::pi_config::get_pi_agent_dir()?.join("skills"),
+            AppType::Zcode => home.join(".zcode").join("skills"),
         })
     }
 

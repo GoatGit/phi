@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -130,6 +130,7 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogFooter: ({ children }: any) => <div>{children}</div>,
   DialogTitle: ({ children }: any) => <h2>{children}</h2>,
   DialogDescription: ({ children }: any) => <div>{children}</div>,
+  DialogClose: ({ children }: any) => <>{children}</>,
 }));
 
 vi.mock("@/components/settings/AboutSection", () => ({
@@ -292,9 +293,23 @@ describe("SettingsPage", () => {
     );
   });
 
-  it("drives per-app directories and saves only after a change", async () => {
-    const { rerenderWith } = renderSettingsPage({ section: "appConfig" });
+  it("drives the per-app config dialog: browse/reset/save only when dirty", async () => {
+    const { ConfigDirectoryDialog } = await import(
+      "@/components/app/ConfigDirectoryDialog"
+    );
+    const view = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ConfigDirectoryDialog app="codex" open onOpenChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    const rerenderDialog = () =>
+      view.rerender(
+        <QueryClientProvider client={new QueryClient()}>
+          <ConfigDirectoryDialog app="codex" open onOpenChange={vi.fn()} />
+        </QueryClientProvider>,
+      );
 
+    // 应用专属开关（Codex 会话压缩）在弹窗里
     expect(screen.getByText("codex-auth-settings")).toBeInTheDocument();
     // 没改过目录：没有保存按钮
     expect(
@@ -302,23 +317,23 @@ describe("SettingsPage", () => {
     ).not.toBeInTheDocument();
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: "settings.browseDirectory" })[0],
+      screen.getByRole("button", { name: "settings.browseDirectory" }),
     );
-    expect(settingsMock.browseDirectory).toHaveBeenCalledWith("claude");
+    expect(settingsMock.browseDirectory).toHaveBeenCalledWith("codex");
     fireEvent.click(
-      screen.getAllByRole("button", { name: "settings.resetDefault" })[1],
+      screen.getByRole("button", { name: "settings.resetDefault" }),
     );
     expect(settingsMock.resetDirectory).toHaveBeenCalledWith("codex");
 
+    // 目录改动后出现保存按钮，保存走 saveSettings
     settingsMock = createSettingsMock({
       settings: { ...savedSettings, codexConfigDir: "/new/codex" },
     });
-    rerenderWith({ section: "appConfig" });
+    rerenderDialog();
     fireEvent.click(screen.getByRole("button", { name: "common.save" }));
     await waitFor(() =>
       expect(settingsMock.saveSettings).toHaveBeenCalledTimes(1),
     );
-    expect(settingsMock.acknowledgeRestart).toHaveBeenCalledTimes(1);
   });
 
   it("asks to restart after moving the data directory", async () => {
@@ -373,117 +388,4 @@ describe("SettingsPage", () => {
     expect(screen.getByText("about:false")).toBeInTheDocument();
   });
 
-  describe("app configuration navigation", () => {
-    let frames: Map<number, FrameRequestCallback>;
-    let now: number;
-
-    beforeEach(() => {
-      frames = new Map();
-      now = 0;
-      let frameId = 0;
-      vi.stubGlobal(
-        "requestAnimationFrame",
-        (callback: FrameRequestCallback) => {
-          frames.set(++frameId, callback);
-          return frameId;
-        },
-      );
-      vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
-      vi.stubGlobal("matchMedia", () => ({ matches: false }));
-      vi.spyOn(performance, "now").mockImplementation(() => now);
-    });
-
-    afterEach(() => {
-      vi.restoreAllMocks();
-      vi.unstubAllGlobals();
-    });
-
-    const advanceFrames = (count: number) => {
-      for (let i = 0; i < count; i++) {
-        now += 50;
-        const callbacks = [...frames.values()];
-        frames.clear();
-        callbacks.forEach((callback) => callback(now));
-      }
-    };
-
-    const startNavigation = () => {
-      const view = renderSettingsPage({
-        section: "appConfig",
-        appConfigScrollTarget: "pi",
-      });
-      const container =
-        view.container.querySelector<HTMLDivElement>("#main-content")!;
-      const target =
-        view.container.querySelector<HTMLElement>("#app-config-pi")!;
-      Object.defineProperties(container, {
-        clientHeight: { value: 500 },
-        scrollHeight: { value: 1500 },
-      });
-      vi.spyOn(container, "getBoundingClientRect").mockReturnValue(
-        new DOMRect(0, 0, 700, 500),
-      );
-      vi.spyOn(target, "getBoundingClientRect").mockReturnValue(
-        new DOMRect(0, 1000, 700, 100),
-      );
-      const highlight = { cancel: vi.fn(), onfinish: null };
-      const animate = vi.fn().mockReturnValue(highlight);
-      target.animate = animate;
-      advanceFrames(2);
-      expect(container.scrollTop).toBeGreaterThan(0);
-      expect(container.scrollTop).toBeLessThan(608);
-      expect(animate).not.toHaveBeenCalled();
-      return { ...view, scrollContainer: container, animate, highlight };
-    };
-
-    it.each(["wheel", "touchstart", "pointerdown", "keyboard", "scrollbar"])(
-      "preserves user scrolling and skips highlighting after %s takes over",
-      (input) => {
-        const { scrollContainer, animate } = startNavigation();
-        if (input === "keyboard") {
-          expect(fireEvent.keyDown(window, { key: "PageUp" })).toBe(true);
-        } else if (input !== "scrollbar") {
-          expect(
-            fireEvent(
-              scrollContainer,
-              new Event(input, { bubbles: true, cancelable: true }),
-            ),
-          ).toBe(true);
-        }
-        // 浏览器处理用户输入后的位置，后续动画帧不得把它拉回定位轨迹。
-        scrollContainer.scrollTop = 27;
-        advanceFrames(12);
-        expect(scrollContainer.scrollTop).toBe(27);
-        expect(animate).not.toHaveBeenCalled();
-      },
-    );
-
-    it("finishes normal navigation and flashes twice after reaching the target", () => {
-      const { scrollContainer, animate } = startNavigation();
-      advanceFrames(12);
-      expect(scrollContainer.scrollTop).toBe(608);
-      expect(animate).toHaveBeenCalledTimes(1);
-      expect(animate).toHaveBeenCalledWith(
-        expect.any(Array),
-        expect.objectContaining({ iterations: 2 }),
-      );
-    });
-
-    it("does not treat cursor movement in a directory input as page scrolling", () => {
-      const { scrollContainer, animate } = startNavigation();
-      fireEvent.keyDown(scrollContainer.querySelector("input")!, {
-        key: "ArrowUp",
-      });
-      advanceFrames(12);
-      expect(scrollContainer.scrollTop).toBe(608);
-      expect(animate).toHaveBeenCalledTimes(1);
-    });
-
-    it("cancels an active highlight when the user starts scrolling", () => {
-      const { scrollContainer, highlight } = startNavigation();
-      advanceFrames(12);
-      fireEvent.wheel(scrollContainer);
-      expect(highlight.cancel).toHaveBeenCalledTimes(1);
-    });
-  });
 });

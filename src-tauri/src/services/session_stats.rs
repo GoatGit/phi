@@ -45,6 +45,7 @@ pub struct SessionStatsEntry {
 #[serde(rename_all = "camelCase")]
 pub struct SessionStatsDay {
     pub date: String,
+    pub app_type: String,
     pub requests: u64,
     pub sessions: u64,
     pub input_tokens: u64,
@@ -62,6 +63,7 @@ pub struct SessionStatsHour {
     /// 0 = 周一
     pub weekday: u8,
     pub hour: u8,
+    pub app_type: String,
     pub seconds: i64,
 }
 
@@ -175,11 +177,11 @@ fn get_session_stats_impl(
     }
 
     let mut sessions: Vec<SessionStatsEntry> = Vec::new();
-    let mut day_map: HashMap<String, SessionStatsDay> = HashMap::new();
+    let mut day_map: HashMap<(String, String), SessionStatsDay> = HashMap::new();
     // 每天出现过的会话键（用于每日会话数去重）
-    let mut day_session_keys: HashMap<String, std::collections::HashSet<String>> =
+    let mut day_session_keys: HashMap<(String, String), std::collections::HashSet<String>> =
         HashMap::new();
-    let mut hour_map: HashMap<(u8, u8), i64> = HashMap::new();
+    let mut hour_map: HashMap<(String, u8, u8), i64> = HashMap::new();
     let mut context_points: Vec<SessionContextPoint> = Vec::new();
     let mut context_sessions: Vec<(String, i64)> = Vec::new(); // (session_key, last_at)
 
@@ -251,31 +253,42 @@ fn get_session_stats_impl(
         let gap = row.created_at - cur_prev;
         if !new_session && gap >= 0 && gap < IDLE_GAP_SECONDS {
             cur_active += gap;
-            let key = ((dt.weekday().num_days_from_monday()) as u8, dt.hour() as u8);
+            let key = (
+                row.app_type.clone(),
+                (dt.weekday().num_days_from_monday()) as u8,
+                dt.hour() as u8,
+            );
             *hour_map.entry(key).or_insert(0) += gap;
         }
 
-        // 每日聚合（本地日期）
+        // 每日聚合（本地日期 × 应用）
         let date = dt.format("%Y-%m-%d").to_string();
-        let day = day_map.entry(date.clone()).or_insert_with(|| SessionStatsDay {
-            date: date.clone(),
-            requests: 0,
-            sessions: 0,
-            input_tokens: 0,
-            output_tokens: 0,
-            cache_read_tokens: 0,
-            cache_creation_tokens: 0,
-            cost_usd: 0.0,
-            active_seconds: 0,
-        });
+        let day = day_map
+            .entry((date.clone(), row.app_type.clone()))
+            .or_insert_with(|| SessionStatsDay {
+                date: date.clone(),
+                app_type: row.app_type.clone(),
+                requests: 0,
+                sessions: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                cost_usd: 0.0,
+                active_seconds: 0,
+            });
         day.requests += 1;
         day.input_tokens += row.fresh_input.max(0) as u64;
         day.output_tokens += row.output.max(0) as u64;
         day.cache_read_tokens += row.cache_read.max(0) as u64;
         day.cache_creation_tokens += row.cache_creation.max(0) as u64;
         day.cost_usd += row.cost;
-        let day_key = format!("{}\0{}\0{}", row.app_type, row.session_id, date);
-        if day_session_keys.entry(date).or_default().insert(day_key) {
+        let day_key = format!("{}\0{}", row.session_id, date);
+        if day_session_keys
+            .entry((date, row.app_type.clone()))
+            .or_default()
+            .insert(day_key)
+        {
             day.sessions += 1;
         }
 
@@ -340,16 +353,21 @@ fn get_session_stats_impl(
     context_points.retain(|p| keep.contains(&format!("{}\0{}", p.app_type, p.session_id)));
 
     let mut days: Vec<SessionStatsDay> = day_map.into_values().collect();
-    days.sort_by(|a, b| a.date.cmp(&b.date));
+    days.sort_by(|a, b| {
+        a.date
+            .cmp(&b.date)
+            .then_with(|| a.app_type.cmp(&b.app_type))
+    });
     let mut hours: Vec<SessionStatsHour> = hour_map
         .into_iter()
-        .map(|((weekday, hour), seconds)| SessionStatsHour {
+        .map(|((app_type, weekday, hour), seconds)| SessionStatsHour {
+            app_type,
             weekday,
             hour,
             seconds,
         })
         .collect();
-    hours.sort_by_key(|h| (h.weekday, h.hour));
+    hours.sort_by_key(|h| (h.app_type.clone(), h.weekday, h.hour));
 
     Ok(SessionStatsPage {
         sessions,

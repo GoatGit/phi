@@ -286,8 +286,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     planKey: "payg",
     regionKey: "cn",
     primePartner: false,
-    websiteUrl:
-      "https://platform.kimi.com?track_id=track-7cf2b91dcde043eda6ef9a95951a042c",
+    websiteUrl: "https://platform.kimi.com",
     apiKeyUrl: "https://platform.kimi.com/console/api-keys",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
@@ -338,8 +337,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     family: "kimi",
     planKey: "payg",
     regionKey: "intl",
-    websiteUrl:
-      "https://platform.kimi.ai?track_id=track-674ed6e2af924a5682a87421f7cf753a",
+    websiteUrl: "https://platform.kimi.ai",
     apiKeyUrl: "https://platform.kimi.ai/console/api-keys",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
@@ -596,7 +594,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     name: "FennoAI",
     websiteUrl: "https://api.fenno.ai",
     apiKeyUrl:
-      "https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16&aff=P9MR3D3PLCNL",
+      "https://api.fenno.ai/register?redirect=/purchase?tab=subscription%26group=16",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "FennoAI",
@@ -624,7 +622,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "RunAPI",
     websiteUrl: "https://runapi.host",
-    apiKeyUrl: "https://runapi.host/register?aff=iOKB",
+    apiKeyUrl: "https://runapi.host/register",
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "RunAPI",
@@ -865,7 +863,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "SubRouter",
     websiteUrl: "https://subrouter.ai",
-    apiKeyUrl: "https://subrouter.ai/register?aff=l3ri",
+    apiKeyUrl: "https://subrouter.ai/register",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "SubRouter",
@@ -947,7 +945,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "88API",
     websiteUrl: "https://88api.ai",
-    apiKeyUrl: "https://88api.ai/sign-up?aff=HSGY",
+    apiKeyUrl: "https://88api.ai/sign-up",
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "88API",
@@ -1023,7 +1021,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "9527CODE",
     websiteUrl: "https://9527.codes",
-    apiKeyUrl: "https://9527.codes/register?aff=e5zI",
+    apiKeyUrl: "https://9527.codes/register",
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "9527CODE",
@@ -1099,8 +1097,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "TeamoRouter",
     websiteUrl: "https://teamorouter.cn",
-    apiKeyUrl:
-      "https://teamorouter.cn/?utm_source=phi&utm_medium=referral&utm_campaign=ai_directory",
+    apiKeyUrl: "https://teamorouter.cn/",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "TeamoRouter",
@@ -1160,7 +1157,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "ClaudeCN",
     websiteUrl: "https://claudecn.top",
-    apiKeyUrl: "https://claudecn.ai/register?aff=HEL9",
+    apiKeyUrl: "https://claudecn.ai/register",
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "ClaudeCN",
@@ -1204,9 +1201,9 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     family: "volcengine",
     planKey: "agentPlan",
     websiteUrl:
-      "https://www.volcengine.com/activity/agentplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&utm_source=OWO&utm_medium=devrel-1&utm_campaign=hw&&utm_content=hw",
+      "https://www.volcengine.com/activity/agentplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&",
     apiKeyUrl:
-      "https://www.volcengine.com/activity/agentplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&utm_source=OWO&utm_medium=devrel-1&utm_campaign=hw&&utm_content=hw",
+      "https://www.volcengine.com/activity/agentplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "火山 Agent Plan",
@@ -1239,9 +1236,9 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     family: "volcengine",
     planKey: "codingPlan",
     websiteUrl:
-      "https://www.volcengine.com/activity/codingplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+      "https://www.volcengine.com/activity/codingplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&",
     apiKeyUrl:
-      "https://www.volcengine.com/activity/codingplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+      "https://www.volcengine.com/activity/codingplan?ac=MMAP8JTTCAQ2&rc=6J6FV5N2&",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "火山 Coding Plan",
@@ -1271,10 +1268,8 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   },
   {
     name: "BytePlus",
-    websiteUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
-    apiKeyUrl:
-      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+    websiteUrl: "https://www.byteplus.com/en/product/modelark&",
+    apiKeyUrl: "https://www.byteplus.com/en/product/modelark&",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "BytePlus",
@@ -1308,9 +1303,9 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     planKey: "payg",
     nameKey: "providerForm.presets.doubaoseed",
     websiteUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&",
     apiKeyUrl:
-      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&utm_campaign=hw&&utm_medium=devrel_tool_web&utm_source=OWO",
+      "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey?apikey=%7B%7D&",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Volcengine Doubao",
@@ -1342,7 +1337,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "A6API",
     websiteUrl: "https://www.a6api.com",
-    apiKeyUrl: "https://a6api.com/register?aff=AqNr",
+    apiKeyUrl: "https://a6api.com/register",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "A6API",
@@ -1471,7 +1466,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "Micu",
     websiteUrl: "https://www.micuapi.ai",
-    apiKeyUrl: "https://www.micuapi.ai/register?aff=aOYQ",
+    apiKeyUrl: "https://www.micuapi.ai/register",
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "Micu",
@@ -1560,7 +1555,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "CrazyRouter",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm",
+    apiKeyUrl: "https://www.crazyrouter.com/register",
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "CrazyRouter",
@@ -1626,7 +1621,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     name: "SudoCode.chat",
     family: "sudocode",
     websiteUrl: "https://sudocode.chat",
-    apiKeyUrl: "https://sudocode.chat/sign-up?&utm_medium=sponsor",
+    apiKeyUrl: "https://sudocode.chat/sign-up?",
     settingsConfig: {
       npm: "@ai-sdk/openai",
       name: "SudoCode.chat",
@@ -1712,7 +1707,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "XycAi",
     websiteUrl: "https://xycai.us",
-    apiKeyUrl: "https://xycai.us/register?aff=Uhu9",
+    apiKeyUrl: "https://xycai.us/register",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "XycAi",
@@ -1900,7 +1895,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     family: "zhipu",
     regionKey: "cn",
     websiteUrl: "https://open.bigmodel.cn",
-    apiKeyUrl: "https://www.bigmodel.cn/claude-code?ic=RRVJPB5SII",
+    apiKeyUrl: "https://www.bigmodel.cn/claude-code",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Zhipu GLM",
@@ -1941,7 +1936,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     family: "zhipu",
     regionKey: "intl",
     websiteUrl: "https://z.ai",
-    apiKeyUrl: "https://z.ai/subscribe?ic=8JVLJQFSKB",
+    apiKeyUrl: "https://z.ai/subscribe",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "Zhipu GLM en",
@@ -2328,9 +2323,8 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     name: "千问AI平台",
     family: "qianwen",
     planKey: "payg",
-    websiteUrl: "https://platform.qianwenai.com/?utm_content=g_20000002971",
-    apiKeyUrl:
-      "https://platform.qianwenai.com/home/api-keys?utm_content=g_20000002972",
+    websiteUrl: "https://platform.qianwenai.com/",
+    apiKeyUrl: "https://platform.qianwenai.com/home/api-keys",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "千问AI平台",
@@ -2375,10 +2369,8 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     name: "千问AI平台 Token Plan",
     family: "qianwen",
     planKey: "tokenPlan",
-    websiteUrl:
-      "https://platform.qianwenai.com/pricing/token-plan?utm_content=g_20000002977",
-    apiKeyUrl:
-      "https://platform.qianwenai.com/home/api-keys?utm_content=g_20000002978",
+    websiteUrl: "https://platform.qianwenai.com/pricing/token-plan",
+    apiKeyUrl: "https://platform.qianwenai.com/home/api-keys",
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "千问AI平台 Token Plan",
@@ -2430,8 +2422,8 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     name: "QwenCloud",
     family: "qwencloud",
     planKey: "payg",
-    websiteUrl: "https://home.qwencloud.com/?utm_content=g_20000002974",
-    apiKeyUrl: "https://home.qwencloud.com/api-keys?utm_content=g_20000002975",
+    websiteUrl: "https://home.qwencloud.com/",
+    apiKeyUrl: "https://home.qwencloud.com/api-keys",
     settingsConfig: {
       npm: "@ai-sdk/openai-compatible",
       name: "QwenCloud",
@@ -2516,9 +2508,8 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     name: "QwenCloud Token Plan",
     family: "qwencloud",
     planKey: "tokenPlan",
-    websiteUrl:
-      "https://www.qwencloud.com/pricing/token-plan?utm_content=g_20000002980",
-    apiKeyUrl: "https://home.qwencloud.com/api-keys?utm_content=g_20000002981",
+    websiteUrl: "https://www.qwencloud.com/pricing/token-plan",
+    apiKeyUrl: "https://home.qwencloud.com/api-keys",
     settingsConfig: {
       npm: "@ai-sdk/anthropic",
       name: "QwenCloud Token Plan",

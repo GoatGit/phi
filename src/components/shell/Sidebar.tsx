@@ -6,8 +6,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import {
   BookOpen,
   ChartColumn,
+  ChevronDown,
   Database,
-  Folder,
   Globe,
   History,
   Info,
@@ -18,6 +18,7 @@ import {
   Server,
   Settings,
   SlidersHorizontal,
+  ToolCase,
 } from "lucide-react";
 import type { AppId } from "@/lib/api";
 import type { VisibleApps } from "@/types";
@@ -25,6 +26,12 @@ import { APP_IDS } from "@/config/appConfig";
 import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage, visibleSettingsSections } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
 import { useSidebarStatus, type AppNavStatus } from "@/hooks/useSidebarStatus";
@@ -32,7 +39,9 @@ import { fmtUsd } from "@/components/usage/format";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { DRAG_REGION_ATTR, DRAG_REGION_STYLE, isMac } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import phiLogo from "@/assets/icons/phi/256x256.png";
+// 日间用黑 φ、夜间用白 φ：跟随主题的双版本
+import phiLogoLight from "@/assets/icons/phi/phi-logo-light.png";
+import phiLogoDark from "@/assets/icons/phi/phi-logo-dark.png";
 import { APP_DISPLAY_NAME, AppGlyph } from "./AppGlyph";
 
 const NO_DRAG = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
@@ -57,7 +66,7 @@ interface SidebarProps {
 type DirectoryProps = SidebarProps & { collapsed: boolean };
 
 /**
- * 主导航（v7）：顶条 44 → 应用列表（唯一滚动的区域）→ 全局导航（贴底）→ 底栏「用量统计」「设置」（各占一行）。
+ * 主导航（v7）：顶条 44 → 供应商/路由 → 滚动区（应用列表 + 全局导航 + 用量统计/设置）。
  * 进入设置后整条侧栏换成设置目录。收起时是 52px 的图标轨；
  * 展开 / 收起时宽度一步到位，边缘的滑动由盖板的 transform 动画画出（见 useSidebarCollapsed），文字不换行、被裁掉而不是挤成两行。
  * 收起时各行只剩图标，名字由 HoverTip 从右侧报；展开时文字可见，不再挂提示。
@@ -104,6 +113,8 @@ function SidebarTopBar({
 }) {
   const { t } = useTranslation();
   const [controlsCenterY, setControlsCenterY] = useState(22);
+  // 与顶条拖拽区的 h-11 一致；用于拒绝明显异常的红绿灯几何
+  const TOP_BAR_HEIGHT = 44;
 
   useEffect(() => {
     if (!isMac() || collapsed) return;
@@ -111,7 +122,15 @@ function SidebarTopBar({
     const alignWithWindowControls = () => {
       void invoke<number | null>("get_window_controls_center_y")
         .then((y) => {
-          if (!disposed && y !== null && Number.isFinite(y) && y > 0) {
+          // 红绿灯中心只可能落在 44px 高的顶条内；全屏等异常几何（可能返回
+          // 接近内容区高度的值）直接忽略，沿用上一个可信位置。
+          if (
+            !disposed &&
+            y !== null &&
+            Number.isFinite(y) &&
+            y > 0 &&
+            y <= TOP_BAR_HEIGHT
+          ) {
             setControlsCenterY(y);
           }
         })
@@ -159,10 +178,16 @@ function SidebarTopBar({
   const brand = (
     <span className="pointer-events-none me-auto flex min-w-0 items-center gap-2">
       <img
-        src={phiLogo}
+        src={phiLogoLight}
         alt=""
         draggable={false}
-        className="size-[22px] shrink-0"
+        className="size-[22px] shrink-0 dark:hidden"
+      />
+      <img
+        src={phiLogoDark}
+        alt=""
+        draggable={false}
+        className="hidden size-[22px] shrink-0 dark:block"
       />
       <span
         className="text-[22px] font-black leading-none tracking-[-0.04em] text-fg-1"
@@ -225,6 +250,14 @@ function SidebarTopBar({
 
 // ─── 主目录 ────────────────────────────────────────────────────────────────
 
+/** 工具箱二级菜单覆盖的页面（Skills 的发现页也算 Skills）。 */
+const TOOLBOX_PAGES: GlobalPage[] = [
+  "mcp",
+  "skills",
+  "skillsDiscovery",
+  "prompts",
+];
+
 function MainDirectory({
   collapsed,
   activeApp,
@@ -252,15 +285,17 @@ function MainDirectory({
     icon: IconComponent;
     trailing?: string;
     alert?: string;
-  }[] = [
-    { page: "mcp", label: "MCP", icon: Server },
-    { page: "skills", label: "Skills", icon: SkillsIcon },
-    { page: "prompts", label: t("nav.prompts"), icon: BookOpen },
-    { page: "sessions", label: t("nav.sessions"), icon: History },
-  ];
+  }[] = [{ page: "sessions", label: t("nav.sessions"), icon: History }];
 
   const isGlobalSelected = (page: GlobalPage) =>
     view === page || (page === "skills" && view === "skillsDiscovery");
+
+  // 工具箱（MCP/Skills/提示词 的二级菜单）：进入其中任一页时自动展开一次
+  const toolboxActive = (TOOLBOX_PAGES as string[]).includes(view);
+  const [toolboxOpen, setToolboxOpen] = useState(toolboxActive);
+  useEffect(() => {
+    if (toolboxActive) setToolboxOpen(true);
+  }, [toolboxActive]);
 
   return (
     <>
@@ -278,6 +313,14 @@ function MainDirectory({
           icon={Route}
           label={t("gateway.routing")}
           onClick={() => onSelectPage("routingOverview")}
+        />
+        <ToolboxNavItem
+          collapsed={collapsed}
+          active={toolboxActive}
+          open={toolboxOpen}
+          onToggleOpen={() => setToolboxOpen((value) => !value)}
+          view={view}
+          onSelectPage={onSelectPage}
         />
       </div>
       <div
@@ -304,58 +347,48 @@ function MainDirectory({
             />
           ))}
         </div>
-      </div>
 
-      <div
-        className={cn(
-          "h-px shrink-0 bg-border",
-          collapsed ? "mx-[18px] my-1.5" : "mx-4 mb-1.5 mt-0.5",
-        )}
-      />
-
-      <div className="flex shrink-0 flex-col">
-        {globals.map((item) => (
+        {/* 会话 紧跟应用列表顺序排列，不吸底 */}
+        <div
+          className={cn(
+            "h-px shrink-0 bg-border",
+            collapsed ? "mx-[18px] my-1.5" : "mx-4 mb-1.5 mt-3",
+          )}
+        />
+        <div className="flex shrink-0 flex-col pb-2">
+          {globals.map((item) => (
+            <NavItem
+              key={item.page}
+              collapsed={collapsed}
+              selected={isGlobalSelected(item.page)}
+              icon={item.icon}
+              label={item.label}
+              trailing={item.trailing}
+              alert={item.alert}
+              onClick={() => onSelectPage(item.page)}
+            />
+          ))}
+          {/* 用量统计 / 设置与全局导航同组，不再单独贴底 */}
           <NavItem
-            key={item.page}
             collapsed={collapsed}
-            selected={isGlobalSelected(item.page)}
-            icon={item.icon}
-            label={item.label}
-            trailing={item.trailing}
-            alert={item.alert}
-            onClick={() => onSelectPage(item.page)}
+            selected={view === "usage"}
+            icon={ChartColumn}
+            label={t("nav.usage")}
+            trailing={todayLabel}
+            onClick={() => onSelectPage("usage")}
           />
-        ))}
-      </div>
-
-      {/* 和上面那条分隔线同样缩进、上下各留 6px，选中的最后一项不会贴着线 */}
-      <div
-        className={cn(
-          "my-1.5 h-px shrink-0 bg-border",
-          collapsed ? "mx-[18px]" : "mx-4",
-        )}
-      />
-
-      <div className="flex shrink-0 flex-col pb-2">
-        <NavItem
-          collapsed={collapsed}
-          selected={view === "usage"}
-          icon={ChartColumn}
-          label={t("nav.usage")}
-          trailing={todayLabel}
-          onClick={() => onSelectPage("usage")}
-        />
-        <NavItem
-          collapsed={collapsed}
-          selected={false}
-          icon={Settings}
-          label={t("nav.settings")}
-          title={hasUpdate ? t("nav.settingsHasUpdate") : t("nav.settings")}
-          alert={authNeedsAttention ? t("nav.authNeedsReauth") : undefined}
-          dot={hasUpdate || appsUpdateAvailable}
-          dotTone={hasUpdate ? "success" : "neutral"}
-          onClick={() => onSelectPage("settings")}
-        />
+          <NavItem
+            collapsed={collapsed}
+            selected={false}
+            icon={Settings}
+            label={t("nav.settings")}
+            title={hasUpdate ? t("nav.settingsHasUpdate") : t("nav.settings")}
+            alert={authNeedsAttention ? t("nav.authNeedsReauth") : undefined}
+            dot={hasUpdate || appsUpdateAvailable}
+            dotTone={hasUpdate ? "success" : "neutral"}
+            onClick={() => onSelectPage("settings")}
+          />
+        </div>
       </div>
     </>
   );
@@ -518,6 +551,109 @@ function AlertGlyph({ className }: { className?: string }) {
   );
 }
 
+/**
+ * 工具箱：把 MCP / Skills / 提示词 合并成「路由」下面的二级菜单。
+ * 展开侧栏：点击组行展开/收起，子项导航；收起（图标轨）：点击弹浮层选子项。
+ */
+function ToolboxNavItem({
+  collapsed,
+  active,
+  open,
+  onToggleOpen,
+  view,
+  onSelectPage,
+}: {
+  collapsed: boolean;
+  /** 当前停在工具箱内任一页（含 Skills 发现页） */
+  active: boolean;
+  open: boolean;
+  onToggleOpen: () => void;
+  view: View;
+  onSelectPage: (page: GlobalPage | "settings") => void;
+}) {
+  const { t } = useTranslation();
+  const label = t("nav.toolbox");
+  const items: { page: GlobalPage; label: string; icon: IconComponent }[] = [
+    { page: "mcp", label: "MCP", icon: Server },
+    { page: "skills", label: "Skills", icon: SkillsIcon },
+    { page: "prompts", label: t("nav.prompts"), icon: BookOpen },
+  ];
+  const selected = (page: GlobalPage) =>
+    view === page || (page === "skills" && view === "skillsDiscovery");
+
+  if (collapsed) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={label}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "mx-auto flex h-8 w-10 shrink-0 items-center justify-center rounded-control transition-colors hover:bg-subtle",
+              active && "bg-selected hover:bg-selected",
+            )}
+          >
+            <ToolCase aria-hidden className="h-[18px] w-[18px] text-fg-2" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="right" align="start" className="min-w-36">
+          {items.map((item) => (
+            <DropdownMenuItem
+              key={item.page}
+              onSelect={() => onSelectPage(item.page)}
+            >
+              <item.icon className="h-4 w-4" aria-hidden />
+              {item.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  return (
+    <div className="flex flex-col">
+      <button
+        type="button"
+        onClick={onToggleOpen}
+        aria-expanded={open}
+        className={cn(
+          "mx-2 flex h-7 w-[184px] shrink-0 items-center gap-2 rounded-control px-2 text-start transition-colors hover:bg-subtle",
+          active && "bg-selected font-medium hover:bg-selected",
+        )}
+      >
+        <span aria-hidden="true" className="flex shrink-0 text-fg-2">
+          <ToolCase className="h-[18px] w-[18px]" />
+        </span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            "h-4 w-4 shrink-0 text-fg-3 transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div role="group" aria-label={label} className="flex flex-col">
+          {items.map((item) => (
+            <NavItem
+              key={item.page}
+              collapsed={false}
+              selected={selected(item.page)}
+              icon={item.icon}
+              label={item.label}
+              inset
+              onClick={() => onSelectPage(item.page)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NavItem({
   collapsed,
   selected,
@@ -529,6 +665,7 @@ function NavItem({
   dot = false,
   dotTone = "neutral",
   endDot = false,
+  inset = false,
   onClick,
 }: {
   collapsed: boolean;
@@ -545,6 +682,8 @@ function NavItem({
   dotTone?: "neutral" | "success";
   /** 圆点放在行尾（设置目录里的「关于」），而不是图标角上 */
   endDot?: boolean;
+  /** 二级菜单子项：缩进对齐一级项的图标列（侧栏 200px 内保持同宽） */
+  inset?: boolean;
   onClick: () => void;
 }) {
   const ring = selected ? "border-selected" : "border-sidebar";
@@ -611,7 +750,7 @@ function NavItem({
         aria-current={selected ? "page" : undefined}
         className={cn(
           "flex h-7 shrink-0 items-center gap-2 rounded-control px-2 text-start transition-colors hover:bg-subtle",
-          "mx-2 w-[184px]",
+          inset ? "ms-6 me-2 w-[168px]" : "mx-2 w-[184px]",
           selected && "bg-selected font-medium hover:bg-selected",
         )}
       >
@@ -647,7 +786,6 @@ const SETTINGS_ITEMS: { section: SettingsSection; icon: IconComponent }[] = [
   { section: "general", icon: SlidersHorizontal },
   { section: "auth", icon: KeyRound },
   { section: "apps", icon: LayoutGrid },
-  { section: "appConfig", icon: Folder },
   { section: "routing", icon: Route },
   { section: "network", icon: Globe },
   { section: "data", icon: Database },

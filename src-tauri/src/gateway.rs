@@ -151,6 +151,16 @@ pub struct ResolvedRoute {
     pub models: HashMap<String, String>,
     pub supplier_ids: HashMap<String, String>,
     pub decision: routing::RouteDecision,
+    /// 由组驱动的路由携带该组的超时策略；策略直连（无组）时为 None，
+    /// 沿用应用级代理配置。
+    pub timeouts: Option<RouteTimeouts>,
+}
+/// 路由组自己的故障转移超时策略（秒）。
+#[derive(Debug, Clone, Copy)]
+pub struct RouteTimeouts {
+    pub streaming_first_byte: u32,
+    pub streaming_idle: u32,
+    pub non_streaming: u32,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -281,6 +291,86 @@ fn supplier_from_provider(app_id: &str, provider: &Provider) -> Result<Supplier,
     Ok(supplier)
 }
 
+/// 向上游拉取 `/models` 风格的模型清单。URL、鉴权头按协议推导；重定向一律
+/// 不跟随，密钥只用于本次请求。供「拉取模型」和「引入供应商时自动补全模型
+/// 清单」两个入口共用。
+async fn fetch_upstream_model_ids(
+    base_url: &str,
+    protocol: &str,
+    auth_field: &str,
+    api_key: &str,
+    timeout: std::time::Duration,
+) -> Result<Vec<String>, AppError> {
+    static FETCH_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("failed to build the model fetch client")
+    });
+    let base = base_url.trim_end_matches('/');
+    let url = match protocol {
+        "gemini_native" if !base.ends_with("/v1beta") && !base.ends_with("/v1") => {
+            format!("{base}/v1beta/models")
+        }
+        _ if url::Url::parse(base).is_ok_and(|u| u.path() == "/" || u.path().is_empty()) => {
+            format!("{base}/v1/models")
+        }
+        _ => format!("{base}/models"),
+    };
+    let mut request = FETCH_CLIENT.get(url).timeout(timeout);
+    request = match auth_field {
+        "ANTHROPIC_API_KEY" => request.header("x-api-key", api_key),
+        "GEMINI_API_KEY" => request.header("x-goog-api-key", api_key),
+        _ => request.bearer_auth(api_key),
+    };
+    if protocol == "anthropic" {
+        request = request.header("anthropic-version", "2023-06-01");
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|_| invalid("gateway.modelFetchFailed"))?;
+    if !response.status().is_success() {
+        return Err(invalid("gateway.modelFetchFailed"));
+    }
+    let mut response = response;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| invalid("gateway.modelFetchFailed"))?
+    {
+        if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+            return Err(invalid("gateway.limitExceeded"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let body: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| invalid("gateway.modelFetchFailed"))?;
+    let entries = body
+        .get("data")
+        .or_else(|| body.get("models"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| invalid("gateway.modelFetchFailed"))?;
+    let mut models: Vec<String> = entries
+        .iter()
+        .filter_map(|entry| {
+            ["id", "slug", "name"]
+                .iter()
+                .find_map(|key| entry.get(key)?.as_str())
+        })
+        .map(|id| id.strip_prefix("models/").unwrap_or(id))
+        .filter(|id| identifier(id))
+        .map(str::to_string)
+        .collect();
+    models.sort();
+    models.dedup();
+    if models.len() > 200 {
+        return Err(invalid("gateway.limitExceeded"));
+    }
+    Ok(models)
+}
+
 pub(crate) fn provider_models(provider: &Provider) -> Vec<String> {
     let mut models = Vec::new();
     for path in [
@@ -318,6 +408,33 @@ pub(crate) fn provider_models(provider: &Provider) -> Vec<String> {
             if let Some(id) = model.get("model").and_then(|v| v.as_str()) {
                 if identifier(id) && !models.iter().any(|m| m == id) {
                     models.push(id.to_string());
+                }
+            }
+        }
+    }
+    // Codex 表单把模型目录写进 config TOML 的 [model_catalog]；引入时一并带上
+    if let Some(catalog) = provider
+        .settings_config
+        .get("config")
+        .and_then(|v| v.as_str())
+        .and_then(|config| config.parse::<toml::Value>().ok())
+    {
+        if let Some(entries) = catalog
+            .get("model_catalog")
+            .and_then(|catalog| catalog.get("models"))
+            .and_then(|models| models.as_array())
+        {
+            for model in entries {
+                let id = model
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| model.as_str())
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty());
+                if let Some(id) = id {
+                    if identifier(id) && !models.iter().any(|m| m == id) {
+                        models.push(id.to_string());
+                    }
                 }
             }
         }
@@ -447,6 +564,20 @@ impl Database {
         let Some(mut provider) = route.providers.into_iter().next() else {
             return Ok(None);
         };
+        // 组连接场景：路由按「应用连接」决定组、不依赖模型名，投影可以写首成员的
+        // 真实模型（如 GLM-5.3）——CLI 界面会把配置里的模型名原样显示给用户，
+        // group/<id> 标记对他们毫无意义。策略直连（match_model 别名）场景必须保留
+        // 别名：客户端发送的模型名要能命中策略。
+        let in_group = model.strip_prefix("group/").is_some();
+        let entry_model = if in_group {
+            route
+                .models
+                .get(&provider.id)
+                .cloned()
+                .unwrap_or_else(|| model.clone())
+        } else {
+            model.clone()
+        };
         provider.id = format!("gateway-entry:{app_id}");
         provider.name = "PHI".into();
         // This virtual row only projects the client configuration. Runtime
@@ -464,18 +595,19 @@ impl Database {
         }
         match app_id {
             "claude" => {
-                provider.settings_config["env"]["ANTHROPIC_MODEL"] = serde_json::json!(model);
+                provider.settings_config["env"]["ANTHROPIC_MODEL"] =
+                    serde_json::json!(entry_model);
                 provider.settings_config["env"]["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] =
                     serde_json::json!("1");
             }
             "gemini" => {
-                provider.settings_config["env"]["GEMINI_MODEL"] = serde_json::json!(model);
+                provider.settings_config["env"]["GEMINI_MODEL"] = serde_json::json!(entry_model);
             }
             "grokbuild" => {
-                provider.settings_config["config"] = serde_json::json!(format!("[models]\ndefault = \"phi\"\n[model.phi]\nname = \"PHI\"\nmodel = {}\nbase_url = {}\napi_key = \"PHI_VIRTUAL\"\napi_backend = \"responses\"\ncontext_window = 500000\n", serde_json::to_string(&model).map_err(db_error)?, serde_json::to_string(provider.settings_config["base_url"].as_str().unwrap_or_default()).map_err(db_error)?));
+                provider.settings_config["config"] = serde_json::json!(format!("[models]\ndefault = \"phi\"\n[model.phi]\nname = \"PHI\"\nmodel = {}\nbase_url = {}\napi_key = \"PHI_VIRTUAL\"\napi_backend = \"responses\"\ncontext_window = 500000\n", serde_json::to_string(&entry_model).map_err(db_error)?, serde_json::to_string(provider.settings_config["base_url"].as_str().unwrap_or_default()).map_err(db_error)?));
             }
             _ => {
-                provider.settings_config["config"] = serde_json::json!(format!("model = {}\nmodel_provider = \"custom\"\n[model_providers.custom]\nname = \"PHI\"\nbase_url = {}\nwire_api = \"responses\"\n", serde_json::to_string(&model).map_err(db_error)?, serde_json::to_string(provider.settings_config["base_url"].as_str().unwrap_or_default()).map_err(db_error)?));
+                provider.settings_config["config"] = serde_json::json!(format!("model = {}\nmodel_provider = \"custom\"\n[model_providers.custom]\nname = \"PHI\"\nbase_url = {}\nwire_api = \"responses\"\n", serde_json::to_string(&entry_model).map_err(db_error)?, serde_json::to_string(provider.settings_config["base_url"].as_str().unwrap_or_default()).map_err(db_error)?));
             }
         }
         Ok(Some(provider))
@@ -537,73 +669,14 @@ impl Database {
             .ok_or_else(|| invalid("gateway.missingSecret"))?;
         // Use the saved endpoint and credential together. Never return the key or
         // upstream error body to the renderer, nor forward credentials on redirects.
-        let base = supplier.endpoint.base_url.trim_end_matches('/');
-        let url = match supplier.endpoint.protocol.as_str() {
-            "gemini_native" if !base.ends_with("/v1beta") && !base.ends_with("/v1") => {
-                format!("{base}/v1beta/models")
-            }
-            _ if url::Url::parse(base).is_ok_and(|u| u.path() == "/" || u.path().is_empty()) => {
-                format!("{base}/v1/models")
-            }
-            _ => format!("{base}/models"),
-        };
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|_| invalid("gateway.modelFetchFailed"))?;
-        let mut request = client.get(url);
-        request = match secret.auth_field.as_str() {
-            "ANTHROPIC_API_KEY" => request.header("x-api-key", secret.api_key),
-            "GEMINI_API_KEY" => request.header("x-goog-api-key", secret.api_key),
-            _ => request.bearer_auth(secret.api_key),
-        };
-        if supplier.endpoint.protocol == "anthropic" {
-            request = request.header("anthropic-version", "2023-06-01");
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|_| invalid("gateway.modelFetchFailed"))?;
-        if !response.status().is_success() {
-            return Err(invalid("gateway.modelFetchFailed"));
-        }
-        let mut response = response;
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| invalid("gateway.modelFetchFailed"))?
-        {
-            if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
-                return Err(invalid("gateway.limitExceeded"));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let body: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|_| invalid("gateway.modelFetchFailed"))?;
-        let entries = body
-            .get("data")
-            .or_else(|| body.get("models"))
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| invalid("gateway.modelFetchFailed"))?;
-        let mut models: Vec<String> = entries
-            .iter()
-            .filter_map(|entry| {
-                ["id", "slug", "name"]
-                    .iter()
-                    .find_map(|key| entry.get(key)?.as_str())
-            })
-            .map(|id| id.strip_prefix("models/").unwrap_or(id))
-            .filter(|id| identifier(id))
-            .map(str::to_string)
-            .collect();
-        models.sort();
-        models.dedup();
-        if models.len() > 200 {
-            return Err(invalid("gateway.limitExceeded"));
-        }
-        Ok(models)
+        fetch_upstream_model_ids(
+            &supplier.endpoint.base_url,
+            &supplier.endpoint.protocol,
+            &secret.auth_field,
+            &secret.api_key,
+            std::time::Duration::from_secs(15),
+        )
+        .await
     }
     pub fn gateway_catalog(&self) -> Result<Catalog, AppError> {
         // Legacy catalogs reference per-app credentials; self-heal them before use.
@@ -782,16 +855,17 @@ impl Database {
         self.validate_gateway_catalog(&catalog)?;
         self.persist_catalog(catalog, Some((&supplier.id, &api_key, &auth_field)))
     }
-    pub fn create_gateway_supplier_from_template(
+    pub async fn create_gateway_supplier_from_template(
         &self,
         app_id: &str,
         provider: &Provider,
         revision: u64,
     ) -> Result<Catalog, AppError> {
         self.create_gateway_template_suppliers(&[(app_id, provider.clone())], revision)
+            .await
     }
 
-    pub fn create_gateway_suppliers_from_universal(
+    pub async fn create_gateway_suppliers_from_universal(
         &self,
         provider: &UniversalProvider,
         revision: u64,
@@ -805,11 +879,12 @@ impl Database {
         .filter_map(|(app, provider)| provider.map(|p| (app, p)))
         .collect();
         self.create_gateway_template_suppliers(&providers, revision)
+            .await
     }
 
     /// A universal template may have several protocols. Validate all of them
     /// before a single transaction, so retries never leave a partial import.
-    fn create_gateway_template_suppliers(
+    async fn create_gateway_template_suppliers(
         &self,
         providers: &[(&str, Provider)],
         revision: u64,
@@ -824,9 +899,24 @@ impl Database {
         let mut secrets = Vec::new();
         for (app_id, provider) in providers {
             let auth = reusable_provider_auth(app_id, provider)?;
-            let supplier = supplier_from_provider(app_id, provider)?;
+            let mut supplier = supplier_from_provider(app_id, provider)?;
             let field = auth_field_for(&supplier.endpoint.protocol, &auth.strategy);
             validate_secret(&auth.api_key, field, &supplier.endpoint.protocol)?;
+            // 引入即补全模型清单：静态提取（env / 模型目录）之外，向上游 /models
+            // 拉取一份并合并。拉取失败不阻断创建——清单之后仍可手工编辑或重试。
+            if let Ok(mut fetched) = fetch_upstream_model_ids(
+                &supplier.endpoint.base_url,
+                &supplier.endpoint.protocol,
+                field,
+                &auth.api_key,
+                std::time::Duration::from_secs(3),
+            )
+            .await
+            {
+                fetched.retain(|id| !supplier.models.contains(id));
+                supplier.models.extend(fetched);
+                supplier.models.truncate(200);
+            }
             secrets.push((supplier.id.clone(), auth.api_key, field));
             catalog.suppliers.push(supplier);
         }
@@ -1241,6 +1331,11 @@ impl Database {
         }
         Ok(ResolvedRoute {
             revision: catalog.revision,
+            timeouts: decision.groups.first().map(|g| RouteTimeouts {
+                streaming_first_byte: g.streaming_first_byte_timeout,
+                streaming_idle: g.streaming_idle_timeout,
+                non_streaming: g.non_streaming_timeout,
+            }),
             policy,
             providers,
             models,
@@ -1330,7 +1425,7 @@ mod tests {
             id.into(),
             format!("test-{id}"),
             serde_json::json!({"env": {
-                "ANTHROPIC_BASE_URL": "https://api.example.com",
+                "ANTHROPIC_BASE_URL": "http://127.0.0.1:9",
                 (key_var): "sk-test-key",
                 "ANTHROPIC_MODEL": "claude-sonnet-4-5",
             }}),
@@ -1351,8 +1446,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn templates_create_pool_credentials_without_application_rows() {
+    #[tokio::test]
+    async fn templates_create_pool_credentials_without_application_rows() {
         let db = memory_db();
         let mut claude = test_provider("draft", "ANTHROPIC_API_KEY");
         claude.settings_config["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"] =
@@ -1368,7 +1463,7 @@ mod tests {
             serde_json::json!({
                 "auth": {"OPENAI_API_KEY": "template-key"},
                 "modelCatalog": {"models": [{"model": "custom-model"}, {"model": "catalog-model"}]},
-                "config": "model = \"custom-model\"\nmodel_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"https://example.com/v1\"\nwire_api = \"responses\"\n"
+                "config": "model = \"custom-model\"\nmodel_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"http://127.0.0.1:9/v1\"\nwire_api = \"responses\"\n"
             }),
             None,
         );
@@ -1384,7 +1479,7 @@ mod tests {
             "draft".into(),
             "Grok template".into(),
             serde_json::json!({
-                "config": "[models]\ndefault = \"custom\"\n[model.custom]\nname = \"Custom\"\nmodel = \"grok-model\"\nbase_url = \"https://example.com/v1\"\napi_key = \"template-key\"\napi_backend = \"responses\"\ncontext_window = 500000\n"
+                "config": "[models]\ndefault = \"custom\"\n[model.custom]\nname = \"Custom\"\nmodel = \"grok-model\"\nbase_url = \"http://127.0.0.1:9/v1\"\napi_key = \"template-key\"\napi_backend = \"responses\"\ncontext_window = 500000\n"
             }),
             None,
         );
@@ -1430,6 +1525,7 @@ mod tests {
         {
             let saved = db
                 .create_gateway_supplier_from_template(app, &provider, index as u64)
+                .await
                 .unwrap();
             let supplier = saved.suppliers.last().unwrap();
             assert_eq!(supplier.endpoint.protocol, protocol);
@@ -1447,6 +1543,7 @@ mod tests {
         let provider = test_provider("stale", "ANTHROPIC_API_KEY");
         assert!(db
             .create_gateway_supplier_from_template("claude", &provider, 0)
+            .await
             .unwrap_err()
             .to_string()
             .contains("staleRevision"));
@@ -1457,19 +1554,76 @@ mod tests {
         });
         assert!(db
             .create_gateway_supplier_from_template("codex", &managed, 5)
+            .await
             .is_err());
         assert_eq!(db.gateway_catalog().unwrap().suppliers.len(), 5);
         assert_eq!(secret_count(&db), 5);
     }
 
+    #[tokio::test]
+    async fn templates_import_upstream_models_and_merge_with_static_ones() {
+        let upstream = axum::Router::new().route(
+            "/v1/models",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({
+                    "data": [
+                        {"id": "fetched-b"},
+                        {"id": "fetched-a"},
+                        {"id": "claude-sonnet-4-5"}
+                    ]
+                }))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+
+        let db = memory_db();
+        let mut provider = test_provider("draft", "ANTHROPIC_API_KEY");
+        provider.settings_config["env"]["ANTHROPIC_BASE_URL"] =
+            serde_json::json!(format!("http://{address}"));
+        let saved = db
+            .create_gateway_supplier_from_template("claude", &provider, 0)
+            .await
+            .unwrap();
+        let supplier = saved.suppliers.last().unwrap();
+        for model in ["claude-sonnet-4-5", "fetched-a", "fetched-b"] {
+            assert!(
+                supplier.models.contains(&model.to_string()),
+                "missing {model}: {:?}",
+                supplier.models
+            );
+        }
+    }
+
     #[test]
-    fn universal_templates_save_all_protocols_atomically() {
+    fn provider_models_reads_the_codex_config_toml_catalog() {
+        let provider = crate::provider::Provider::with_id(
+            "draft".into(),
+            "Codex template".into(),
+            serde_json::json!({
+                "auth": {},
+                "config": "[model_catalog]\nmodels = [{model = \"gpt-5-codex\"}, {model = \"gpt-5-mini\"}]\n",
+            }),
+            None,
+        );
+        let models = provider_models(&provider);
+        assert!(models.contains(&"gpt-5-codex".to_string()), "{models:?}");
+        assert!(models.contains(&"gpt-5-mini".to_string()), "{models:?}");
+    }
+
+    #[tokio::test]
+    async fn universal_templates_save_all_protocols_atomically() {
         let db = memory_db();
         let mut provider = UniversalProvider::new(
             "draft".into(),
             "NewAPI".into(),
             "newapi".into(),
-            "https://example.com".into(),
+            "http://127.0.0.1:9".into(),
             "template-key".into(),
         );
         provider.apps = crate::provider::UniversalProviderApps {
@@ -1479,6 +1633,7 @@ mod tests {
         };
         let saved = db
             .create_gateway_suppliers_from_universal(&provider, 0)
+            .await
             .unwrap();
         assert_eq!(saved.revision, 1);
         assert_eq!(
@@ -1501,6 +1656,7 @@ mod tests {
         invalid.api_key = "bad\nkey".into();
         assert!(db
             .create_gateway_suppliers_from_universal(&invalid, 1)
+            .await
             .is_err());
         assert_eq!(db.gateway_catalog().unwrap().suppliers.len(), 3);
         assert_eq!(secret_count(&db), 3);
@@ -1509,6 +1665,7 @@ mod tests {
         missing_key.settings_config["env"]["GEMINI_API_KEY"] = serde_json::json!("");
         assert!(db
             .create_gateway_template_suppliers(&[("claude", valid), ("gemini", missing_key)], 1)
+            .await
             .is_err());
         assert_eq!(db.gateway_catalog().unwrap().suppliers.len(), 3);
         assert_eq!(secret_count(&db), 3);
@@ -1518,6 +1675,7 @@ mod tests {
         none.apps.gemini = false;
         assert!(db
             .create_gateway_suppliers_from_universal(&none, 1)
+            .await
             .is_err());
     }
 
@@ -1673,7 +1831,7 @@ mod tests {
         assert_eq!(preview.supplier.endpoint.protocol, "anthropic");
         assert_eq!(
             preview.supplier.endpoint.base_url,
-            "https://api.example.com"
+            "http://127.0.0.1:9"
         );
         assert!(preview
             .supplier
@@ -1732,7 +1890,7 @@ mod tests {
         );
         assert_eq!(
             env.get("ANTHROPIC_BASE_URL").and_then(|v| v.as_str()),
-            Some("https://api.example.com")
+            Some("http://127.0.0.1:9")
         );
 
         // Deleting the source app config must not break the routed pool entry.
@@ -2219,7 +2377,7 @@ mod tests {
                 name: Some("Supplier".into()),
                 endpoint: Some(Endpoint {
                     protocol: "anthropic".into(),
-                    base_url: "https://example.com".into(),
+                    base_url: "http://127.0.0.1:9".into(),
                 }),
                 models: Some(vec!["m".into()]),
                 api_key: Some("key".into()),

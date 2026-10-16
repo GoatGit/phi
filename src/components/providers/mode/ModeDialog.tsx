@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import type { AppId } from "@/lib/api";
-import type { Provider } from "@/types";
 import type { AppMode } from "@/types/proxy";
 import {
   Dialog,
@@ -21,7 +20,6 @@ import {
 import { APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { logFrontendInfo } from "@/lib/frontendLogger";
-import { isOfficialAccount } from "@/utils/providerCapabilities";
 
 /** 路由模式改写的客户端文件（确认框里写明，用默认位置）。 */
 const CLIENT_FILE: Partial<Record<AppId, string>> = {
@@ -32,19 +30,14 @@ const CLIENT_FILE: Partial<Record<AppId, string>> = {
 };
 
 export type ModeDialogState =
-  | { kind: "enter"; target: Exclude<AppMode, "direct"> }
-  | { kind: "needsRoute"; providerId: string; reason: string };
-
-const MODE_LABEL: Record<Exclude<AppMode, "direct">, string> = {
-  route: "路由",
-  stack: "聚合",
-};
+  | { kind: "enter"; preselect?: string | null }
+  | { kind: "needsRoute"; providerId: string; name: string; reason: string };
 
 /** 框里的选择写进日志：取消、仍然直连切换、进入模式在日志里分得清。 */
 function logDialog(app: AppId, state: ModeDialogState, choice: string) {
   const subject =
     state.kind === "enter"
-      ? `进入${MODE_LABEL[state.target]}模式确认框`
+      ? "进入路由模式确认框"
       : `「${state.providerId} 需要路由」确认框`;
   logFrontendInfo(`[MODE] ${app} ${subject}：${choice}`);
 }
@@ -53,23 +46,24 @@ interface ModeDialogProps {
   app: AppId;
   state: ModeDialogState | null;
   active: AppMode;
-  providers: Provider[];
-  /** 能做路由目标 / 聚合默认的供应商 */
-  eligibleIds: string[];
-  /** 默认选中：上次的路由目标（聚合里就是默认那家），没有就用直连那家 */
+  /** 可选路由组（已启用、允许该应用），带成员摘要 */
+  groups: { id: string; name: string; summary: string }[];
+  /** 默认选中的组：当前绑定的组，没有就选第一个 */
   defaultPick: string | null;
-  /** 聚合名单（含默认那家）及各家的模型数；框里按选中的默认那家算「另有」哪几家 */
-  stackMembers: { id: string; name: string; models: number }[];
+  /** 确认请求进行中 */
+  activating?: boolean;
   onClose: () => void;
-  onEnter: (target: Exclude<AppMode, "direct">, pick: string) => Promise<void>;
+  /** 确认启用代理并绑定选中的组 */
+  onEnter: (groupId: string) => Promise<void>;
+  /** 「需要路由」框：不经选择，直接用默认路由组启用代理 */
+  onRouteDefault: () => Promise<void>;
   /** 对话框 F：仍然直连切换 */
   onSwitchDirect: (providerId: string) => void;
 }
 
 /**
- * 模式切换确认框（B4.4 的 A / C / D / E，以及 F「需要路由」）。确认键 = 入口按钮去掉「…」。
- * 出错时就地显示，不关框。路由到哪家、聚合以哪家为默认都在框里选（进入模式只有这一个入口，
- * 卡片上不再有「从这家开始」的按钮）。
+ * 模式切换确认框。代理一律走路由组：确认键 = 入口按钮去掉「…」。
+ * 出错时就地显示，不关框。
  */
 export function ModeDialog(props: ModeDialogProps) {
   const { app, state, onClose } = props;
@@ -104,11 +98,9 @@ export function ModeDialog(props: ModeDialogProps) {
 function EnterBody({
   app,
   state,
-  providers,
-  eligibleIds,
+  groups,
   defaultPick,
-  stackMembers,
-  onClose,
+  activating = false,
   onCancel,
   onEnter,
 }: ModeDialogProps & {
@@ -117,22 +109,15 @@ function EnterBody({
 }) {
   const { t } = useTranslation();
   const appName = APP_DISPLAY_NAME[app];
-  const target = "route";
-  const eligible = providers.filter((p) => eligibleIds.includes(p.id));
   const initialPick =
-    defaultPick && eligibleIds.includes(defaultPick)
-      ? defaultPick
-      : (eligible[0]?.id ?? "");
+    state.preselect && groups.some((g) => g.id === state.preselect)
+      ? state.preselect
+      : defaultPick && groups.some((g) => g.id === defaultPick)
+        ? defaultPick
+        : (groups[0]?.id ?? "");
   const [pick, setPick] = useState(initialPick);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pickedProvider = eligible.find((p) => p.id === pick);
-  // 官方账号只能做聚合的默认、不能做成员（Codex）：选了别家，它的模型就进不了聚合
-  const officialLeftOut =
-    app === "codex" &&
-    pickedProvider !== undefined &&
-    !isOfficialAccount(app, pickedProvider) &&
-    eligible.some((p) => isOfficialAccount(app, p));
 
   useEffect(() => {
     setPick(initialPick);
@@ -140,23 +125,12 @@ function EnterBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
-  const otherMembers = stackMembers.filter((m) => m.id !== pick);
-  const memberModels = otherMembers.reduce((sum, m) => sum + m.models, 0);
   const notes = [
     t("mode.dialog.routeNoteFile", {
       file: CLIENT_FILE[app] ?? "",
     }),
     t("mode.dialog.routeNoteSwitch"),
     t("mode.dialog.routeNoteKeepRunning"),
-    ...(otherMembers.length > 0
-      ? [
-          t("mode.dialog.stackNoteMembers", {
-            names: otherMembers.map((m) => m.name).join("、"),
-            count: memberModels,
-          }),
-          t("mode.proxySections.help"),
-        ]
-      : []),
     ...(app === "codex"
       ? [t("mode.dialog.stackNoteRestartCodex", { app: appName })]
       : []),
@@ -168,8 +142,7 @@ function EnterBody({
     setBusy(true);
     setError(null);
     try {
-      await onEnter(target, pick);
-      onClose();
+      await onEnter(pick);
     } catch (err) {
       setError(extractErrorMessage(err) || t("common.unknown"));
     } finally {
@@ -180,10 +153,6 @@ function EnterBody({
   const title = t("mode.dialog.routeTitle", { app: appName });
   const lead = t("mode.dialog.routeLead");
   const pickLabel = t("mode.dialog.routeTo");
-  const optionLabel = (provider: Provider) =>
-    isOfficialAccount(app, provider)
-      ? t("mode.dialog.officialOption", { name: provider.name })
-      : provider.name;
 
   return (
     <div className="space-y-4">
@@ -198,26 +167,24 @@ function EnterBody({
         <label className="text-caption font-semibold text-fg-2">
           {pickLabel}
         </label>
-        <Select value={pick} onValueChange={setPick} disabled={busy}>
+        <Select
+          value={pick}
+          onValueChange={setPick}
+          disabled={busy || activating}
+        >
           <SelectTrigger className="h-9" aria-label={pickLabel}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="z-[70]">
-            {eligible.map((provider) => (
-              <SelectItem key={provider.id} value={provider.id}>
-                {optionLabel(provider)}
+            {groups.map((group) => (
+              <SelectItem key={group.id} value={group.id}>
+                {group.summary
+                  ? `${group.name}（${group.summary}）`
+                  : group.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {officialLeftOut && (
-          <p
-            data-testid="stack-official-note"
-            className="rounded-control bg-warning-soft px-3 py-2 text-caption text-warning-text"
-          >
-            {t("mode.dialog.stackOfficialNote")}
-          </p>
-        )}
       </div>
 
       <ul className="space-y-1.5 rounded-panel bg-subtle px-4 py-3 text-caption text-fg-2">
@@ -243,15 +210,15 @@ function EnterBody({
           variant="neutral"
           size="regular"
           autoFocus
-          disabled={busy}
+          disabled={busy || activating}
           onClick={onCancel}
         >
           {t("common.cancel")}
         </Button>
         <Button
-          variant={target}
+          variant="route"
           size="regular"
-          disabled={busy || !pick}
+          disabled={busy || activating || !pick}
           onClick={() => void confirm()}
         >
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -265,10 +232,9 @@ function EnterBody({
 function NeedsRouteBody({
   app,
   state,
-  providers,
   onClose,
   onCancel,
-  onEnter,
+  onRouteDefault,
   onSwitchDirect,
 }: ModeDialogProps & {
   state: Extract<ModeDialogState, { kind: "needsRoute" }>;
@@ -277,15 +243,14 @@ function NeedsRouteBody({
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const provider = providers.find((p) => p.id === state.providerId);
-  const name = provider?.name ?? state.providerId;
+  const name = state.name;
 
   const route = async () => {
-    logDialog(app, state, "开始路由并使用");
+    logDialog(app, state, "用默认路由组启用代理");
     setBusy(true);
     setError(null);
     try {
-      await onEnter("route", state.providerId);
+      await onRouteDefault();
       onClose();
     } catch (err) {
       setError(extractErrorMessage(err) || t("common.unknown"));
@@ -345,7 +310,7 @@ function NeedsRouteBody({
           onClick={() => void route()}
         >
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {t("mode.dialog.routeAndUse")}
+          {t("mode.activate.route")}
         </Button>
       </div>
     </div>

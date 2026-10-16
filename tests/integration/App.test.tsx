@@ -174,6 +174,19 @@ vi.mock("@/components/mcp/McpPanel", () => ({
 }));
 
 /** 侧栏里的应用行（v7 侧栏取代了原来页头的应用切换器） */
+/** 点侧栏应用现在落在首页九宫格；供应商列表要点第一个宫格 */
+/** 首页九宫格里的「供应商」宫格（限定主内容区，避免和侧栏「供应商目录」重名） */
+const homeProvidersTile = () =>
+  within(
+    document.getElementById("main-content") as HTMLElement,
+  ).getByRole("button", { name: "gateway.providers", hidden: true });
+
+const openAppProviders = async (name: string) => {
+  fireEvent.click(sidebarApp(name));
+  // 首次启动提示等模态框会把主内容标成 aria-hidden，所以要 hidden: true
+  await waitFor(() => fireEvent.click(homeProvidersTile()));
+};
+
 const sidebarApp = (name: string) =>
   // 首次启动提示是模态对话框，会把侧栏标成 aria-hidden，所以带上 hidden
   within(document.querySelector("nav") as HTMLElement).getByRole("button", {
@@ -212,7 +225,7 @@ describe("App integration with MSW", () => {
       ),
     );
 
-    fireEvent.click(sidebarApp("Codex"));
+    await openAppProviders("Codex");
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
         "codex-1",
@@ -289,7 +302,7 @@ describe("App integration with MSW", () => {
     providerScrollContainer()!.scrollTop = 640;
     providerScrollContainer()!.scrollLeft = 24;
 
-    fireEvent.click(sidebarApp("Codex"));
+    await openAppProviders("Codex");
 
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
@@ -317,7 +330,7 @@ describe("App integration with MSW", () => {
     // 供应商会以 appId=codex 保存进 Codex
     fireEvent.click(screen.getByText("edit"));
     expect(screen.getByTestId("edit-provider-dialog")).toBeInTheDocument();
-    fireEvent.click(sidebarApp("Codex"));
+    await openAppProviders("Codex");
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
         "codex-1",
@@ -334,7 +347,7 @@ describe("App integration with MSW", () => {
       expect(screen.queryByTestId("usage-modal")).not.toBeInTheDocument(),
     );
 
-    fireEvent.click(sidebarApp("Codex"));
+    await openAppProviders("Codex");
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
         "codex-1",
@@ -358,7 +371,7 @@ describe("App integration with MSW", () => {
 
     // 没改过：照常离开，不问
     fireEvent.click(screen.getByText("edit"));
-    fireEvent.click(sidebarApp("Codex"));
+    await openAppProviders("Codex");
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
         "codex-1",
@@ -372,6 +385,7 @@ describe("App integration with MSW", () => {
     fireEvent.input(screen.getByLabelText("edit-field"), {
       target: { value: "draft" },
     });
+    // 有未保存改动：点侧栏应用会被确认框拦下，不进首页
     fireEvent.click(sidebarApp("Claude Code"));
     expect(await screen.findByTestId("confirm-message")).toHaveTextContent(
       "common.unsavedLeaveMessage",
@@ -417,6 +431,7 @@ describe("App integration with MSW", () => {
     renderApp(App);
 
     await waitFor(() => fireEvent.click(sidebarApp("OpenClaw")));
+    await waitFor(() => fireEvent.click(homeProvidersTile()));
 
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
@@ -752,6 +767,7 @@ describe("App integration with MSW", () => {
     renderApp(App);
 
     await waitFor(() => fireEvent.click(sidebarApp("OpenClaw")));
+    await waitFor(() => fireEvent.click(homeProvidersTile()));
 
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
@@ -789,24 +805,30 @@ describe("App integration with MSW", () => {
     renderApp(App);
 
     // 侧栏应用入口随 settings 异步加载显隐，等按钮出现再点
+    // 点侧栏应用落在首页九宫格；页签里能看到自己在首页
     await waitFor(() => fireEvent.click(sidebarApp("OpenClaw")));
-    // 首次启动提示是模态对话框，页面其余部分是 aria-hidden，所以带上 hidden
     const openclawTabs = await screen.findByRole("tablist", {
       name: "OpenClaw",
       hidden: true,
     });
     const pageTabs = within(openclawTabs).getAllByRole("tab", { hidden: true });
+    // 首页 + 供应商 + 工作区；「配置」改为首页九宫格里的弹窗
     expect(pageTabs.map((tab) => tab.textContent)).toEqual([
+      "appPage.home",
       "appPage.providers",
       "appPage.workspace",
-      "appPage.openclawConfig",
     ]);
     expect(pageTabs[0]).toHaveAttribute("aria-selected", "true");
     expect(
       screen.queryByRole("group", { name: "OpenClaw", hidden: true }),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(pageTabs[2]);
+    // 首页宫格「配置」打开 env/tools/agents 弹窗
+    fireEvent.click(
+      within(
+        document.getElementById("main-content") as HTMLElement,
+      ).getByRole("button", { name: "appPage.openclawConfig", hidden: true }),
+    );
     const configTabs = await screen.findByRole("tablist", {
       name: "appPage.openclawConfig",
       hidden: true,
@@ -819,6 +841,7 @@ describe("App integration with MSW", () => {
       "openclaw-config-env",
     );
 
+    // 从弹窗打开状态切到 Hermes：落首页，记忆/供应商经页签可达
     await waitFor(() => fireEvent.click(sidebarApp("Hermes")));
     const hermesTabs = await screen.findByRole("tablist", {
       name: "Hermes",
@@ -828,12 +851,19 @@ describe("App integration with MSW", () => {
       hidden: true,
     });
     expect(hermesPageTabs.map((tab) => tab.textContent)).toEqual([
+      "appPage.home",
       "appPage.providers",
       "appPage.memory",
     ]);
+    expect(hermesPageTabs[0]).toHaveAttribute("aria-selected", "true");
+    // 供应商页签还能回到列表
+    fireEvent.click(hermesPageTabs[1]);
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list")).toBeInTheDocument(),
+    );
 
     // 记忆页：页头的 solid 主操作换成「保存」，两份记忆用二级页签
-    fireEvent.click(hermesPageTabs[1]);
+    fireEvent.click(hermesPageTabs[2]);
     const header = document.querySelector("header") as HTMLElement;
     const save = await within(header).findByRole("button", {
       name: "common.save",

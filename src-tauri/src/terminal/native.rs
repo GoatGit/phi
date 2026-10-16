@@ -27,6 +27,7 @@ extern "C" {
         theme_config: *const c_char,
         overlay_config: *const c_char,
     );
+    fn phi_terminal_set_visible(ids_json: *const c_char);
     fn phi_terminal_hide();
     fn phi_terminal_close(id: *const c_char);
     fn phi_terminal_shutdown();
@@ -149,6 +150,26 @@ pub fn present(p: Presentation) {
             );
         } else {
             phi_terminal_hide();
+        }
+    }
+}
+pub fn set_visible(ids: &[String]) {
+    // Filter to live sessions and resolve to "id:generation" native keys.
+    let keys: Vec<String> = {
+        let registry = super::registry().lock().unwrap();
+        ids.iter()
+            .filter_map(|id| {
+                registry
+                    .sessions
+                    .iter()
+                    .find(|s| &s.id == id)
+                    .map(|s| format!("{}:{}", s.id, s.generation))
+            })
+            .collect()
+    };
+    if let Ok(json) = c(&serde_json::to_string(&keys).unwrap_or_else(|_| "[]".into())) {
+        unsafe {
+            phi_terminal_set_visible(json.as_ptr());
         }
     }
 }

@@ -22,6 +22,15 @@ fn one() -> u32 {
 fn attempts() -> u32 {
     3
 }
+fn first_byte_timeout() -> u32 {
+    60
+}
+fn idle_timeout() -> u32 {
+    180
+}
+fn non_streaming_timeout() -> u32 {
+    600
+}
 fn affinity_ttl() -> u32 {
     1800
 }
@@ -78,6 +87,15 @@ pub struct RouteGroup {
     pub failover: bool,
     #[serde(default = "attempts")]
     pub max_attempts: u32,
+    /// 流式首字节超时（秒）：等待上游首个数据块的上限。
+    #[serde(default = "first_byte_timeout")]
+    pub streaming_first_byte_timeout: u32,
+    /// 流式静默超时（秒）：数据块之间的最大间隔，0 表示不限。
+    #[serde(default = "idle_timeout")]
+    pub streaming_idle_timeout: u32,
+    /// 非流式总超时（秒）。
+    #[serde(default = "non_streaming_timeout")]
+    pub non_streaming_timeout: u32,
     #[serde(default)]
     pub classifier: Option<Classifier>,
     #[serde(default)]
@@ -173,7 +191,7 @@ pub fn candidate_key(supplier: &str, model: &str) -> String {
 pub fn session_hash(app_id: &str, session: &str) -> String {
     format!("{:x}", Sha256::digest(format!("{app_id}\0{session}")))
 }
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 fn decay(status: &MemberStatus, at: i64) -> f64 {
@@ -367,6 +385,9 @@ pub fn validate(catalog: &Catalog) -> Result<(), AppError> {
             || g.members.len() > 32
             || g.rules.len() > 50
             || !(1..=11).contains(&g.max_attempts)
+            || !(1..=120).contains(&g.streaming_first_byte_timeout)
+            || !(0..=600).contains(&g.streaming_idle_timeout)
+            || !(60..=1200).contains(&g.non_streaming_timeout)
             || !(60..=86400).contains(&g.affinity_ttl_seconds)
         {
             return Err(invalid("gateway.invalidGroup"));

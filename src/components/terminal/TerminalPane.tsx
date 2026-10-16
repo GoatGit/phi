@@ -5,15 +5,15 @@ import { terminalApi, type TerminalSession } from "@/lib/api/terminal";
 import { useTerminalTheme } from "./TerminalThemeMenu";
 import {
   terminalOverlays,
+  nextTerminalRevision,
   TERMINAL_FOCUS_EVENT,
   focusNativeTerminal,
 } from "./presentation";
 
-let revision = Date.now() * 1000;
 export function hideNativeTerminal() {
   return terminalApi.present({
     id: null,
-    revision: ++revision,
+    revision: nextTerminalRevision(),
     x: 0,
     y: 0,
     width: 0,
@@ -58,6 +58,7 @@ export function TerminalPane({
     let focusRequested = false;
     let focusTimer: ReturnType<typeof setTimeout> | undefined;
     let previous = "";
+    let lastVisibleIds = "";
     const sync = () => {
       frame = 0;
       if (stopped || failed) return;
@@ -67,6 +68,14 @@ export function TerminalPane({
         document.visibilityState !== "hidden" &&
         bounds.width > 0 &&
         bounds.height > 0;
+      // 分屏后 present 不再互斥隐藏其他 surface：显式声明本页可见的会话集合
+      const visibleIds = visible ? session.id : "";
+      if (visibleIds !== lastVisibleIds) {
+        lastVisibleIds = visibleIds;
+        void terminalApi
+          .setVisible(visible ? [session.id] : [])
+          .catch(() => {});
+      }
       const presentation = {
         id: session.id,
         x: Math.max(0, bounds.x),
@@ -84,7 +93,7 @@ export function TerminalPane({
       if (signature !== previous || focusRequested) {
         previous = signature;
         void terminalApi
-          .present({ ...presentation, revision: ++revision })
+          .present({ ...presentation, revision: nextTerminalRevision() })
           .catch(() => {
             if (stopped) return;
             failed = true;

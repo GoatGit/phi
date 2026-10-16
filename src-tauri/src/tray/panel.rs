@@ -145,7 +145,7 @@ pub async fn get_tray_panel(state: tauri::State<'_, AppState>) -> Result<PanelSn
                 .groups
                 .iter()
                 .filter(|g| g.enabled && g.app_ids.iter().any(|a| a == app_id))
-                .map(|g| format!("group/{}", g.id))
+                .map(|g| g.name.clone())
                 .chain(
                     catalog
                         .policies

@@ -5,36 +5,25 @@ import { toast } from "@/lib/toast";
 import type { Provider } from "@/types";
 import type { AppMode, StartupAttachFailure } from "@/types/proxy";
 import type { ProxyAppId } from "@/config/appConfig";
-import { isStackAppId } from "@/config/appConfig";
-import { settingsApi } from "@/lib/api";
 import { providersApi } from "@/lib/api/providers";
 import { proxyApi } from "@/lib/api/proxy";
-import { useSettingsQuery } from "@/lib/query";
 import {
-  proxyKeys,
-  useAdoptCodexStackCatalog,
-  useAppMode,
-  useProxyStack,
-  useProxyStatusQuery,
-  useSetProxyStackMember,
-} from "@/lib/query/proxy";
-import {
-  useAddToFailoverQueue,
-  useAutoFailoverEnabled,
-  useFailoverQueue,
-  useRemoveFromFailoverQueue,
-  useSetAutoFailoverEnabled,
-} from "@/lib/query/failover";
+  appRouteGroup,
+  gatewayApi,
+  type GatewayRouteGroup,
+} from "@/lib/api/gateway";
+import { proxyKeys, useAppMode, useProxyStatusQuery } from "@/lib/query/proxy";
 import { useModeActions } from "@/hooks/useModeActions";
 import { getRoutingReason } from "@/utils/routingReason";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Notice } from "@/components/ui/notice";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ProviderList } from "@/components/providers/ProviderList";
-import { CodexStaleClientsNotice } from "@/components/providers/CodexStaleClientsNotice";
-import { blockedFromRouting } from "@/components/providers/presentation";
+import {
+  useGatewayCatalog,
+  useGatewayErrorMessage,
+} from "@/components/gateway/useGatewayCatalog";
 import { APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 import { ModeTabs } from "./ModeTabs";
 import { ModeDialog, type ModeDialogState } from "./ModeDialog";
@@ -63,7 +52,8 @@ interface SwitchModePanelProps extends ListCallbacks {
     provider: Provider,
     options?: { acknowledgedRouting?: boolean },
   ) => unknown;
-  onOpenRoutingSettings: () => void;
+  /** 无可用路由组时的「去路由页创建」：跳到路由策略标签 */
+  onOpenRoutingPage: () => void;
   startupFailure?: StartupAttachFailure;
   onDismissStartupFailure?: () => void;
   /** 托盘里点了直连下需要路由的那家：到这页后弹同一个「需要路由」对话框 */
@@ -73,12 +63,13 @@ interface SwitchModePanelProps extends ListCallbacks {
   onViewChange?: (app: ProxyAppId, view: AppMode) => void;
 }
 
-/** 聚合是代理页内的模型目录，不再是独立的连接模式。 */
+/** 聚合模式已废弃：代理一律走路由组，确认框里选的就是组。 */
 const CONNECTION_MODES: AppMode[] = ["direct", "route"];
 
 /**
- * 切换式应用的供应商页（v7 S1–S3）：模式行 → 通知槽 → 按查看的模式分区的列表。
- * tab 只负责查看；要生效必须点写明后果的按钮（确认框），回到直连一步完成、可撤销。
+ * 切换式应用的供应商页（v7 S1–S3）：模式行 → 通知槽 → 直连列表 / 路由组列表。
+ * tab 只负责查看；启用代理必须选一个路由组并确认（改写客户端文件的后果写在确认框里），
+ * 回到直连一步完成、可撤销。
  */
 export function SwitchModePanel({
   app,
@@ -87,7 +78,7 @@ export function SwitchModePanel({
   isLoading,
   scrollRef,
   onSwitch,
-  onOpenRoutingSettings,
+  onOpenRoutingPage,
   startupFailure,
   onDismissStartupFailure,
   needsRouteRequest,
@@ -104,10 +95,6 @@ export function SwitchModePanel({
   // 兼容旧后端 / 缓存返回的 stack，连接方式统一显示为代理。
   const active: AppMode =
     modeView && modeView.mode !== "direct" ? "route" : "direct";
-  const [proxySection, setProxySection] = useState<"route" | "stack">("route");
-  useEffect(() => {
-    setProxySection("route");
-  }, [app]);
   const directId = modeView?.directProviderId ?? null;
   const routeId = modeView?.routeProviderId ?? null;
 
@@ -117,62 +104,92 @@ export function SwitchModePanel({
     setView(active);
   }, [app, active]);
   useEffect(() => {
-    onViewChange?.(app, view === "direct" ? "direct" : proxySection);
-  }, [app, view, proxySection, onViewChange]);
+    onViewChange?.(app, view);
+  }, [app, view, onViewChange]);
 
   const { data: proxyStatus } = useProxyStatusQuery();
   const serviceRunning = proxyStatus?.running ?? false;
-  const { data: settings } = useSettingsQuery();
-  const { data: failoverOn = false } = useAutoFailoverEnabled(app);
-  const { data: queue } = useFailoverQueue(app);
-  const setFailover = useSetAutoFailoverEnabled();
-  const addToQueue = useAddToFailoverQueue();
-  const removeFromQueue = useRemoveFromFailoverQueue();
-  const { data: stack } = useProxyStack(app, isStackAppId(app));
-  const setStackMember = useSetProxyStackMember();
-  const adoptCatalog = useAdoptCodexStackCatalog();
+  const { data: catalog } = useGatewayCatalog();
+  const describeGatewayError = useGatewayErrorMessage();
   const modeActions = useModeActions(app);
 
   const [dialog, setDialog] = useState<ModeDialogState | null>(null);
+  const [activating, setActivating] = useState(false);
   const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
-  const [confirmFailover, setConfirmFailover] = useState(false);
-  // 关掉的是哪一份提示（后端的 staleRevision）：目录或登录又变了就是新的一份，重新显示。
-  const [staleDismissed, setStaleDismissed] = useState<string | null>(null);
-  useEffect(() => {
-    setStaleDismissed(null);
-  }, [app, active, directId, routeId, stack?.staleClients?.auth]);
-  const staleRevision = stack?.staleRevision ?? "";
 
-  // 供应商还没加载完时先等着，到了再弹
-  useEffect(() => {
-    if (!needsRouteRequest) return;
-    const provider = providers[needsRouteRequest.providerId];
-    if (!provider) return;
-    setDialog({
-      kind: "needsRoute",
-      providerId: provider.id,
-      reason: getRoutingReason(app, provider, t) ?? "",
-    });
-    onNeedsRouteHandled?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsRouteRequest?.nonce, providers]);
-
-  const providerList = useMemo(() => Object.values(providers), [providers]);
-  const nameOf = (id: string | null) =>
-    (id && providers[id]?.name) || t("mode.noProvider");
-
-  const stackMembers = useMemo(() => {
-    const members = new Map<string, number>();
-    for (const member of stack?.members ?? []) {
-      members.set(member.providerId, member.modelIds.length);
-    }
-    return members;
-  }, [stack?.members]);
-
-  const queueIds = useMemo(
-    () => (queue ?? []).map((item) => item.providerId),
-    [queue],
+  // ─── 路由组连接状态 ───────────────────────────────────────────────────────
+  const isProxy = active !== "direct";
+  const routeIdIsEntry = routeId?.startsWith("gateway-entry:") ?? false;
+  // appRouteGroup 有兜底（策略/第一个组），只在确实是组连接时才采信
+  const boundGroupId =
+    isProxy && routeIdIsEntry && catalog ? appRouteGroup(catalog, app) : null;
+  const boundGroup =
+    catalog?.groups?.find((g) => g.id === boundGroupId) ?? null;
+  const isLegacyRoute = isProxy && !routeIdIsEntry;
+  const availableGroups = useMemo(
+    () =>
+      (catalog?.groups ?? []).filter(
+        (g) => g.enabled && g.appIds.includes(app),
+      ),
+    [catalog, app],
   );
+
+  const memberSummary = (group: GatewayRouteGroup) =>
+    [
+      ...new Set(
+        group.members
+          .filter((m) => m.enabled)
+          .map((m) =>
+            m.supplierId
+              ? (catalog?.suppliers.find((s) => s.id === m.supplierId)?.name ??
+                m.supplierId)
+              : (catalog?.groups?.find((g) => g.id === m.groupId)?.name ??
+                m.groupId),
+          ),
+      ),
+    ].join(" · ");
+
+  const dialogGroups = useMemo(
+    () =>
+      availableGroups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        summary: memberSummary(group),
+      })),
+    // memberSummary 只依赖 catalog，随 availableGroups 一起变化
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [availableGroups, catalog],
+  );
+
+  // ─── 动作 ─────────────────────────────────────────────────────────────────
+  const refreshAfterActivation = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: proxyKeys.status }),
+      queryClient.invalidateQueries({ queryKey: proxyKeys.takeoverStatus }),
+      queryClient.invalidateQueries({ queryKey: ["providers", app] }),
+      queryClient.invalidateQueries({ queryKey: ["gateway", "catalog"] }),
+    ]);
+    providersApi.updateTrayMenu().catch(() => undefined);
+  };
+
+  /** 启用代理并绑定路由组；groupId 为空时由后端按策略解析默认组。失败时抛出给调用方展示。 */
+  const activateGroup = async (groupId?: string) => {
+    setActivating(true);
+    try {
+      await gatewayApi.connectApp(app, groupId, catalog?.revision);
+      const group = catalog?.groups?.find((g) => g.id === groupId) ?? undefined;
+      toast.success(
+        t("mode.toast.enteredGroup", {
+          app: appName,
+          group: group?.name ?? t("gateway.groups.group"),
+        }),
+        { closeButton: true },
+      );
+      await refreshAfterActivation();
+    } finally {
+      setActivating(false);
+    }
+  };
 
   const previous = { mode: active, routeProviderId: routeId };
 
@@ -184,106 +201,23 @@ export function SwitchModePanel({
       providerName: provider.name,
     });
 
-  const queueMove = async (provider: Provider, delta: -1 | 1) => {
-    const items = queue ?? [];
-    const index = items.findIndex((item) => item.providerId === provider.id);
-    const target = index + delta;
-    if (index < 0 || target < 0 || target >= items.length) return;
-    const order = items.map((item) => item.providerId);
-    order.splice(index, 1);
-    order.splice(target, 0, provider.id);
-    // 队列顺序就是供应商的排序：按原来占着的位置重新分配
-    const slots = items
-      .map(
-        (item, i) =>
-          item.sortIndex ?? providers[item.providerId]?.sortIndex ?? i,
-      )
-      .sort((a, b) => a - b);
-    try {
-      await providersApi.updateSortOrder(
-        order.map((id, i) => ({ id, sortIndex: slots[i] })),
-        app,
-      );
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["failoverQueue", app] }),
-        queryClient.invalidateQueries({ queryKey: ["providers", app] }),
-      ]);
-      toast.success(
-        t("mode.queueMoved", { name: provider.name, position: target + 1 }),
-      );
-    } catch (error) {
-      toast.error(extractErrorMessage(error) || t("provider.sortUpdateFailed"));
-    }
-  };
+  const exitToDirect = () =>
+    void modeActions.exitToDirect({
+      previous,
+      directProviderId: directId,
+      providerName:
+        (directId && providers[directId]?.name) || t("mode.noProvider"),
+    });
 
-  const rememberDefault = async (provider: Provider) => {
-    try {
-      await proxyApi.setProxyRoute(app, provider.id);
-      await queryClient.invalidateQueries({ queryKey: ["providers", app] });
-      toast.success(
-        t("mode.toast.defaultRemembered", { provider: provider.name }),
-        { closeButton: true },
-      );
-    } catch (error) {
-      toast.error(
-        t("mode.toast.failed", {
-          detail: extractErrorMessage(error) || t("common.unknown"),
-        }),
-      );
-    }
-  };
+  const nameOf = (id: string | null) =>
+    (id && providers[id]?.name) || t("mode.noProvider");
 
-  const switchMode = {
-    active,
-    view: view === "direct" ? ("direct" as const) : proxySection,
-    directId,
-    routeId,
-    failoverOn,
-    queue: queueIds,
-    stackMembers,
-    serviceRunning,
-    routingReason: (provider: Provider) =>
-      getRoutingReason(app, provider, t) ?? "",
-    actions: {
-      switchDirect: (provider: Provider) => void onSwitch(provider),
-      needsRouteDialog: (provider: Provider) =>
-        setDialog({
-          kind: "needsRoute",
-          providerId: provider.id,
-          reason: getRoutingReason(app, provider, t) ?? "",
-        }),
-      exitAndUse,
-      routeTo: (provider: Provider) => void onSwitch(provider),
-      queueAdd: (provider: Provider) =>
-        addToQueue.mutate({ appType: app, providerId: provider.id }),
-      queueRemove: (provider: Provider) =>
-        removeFromQueue.mutate({ appType: app, providerId: provider.id }),
-      queueMove: (provider: Provider, delta: -1 | 1) =>
-        void queueMove(provider, delta),
-      stackAdd: (provider: Provider) => {
-        setStackMember.mutate({
-          appType: app,
-          providerId: provider.id,
-          enabled: true,
-        });
-      },
-      stackRemove: (provider: Provider) => {
-        setStackMember.mutate({
-          appType: app,
-          providerId: provider.id,
-          enabled: false,
-        });
-      },
-      // 聚合生效时换默认当场生效（同切换供应商）；没生效时只记下选择，切换时的确认框预选它
-      stackSetDefault: (provider: Provider) =>
-        active !== "direct"
-          ? void onSwitch(provider)
-          : void rememberDefault(provider),
-    },
-  };
-
-  // 状态行：只在看生效的那格时显示；路由只写目标，不写本机地址和端口
-  const routeTarget = failoverOn ? t("mode.status.byQueue") : nameOf(routeId);
+  // 状态行：只在看生效的那格时显示；代理写组名（旧连接写目标供应商），不写本机地址和端口
+  const routeTarget = isProxy
+    ? routeIdIsEntry
+      ? (boundGroup?.name ?? t("gateway.groups.group"))
+      : nameOf(routeId)
+    : nameOf(directId);
   const status =
     view !== active
       ? undefined
@@ -294,42 +228,33 @@ export function SwitchModePanel({
             value: `→ ${routeTarget}`,
           };
 
-  const handleFailoverChange = (enabled: boolean) => {
-    if (enabled && !settings?.failoverConfirmed) {
-      setConfirmFailover(true);
-      return;
-    }
-    setFailover.mutate({ appType: app, enabled });
-  };
-
-  const confirmFailoverOn = async () => {
-    setConfirmFailover(false);
+  // 托盘「需要路由」与启动重试都走默认路由组（后端按策略解析）；没有确认框，错误只 toast
+  const activateDefaultGroup = async () => {
     try {
-      const current = await settingsApi.get();
-      await settingsApi.save({
-        ...current,
-        failoverConfirmed: true,
-      });
-      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+      await activateGroup();
     } catch (error) {
-      console.error(
-        "[SwitchModePanel] Failed to save failover confirmation",
-        error,
+      toast.error(
+        t("mode.toast.failed", {
+          detail: describeGatewayError(error),
+        }),
+        { closeButton: true },
       );
     }
-    setFailover.mutate({ appType: app, enabled: true });
   };
 
-  const enterMode = async (
-    target: Exclude<AppMode, "direct">,
-    pick: string,
-  ) => {
-    await modeActions.enter(target, pick, providers[pick]?.name);
-  };
-
-  const eligibleIds = providerList
-    .filter((provider) => !blockedFromRouting(app, provider))
-    .map((provider) => provider.id);
+  useEffect(() => {
+    if (!needsRouteRequest) return;
+    const provider = providers[needsRouteRequest.providerId];
+    if (!provider) return;
+    setDialog({
+      kind: "needsRoute",
+      providerId: provider.id,
+      name: provider.name,
+      reason: getRoutingReason(app, provider, t) ?? "",
+    });
+    onNeedsRouteHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsRouteRequest?.nonce, providers]);
 
   const startService = async () => {
     try {
@@ -345,14 +270,14 @@ export function SwitchModePanel({
   };
 
   const notices: React.ReactNode[] = [];
-  if (active !== "direct" && proxyStatus !== undefined && !serviceRunning) {
+  if (isProxy && proxyStatus !== undefined && !serviceRunning) {
     notices.push(
       <Notice
         key="broken"
         tone="warning"
         title={t("mode.notice.serviceDown", {
           app: appName,
-          mode: t(`mode.names.${active}`),
+          mode: t("mode.names.route"),
         })}
         actions={
           <>
@@ -363,17 +288,7 @@ export function SwitchModePanel({
             >
               {t("mode.notice.startService")}
             </Button>
-            <Button
-              variant="neutral"
-              size="compact"
-              onClick={() =>
-                void modeActions.exitToDirect({
-                  previous,
-                  directProviderId: directId,
-                  providerName: nameOf(directId),
-                })
-              }
-            >
+            <Button variant="neutral" size="compact" onClick={exitToDirect}>
               {t("mode.notice.backToDirect")}
             </Button>
           </>
@@ -397,16 +312,9 @@ export function SwitchModePanel({
             variant="neutral"
             size="compact"
             onClick={() =>
-              void modeActions
-                .enter("route", routeId, nameOf(routeId))
+              void activateDefaultGroup()
                 .then(() => onDismissStartupFailure?.())
-                .catch((error) =>
-                  toast.error(
-                    t("mode.toast.failed", {
-                      detail: extractErrorMessage(error) || t("common.unknown"),
-                    }),
-                  ),
-                )
+                .catch(() => undefined)
             }
           >
             {t("common.retry")}
@@ -417,78 +325,41 @@ export function SwitchModePanel({
       </Notice>,
     );
   }
-  if (view !== "direct" && active !== "direct" && stack?.notice) {
+  if (isLegacyRoute && view === "route") {
     notices.push(
       <Notice
-        key="stackNotice"
+        key="legacy"
         tone="warning"
-        title={t(`provider.${stack.notice}`)}
-        actions={
-          stack.notice === "routeOwnsCatalog" ? (
-            <Button
-              variant="neutral"
-              size="compact"
-              disabled={adoptCatalog.isPending}
-              onClick={() => adoptCatalog.mutate()}
-            >
-              {t("provider.adoptCatalog")}
-            </Button>
-          ) : undefined
-        }
+        title={t("gateway.connections.legacy")}
       >
-        {stack.noticeReasons?.length
-          ? stack.noticeReasons.map((reason) => (
-              <div key={reason}>
-                {t(`provider.officialModelsReason.${reason}`)}
-              </div>
-            ))
-          : undefined}
+        {t("mode.legacyRouteTarget", { name: nameOf(routeId) })}
       </Notice>,
-    );
-  }
-  if (
-    app === "codex" &&
-    stack?.staleClients &&
-    (stack.staleClients.daemon || stack.staleClients.others) &&
-    staleDismissed !== staleRevision
-  ) {
-    notices.push(
-      <CodexStaleClientsNotice
-        key="stale"
-        staleClients={stack.staleClients}
-        onDismiss={() => setStaleDismissed(staleRevision)}
-      />,
     );
   }
   if (view !== active) {
     const cta =
-      view === "route"
-        ? t("mode.activate.route")
-        : view === "stack"
-          ? t("mode.activate.stack")
-          : t("mode.activate.direct");
+      view === "route" ? t("mode.activate.route") : t("mode.activate.direct");
     notices.push(
       <Notice
         key="activate"
         tone="neutral"
         title={t("mode.activate.viewing", {
-          view: t(`mode.names.${view}`),
+          view: t("mode.names.route"),
           app: appName,
-          active: t(`mode.names.${active}`),
+          active: t("mode.names.direct"),
         })}
         actions={
           <Button
             variant={view}
             size="regular"
-            disabled={modeActions.pending}
+            disabled={activating || modeActions.pending}
             onClick={() =>
               view === "direct"
-                ? void modeActions.exitToDirect({
-                    previous,
-                    directProviderId: directId,
-                    providerName: nameOf(directId),
+                ? exitToDirect()
+                : setDialog({
+                    kind: "enter",
+                    preselect: boundGroupId ?? availableGroups[0]?.id ?? null,
                   })
-                : setDialog({ kind: "enter", target: view })
             }
           >
             {cta}
@@ -498,7 +369,8 @@ export function SwitchModePanel({
     );
   }
 
-  const list = (
+  // ─── 直连列表 ─────────────────────────────────────────────────────────────
+  const directList = (
     <ProviderList
       {...listCallbacks}
       providers={providers}
@@ -506,8 +378,100 @@ export function SwitchModePanel({
       appId={app}
       isLoading={isLoading}
       onSwitch={(provider) => void onSwitch(provider)}
-      switchMode={switchMode}
+      switchMode={{
+        active,
+        view: "direct",
+        directId,
+        routeId,
+        failoverOn: false,
+        queue: [],
+        stackMembers: new Map(),
+        serviceRunning,
+        routingReason: (provider: Provider) =>
+          getRoutingReason(app, provider, t) ?? "",
+        actions: {
+          switchDirect: (provider: Provider) => void onSwitch(provider),
+          needsRouteDialog: (provider: Provider) =>
+            setDialog({
+              kind: "needsRoute",
+              providerId: provider.id,
+              name: provider.name,
+              reason: getRoutingReason(app, provider, t) ?? "",
+            }),
+          exitAndUse,
+          routeTo: (provider: Provider) => void onSwitch(provider),
+          queueAdd: () => undefined,
+          queueRemove: () => undefined,
+          queueMove: () => undefined,
+          stackAdd: () => undefined,
+          stackRemove: () => undefined,
+          stackSetDefault: () => undefined,
+        },
+      }}
     />
+  );
+
+  // ─── 代理视图：路由组 ─────────────────────────────────────────────────────
+  const groupList = (
+    <div className="flex flex-col gap-3" data-testid="route-group-list">
+      {availableGroups.map((group) => {
+        const isBound = group.id === boundGroupId;
+        const summary = memberSummary(group);
+        return (
+          <div
+            key={group.id}
+            data-testid={`group-${group.id}`}
+            className="flex items-center justify-between gap-3 rounded-panel border border-border bg-surface px-4 py-3"
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-body font-medium text-fg-1">
+                  {group.name}
+                </span>
+                {isBound && (
+                  <Badge variant="secondary">
+                    {t("gateway.groups.current")}
+                  </Badge>
+                )}
+              </div>
+              <p className="mt-0.5 truncate text-caption text-fg-2">
+                {summary || t("gateway.groups.empty")}
+              </p>
+            </div>
+            {isBound ? (
+              <Button variant="outline" size="compact" onClick={exitToDirect}>
+                {t("mode.notice.backToDirect")}
+              </Button>
+            ) : (
+              <Button
+                variant="solid"
+                size="compact"
+                disabled={activating || modeActions.pending}
+                onClick={() =>
+                  setDialog({ kind: "enter", preselect: group.id })
+                }
+              >
+                {t("mode.activate.route")}
+              </Button>
+            )}
+          </div>
+        );
+      })}
+      {availableGroups.length === 0 && (
+        <div className="rounded-panel border border-dashed border-border px-4 py-6 text-center text-caption text-fg-2">
+          {t("gateway.groups.empty")}
+          <div className="mt-2">
+            <Button
+              variant="outline"
+              size="compact"
+              onClick={onOpenRoutingPage}
+            >
+              {t("gateway.groups.goCreate")}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 
   return (
@@ -518,15 +482,6 @@ export function SwitchModePanel({
         view={view}
         onView={setView}
         status={status}
-        failover={
-          view === "route" && active === "route"
-            ? {
-                enabled: failoverOn,
-                disabled: setFailover.isPending,
-                onChange: handleFailoverChange,
-              }
-            : undefined
-        }
         onOpenRouteSettings={
           view === "route" && active === "route"
             ? () => setRouteSettingsOpen(true)
@@ -543,47 +498,22 @@ export function SwitchModePanel({
             {notices}
           </div>
         )}
-        {view !== "direct" && isStackAppId(app) ? (
-          <Tabs
-            value={proxySection}
-            onValueChange={(value) =>
-              setProxySection(value as "route" | "stack")
-            }
-          >
-            <div className="mb-3 flex flex-col gap-2">
-              <TabsList aria-label={t("mode.proxySections.label")}>
-                <TabsTrigger value="route">
-                  {t("mode.proxySections.route")}
-                </TabsTrigger>
-                <TabsTrigger value="stack">
-                  {t("mode.proxySections.stack")}
-                </TabsTrigger>
-              </TabsList>
-              <p className="text-caption text-fg-2">
-                {t("mode.proxySections.help")}
-              </p>
-            </div>
-            <TabsContent value={proxySection}>{list}</TabsContent>
-          </Tabs>
-        ) : (
-          list
-        )}
+        {view !== "direct" ? groupList : directList}
       </div>
 
       <ModeDialog
         app={app}
         state={dialog}
         active={active}
-        providers={providerList}
-        eligibleIds={eligibleIds}
-        defaultPick={routeId ?? directId}
-        stackMembers={(stack?.members ?? []).map((member) => ({
-          id: member.providerId,
-          name: nameOf(member.providerId),
-          models: member.modelIds.length,
-        }))}
+        groups={dialogGroups}
+        defaultPick={boundGroupId ?? availableGroups[0]?.id ?? null}
+        activating={activating}
         onClose={() => setDialog(null)}
-        onEnter={enterMode}
+        onEnter={async (groupId) => {
+          await activateGroup(groupId);
+          setDialog(null);
+        }}
+        onRouteDefault={activateDefaultGroup}
         onSwitchDirect={(providerId) => {
           const provider = providers[providerId];
           if (provider) void onSwitch(provider, { acknowledgedRouting: true });
@@ -594,17 +524,7 @@ export function SwitchModePanel({
         app={app}
         open={routeSettingsOpen}
         onOpenChange={setRouteSettingsOpen}
-        onOpenSettings={onOpenRoutingSettings}
-      />
-
-      <ConfirmDialog
-        isOpen={confirmFailover}
-        variant="info"
-        title={t("confirm.failover.title")}
-        message={t("confirm.failover.message")}
-        confirmText={t("confirm.failover.confirm")}
-        onConfirm={() => void confirmFailoverOn()}
-        onCancel={() => setConfirmFailover(false)}
+        onOpenSettings={onOpenRoutingPage}
       />
     </>
   );
