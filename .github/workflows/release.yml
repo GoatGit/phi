@@ -966,7 +966,9 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: PHI ${{ github.ref_name }}
-          prerelease: true
+          # 含 '-' 的 tag（如 v1.0.0-beta.1）标为 pre-release；正式 tag 发布为 Latest release，
+          # 否则官网 releases/latest 链接和更新器 endpoint 都会 404
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             ## PHI ${{ github.ref_name }}
 
