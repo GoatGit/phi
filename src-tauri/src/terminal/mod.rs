@@ -31,6 +31,10 @@ struct Registry {
     /// present，全局门闸会让乱序后到的那一帧被静默丢弃，该窗格从此卡在
     /// 旧几何（表现为原终端内容消失、新窗格没有 shell）。
     layout_revisions: HashMap<String, u64>,
+    /// 最近一次经 IPC 校验的主题（dark 标记，Ghostty 配置文本）。create 时先于
+    /// PTY 启动应用：TUI 在启动后立即探测 OSC 10/11 背景色并长期缓存，迟到的
+    /// 主题更新会被当成错误的浅色终端，导致浅色填充画在深色终端上。
+    theme: Option<(bool, String)>,
 }
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
@@ -98,6 +102,8 @@ pub fn terminal_create(
     cwd: Option<String>,
     arguments: Option<String>,
     request_id: String,
+    theme: Option<String>,
+    dark: Option<bool>,
 ) -> Result<Snapshot, String> {
     authorize(&window)?;
     if !cfg!(target_os = "macos") {
@@ -106,6 +112,8 @@ pub fn terminal_create(
     if launch::cli(&app_id).is_none() || uuid::Uuid::parse_str(&request_id).is_err() {
         return Err("invalid-terminal-request".into());
     }
+    let dark = dark.unwrap_or(false);
+    let theme_config = themes::resolve(theme.as_deref().unwrap_or("auto"), dark)?;
     APP.get_or_init(|| window.app_handle().clone());
     let snapshot = {
         let mut state = registry().lock().unwrap();
@@ -155,6 +163,7 @@ pub fn terminal_create(
         };
         state.requests.insert(request_id, snapshot.id.clone());
         state.sessions.push(snapshot.clone());
+        state.theme = Some((dark, theme_config.to_owned()));
         snapshot
     };
     begin_start(window, snapshot.clone());
@@ -194,20 +203,22 @@ fn begin_start(window: tauri::WebviewWindow, session: Snapshot) {
         };
         let app = window.app_handle().clone();
         let _ = app.run_on_main_thread(move || {
-            let valid = {
+            let (valid, theme) = {
                 let state = registry().lock().unwrap();
-                !state.closing
+                let valid = !state.closing
                     && state.sessions.iter().any(|s| {
                         s.id == session.id
                             && s.generation == session.generation
                             && s.phase == "checking"
-                    })
+                    });
+                (valid, state.theme.clone())
             };
             if !valid {
                 return;
             }
+            let (theme_dark, theme_config) = theme.unwrap_or((false, String::new()));
             transition(&session.id, session.generation, "starting", None);
-            match native::create(&window, &session, &plan) {
+            match native::create(&window, &session, &plan, theme_dark, &theme_config) {
                 Ok(()) => transition(&session.id, session.generation, "running", None),
                 Err(error) => transition(&session.id, session.generation, "failed", Some(error)),
             }
@@ -324,7 +335,7 @@ pub fn terminal_present(
 ) -> Result<(), String> {
     authorize(&window)?;
     let p = presentation;
-    themes::resolve(&p.theme, p.dark)?;
+    let theme_config = themes::resolve(&p.theme, p.dark)?;
     if [p.x, p.y, p.width, p.height]
         .iter()
         .any(|v| !v.is_finite() || *v < 0.0 || *v > 32000.0)
@@ -342,6 +353,7 @@ pub fn terminal_present(
     }
     {
         let mut registry = registry().lock().unwrap();
+        registry.theme = Some((p.dark, theme_config.to_owned()));
         if let Some(id) = &p.id {
             if !registry.sessions.iter().any(|s| &s.id == id) {
                 return Err("unknown-session".into());

@@ -14,6 +14,8 @@ extern "C" {
         command: *const c_char,
         cwd: *const c_char,
         environment: *const c_char,
+        dark: bool,
+        theme_config: *const c_char,
     ) -> bool;
     fn phi_terminal_present(
         id: *const c_char,
@@ -72,6 +74,8 @@ pub fn create(
     window: &tauri::WebviewWindow,
     session: &Snapshot,
     plan: &LaunchPlan,
+    dark: bool,
+    theme_config: &str,
 ) -> Result<(), String> {
     let bundled = window
         .app_handle()
@@ -90,6 +94,7 @@ pub fn create(
     let cwd = c(&plan.cwd.to_string_lossy())?;
     let environment =
         c(&serde_json::to_string(&plan.environment).map_err(|_| "invalid-environment")?)?;
+    let theme = c(theme_config)?;
     unsafe {
         if !phi_terminal_init(event, resources.as_ptr()) {
             return Err("terminal-engine-unavailable".into());
@@ -102,6 +107,8 @@ pub fn create(
             command.as_ptr(),
             cwd.as_ptr(),
             environment.as_ptr(),
+            dark,
+            theme.as_ptr(),
         ) {
             return Err("terminal-surface-failed".into());
         }

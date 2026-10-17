@@ -34,6 +34,12 @@ export interface TerminalPresentation {
   blocked?: boolean;
   dimmed?: boolean;
 }
+export interface TerminalCreateOptions {
+  /** 与 present 同一套受信字段：create 时先于 PTY 应用，CLI 启动期的
+   * OSC 10/11 背景探测才能拿到最终配色（否则 TUI 会缓存错误的浅色假设） */
+  dark?: boolean;
+  theme?: string;
+}
 export const terminalApi = {
   capabilities: () =>
     invoke<{ supported: boolean; apps: AppId[]; defaultCwd: string }>(
@@ -44,6 +50,7 @@ export const terminalApi = {
     appId: AppId,
     cwd: string,
     argumentsText = "",
+    { dark = false, theme = "auto" }: TerminalCreateOptions = {},
     requestId = crypto.randomUUID(),
   ) =>
     invoke<TerminalSession>("terminal_create", {
@@ -51,6 +58,8 @@ export const terminalApi = {
       cwd,
       arguments: argumentsText,
       requestId,
+      theme,
+      dark,
     }),
   close: (session: TerminalSession, confirmed = false) =>
     invoke<void>("terminal_close", {

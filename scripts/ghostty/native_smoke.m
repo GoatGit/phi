@@ -169,7 +169,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     atexit(restoreInputSource);
   }
   if (argc == 8) {
-    check(phi_terminal_create((__bridge void *)window, "codex:1", argv[6], "/tmp", argv[7]), @"installed Codex starts in an isolated configuration");
+    check(phi_terminal_create((__bridge void *)window, "codex:1", argv[6], "/tmp", argv[7], true, ""), @"installed Codex starts in an isolated configuration");
     NSView *codex = window.contentView.subviews.lastObject;
     phi_terminal_present("codex:1", 175, 84, 725, 472, true, true, false, NULL, NULL);
     pump(12);
@@ -209,7 +209,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     phi_terminal_close("codex:1");
   }
   check(phi_terminal_create((__bridge void *)window, "first:1",
-    "/bin/sh -c 'printf \"READY / 中文 / \\033[32mANSI PASS\\033[0m\\n\"; read line; printf \"INPUT:%s\\n\" \"$line\"; read line; printf \"PHYSICAL:%s\\n\" \"$line\"; read line; exit 7'", "/tmp", "{}"), @"real shell/PTY created");
+    "/bin/sh -c 'printf \"READY / 中文 / \\033[32mANSI PASS\\033[0m\\n\"; read line; printf \"INPUT:%s\\n\" \"$line\"; read line; printf \"PHYSICAL:%s\\n\" \"$line\"; read line; exit 7'", "/tmp", "{}", true, ""), @"real shell/PTY created");
   NSView *first = window.contentView.subviews.lastObject;
   phi_terminal_present("first:1", 175, 84, 725, 472, true, true, false, NULL, NULL);
   if (systemInput) first.inputContext.selectedKeyboardInputSource = @"com.apple.keylayout.ABC";
@@ -229,7 +229,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
   NSEvent *shortcut = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand
     timestamp:0 windowNumber:window.windowNumber context:nil characters:@"t" charactersIgnoringModifiers:@"t" isARepeat:NO keyCode:17];
   check([first performKeyEquivalent:shortcut] && [events containsObject:@"first:1:new"], @"native Command-T reaches workspace action");
-  check(phi_terminal_create((__bridge void *)window, "second:1", "/bin/sh -c 'printf SECOND; read line'", "/tmp", "{}"), @"second independent surface created");
+  check(phi_terminal_create((__bridge void *)window, "second:1", "/bin/sh -c 'printf SECOND; read line'", "/tmp", "{}", true, ""), @"second independent surface created");
   NSView *second = window.contentView.subviews.lastObject;
   phi_terminal_set_visible("[\"second:1\"]");
   phi_terminal_present("second:1", 175, 84, 725, 472, true, true, true, NULL, NULL); pump(0.5);
@@ -291,7 +291,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
   phi_terminal_close("first:1");
   check(!first.superview && !first.surface, @"close releases native surface");
   check(phi_terminal_create((__bridge void *)window, "interrupt:1",
-    argv[4], "/tmp", "{}"), @"interrupt test uses the production session supervisor and a real PTY");
+    argv[4], "/tmp", "{}", true, ""), @"interrupt test uses the production session supervisor and a real PTY");
   NSView *interrupted = window.contentView.subviews.lastObject;
   phi_terminal_present("interrupt:1", 175, 84, 825, 522, true, true, false, NULL, NULL); pump(0.5);
   check([contents(interrupted) containsString:@"INTERRUPT_READY"], @"foreground CLI is ready for Ctrl-C");
@@ -347,7 +347,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
   }
   check(!phi_terminal_exited("second:1"), @"left/right modifiers and Caps Lock never perform invalid character access");
   phi_terminal_close("second:1");
-  check(phi_terminal_create((__bridge void *)window, "dirty:1", argv[5], "/tmp", "{}"), @"raw CLI fixture uses the production session supervisor");
+  check(phi_terminal_create((__bridge void *)window, "dirty:1", argv[5], "/tmp", "{}", true, ""), @"raw CLI fixture uses the production session supervisor");
   NSView *dirty = window.contentView.subviews.lastObject;
   phi_terminal_present("dirty:1", 175, 84, 825, 522, true, true, false, NULL, NULL); pump(0.8);
   check([contents(dirty) containsString:@"DIRTY_CLI_READY"], @"CLI enters raw mode and enhanced keyboard protocol");
@@ -382,7 +382,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
   check(hasLine(dirty, @"menu"), @"shell command executes after menu/theme roundtrip");
   phi_terminal_close("dirty:1");
   check(phi_terminal_create((__bridge void *)window, "stubborn:1",
-    "/bin/sh -c 'trap \"\" HUP; printf \"PID:%s\\n\" \"$$\"; while :; do sleep 1; done'", "/tmp", "{}"), @"HUP-ignoring child created");
+    "/bin/sh -c 'trap \"\" HUP; printf \"PID:%s\\n\" \"$$\"; while :; do sleep 1; done'", "/tmp", "{}", true, ""), @"HUP-ignoring child created");
   NSView *stubborn = window.contentView.subviews.lastObject;
   phi_terminal_present("stubborn:1", 175, 84, 825, 522, true, true, false, NULL, NULL); pump(0.7);
   NSString *buffer = contents(stubborn);

@@ -419,8 +419,17 @@ bool phi_terminal_init(phi_terminal_callback callback, const char *resources) {
   return true;
 }
 bool phi_terminal_create(void *windowPointer, const char *id, const char *command,
-                         const char *cwd, const char *environment) {
+                         const char *cwd, const char *environment, bool dark,
+                         const char *themeConfig) {
   if (!core) return false;
+  // TUI 在启动后立刻探测 OSC 10/11 默认前景/背景色并长期缓存。主题必须先于
+  // surface / PTY 启动应用：迟到的更新会让 CLI 把初始化默认背景（浅色）当成
+  // 终端配色，从此把浅色填充画在深色终端上（表现为输入框白底白字）。
+  if (themeConfig && *themeConfig) {
+    ghostty_config_t theme = hostConfig(dark, [NSString stringWithUTF8String:themeConfig]);
+    ghostty_app_update_config(core, theme);
+    ghostty_config_free(theme);
+  }
   NSString *key = [NSString stringWithUTF8String:id];
   if (views[key]) return false;
   NSWindow *window = (__bridge NSWindow *)windowPointer;

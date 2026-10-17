@@ -94,7 +94,7 @@ int main(int argc, const char **argv) {
         getenv("TUI_MODE") != NULL);
   NSString *envJson = @"{\"PATH\":\"/Users/yanghuaiyuan/.nvm/versions/node/v24.13.0/bin:/opt/homebrew/bin:/usr/bin:/bin\",\"HOME\":\"/Users/yanghuaiyuan\",\"TERM\":\"xterm-256color\"}";
   if (!phi_terminal_create((__bridge void *)window, "t1:1",
-                           command.UTF8String, "/Users/yanghuaiyuan/AI/ai.md", envJson.UTF8String)) {
+                           command.UTF8String, "/Users/yanghuaiyuan/AI/ai.md", envJson.UTF8String, true, "")) {
     NSLog(@"[repro] FAIL: surface create");
     return 1;
   }

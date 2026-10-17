@@ -4,7 +4,8 @@
 typedef void (*phi_terminal_callback)(const char *id, const char *event);
 bool phi_terminal_init(phi_terminal_callback callback, const char *resources);
 bool phi_terminal_create(void *window, const char *id, const char *command,
-                         const char *cwd, const char *environment);
+                         const char *cwd, const char *environment, bool dark,
+                         const char *theme_config);
 void phi_terminal_present(const char *id, double x, double y, double width,
                           double height, bool visible, bool focus, bool dark,
                           const char *theme_config, const char *overlay_config);

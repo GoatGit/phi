@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { terminalApi, type TerminalSession } from "@/lib/api/terminal";
 import type { AppId } from "@/lib/api";
 import { hideNativeTerminal } from "./TerminalPane";
+import { useTerminalTheme } from "./TerminalThemeMenu";
 import {
   childPaneIds,
   contains,
@@ -54,6 +55,7 @@ export function useTerminalWorkspace(
   canLeave: (proceed: () => void) => boolean,
 ) {
   const { t } = useTranslation();
+  const [terminalTheme] = useTerminalTheme();
   const [supportedApps, setSupportedApps] = useState<AppId[]>([]);
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const [selected, setSelected] = useState<Partial<Record<AppId, string>>>({});
@@ -154,6 +156,10 @@ export function useTerminalWorkspace(
         launchDraft.appId,
         cwd,
         argumentsText,
+        {
+          theme: terminalTheme,
+          dark: document.documentElement.classList.contains("dark"),
+        },
       );
       upsert(session);
       setSelected((previous) => ({ ...previous, [session.appId]: session.id }));
@@ -207,7 +213,10 @@ export function useTerminalWorkspace(
     launching.current = true;
     // 分屏新窗格沿用源窗格的目录与参数（Ghostty 的 new_split 语义：不弹对话框）
     terminalApi
-      .create(source.appId, source.launchCwd, source.launchArgs)
+      .create(source.appId, source.launchCwd, source.launchArgs, {
+        theme: terminalTheme,
+        dark: document.documentElement.classList.contains("dark"),
+      })
       .then((session) => {
         upsert(session);
         const rootId = rootIdOf(sessionId);
