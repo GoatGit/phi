@@ -42,7 +42,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/phi/32x32.png",
       "icons/phi/128x128.png",

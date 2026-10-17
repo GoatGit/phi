@@ -1,0 +1,33 @@
+{
+  "version": "1.0.0",
+  "items": [
+    {
+      "type": "new",
+      "zh": "PHI 1.0 正式发布：本地优先的 AI 编程工具网关",
+      "zh-TW": "PHI 1.0 正式發布：本地優先的 AI 編程工具閘道",
+      "en": "PHI 1.0 is here: a local-first gateway for your AI coding tools",
+      "ja": "PHI 1.0 正式リリース：ローカルファーストの AI 開発ツールゲートウェイ"
+    },
+    {
+      "type": "new",
+      "zh": "在一处管理 Claude Code、Codex 等工具的供应商配置",
+      "zh-TW": "在一處管理 Claude Code、Codex 等工具的供應商設定",
+      "en": "Manage provider settings for Claude Code, Codex and more in one place",
+      "ja": "Claude Code や Codex などのプロバイダー設定を一か所で管理"
+    },
+    {
+      "type": "new",
+      "zh": "新增 ZCode 支持，可接入更多编程工具",
+      "zh-TW": "新增 ZCode 支援，可接入更多編程工具",
+      "en": "ZCode is now supported as a coding tool",
+      "ja": "ZCode に対応し、接続できるツールが増えました"
+    },
+    {
+      "type": "new",
+      "zh": "新增智谱按量套餐支持",
+      "zh-TW": "新增智譜按量套餐支援",
+      "en": "Zhipu pay-as-you-go plans are now supported",
+      "ja": "Zhipu（智谱）の従量課金プランに対応"
+    }
+  ]
+}
