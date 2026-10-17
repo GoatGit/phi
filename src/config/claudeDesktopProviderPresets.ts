@@ -161,8 +161,7 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
     planKey: "payg",
     regionKey: "cn",
     primePartner: false,
-    websiteUrl:
-      "https://platform.kimi.com",
+    websiteUrl: "https://platform.kimi.com",
     category: "cn_official",
     baseUrl: "https://api.moonshot.cn/anthropic",
     mode: "proxy",
@@ -182,8 +181,7 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
     family: "kimi",
     planKey: "payg",
     regionKey: "intl",
-    websiteUrl:
-      "https://platform.kimi.ai",
+    websiteUrl: "https://platform.kimi.ai",
     category: "cn_official",
     baseUrl: "https://api.moonshot.ai/anthropic",
     mode: "proxy",
@@ -535,8 +533,7 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
   {
     name: "TeamoRouter",
     websiteUrl: "https://teamorouter.cn",
-    apiKeyUrl:
-      "https://teamorouter.cn/",
+    apiKeyUrl: "https://teamorouter.cn/",
     category: "aggregator",
     baseUrl: "https://api.teamorouter.cn",
     mode: "direct",
@@ -629,10 +626,8 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
   },
   {
     name: "BytePlus",
-    websiteUrl:
-      "https://www.byteplus.com/en/product/modelark&",
-    apiKeyUrl:
-      "https://www.byteplus.com/en/product/modelark&",
+    websiteUrl: "https://www.byteplus.com/en/product/modelark&",
+    apiKeyUrl: "https://www.byteplus.com/en/product/modelark&",
     category: "cn_official",
     baseUrl: "https://ark.ap-southeast.bytepluses.com/api/coding",
     mode: "proxy",
@@ -1240,8 +1235,42 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
     iconColor: "#0052D9",
   },
   {
+    // Anthropic 兼容端点 /api/anthropic 对普通 Key（按量计费）与 Coding Key
+    // 同 URL（智谱 Claude API 兼容文档用普通 Key 直连）；两条预设只差 Key
+    // 获取入口与计费口径
+    name: "Zhipu GLM 按量",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "cn",
+    websiteUrl: "https://open.bigmodel.cn",
+    apiKeyUrl: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    category: "cn_official",
+    baseUrl: "https://open.bigmodel.cn/api/anthropic",
+    mode: "proxy",
+    apiFormat: "anthropic",
+    modelRoutes: brandedRoutes("glm-5.3", "glm-5.3", "glm-5.3"),
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+  },
+  {
+    name: "Zhipu GLM 按量 en",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "intl",
+    websiteUrl: "https://z.ai",
+    apiKeyUrl: "https://z.ai/manage-apikey/apikey-list",
+    category: "cn_official",
+    baseUrl: "https://api.z.ai/api/anthropic",
+    mode: "proxy",
+    apiFormat: "anthropic",
+    modelRoutes: brandedRoutes("glm-5.3", "glm-5.3", "glm-5.3"),
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+  },
+  {
     name: "Zhipu GLM",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "cn",
     websiteUrl: "https://open.bigmodel.cn",
     apiKeyUrl: "https://www.bigmodel.cn/claude-code",
@@ -1256,6 +1285,7 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
   {
     name: "Zhipu GLM en",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "intl",
     websiteUrl: "https://z.ai",
     apiKeyUrl: "https://z.ai/subscribe",
@@ -1320,8 +1350,7 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
     family: "qianwen",
     planKey: "payg",
     websiteUrl: "https://platform.qianwenai.com/",
-    apiKeyUrl:
-      "https://platform.qianwenai.com/home/api-keys",
+    apiKeyUrl: "https://platform.qianwenai.com/home/api-keys",
     category: "cn_official",
     baseUrl: "https://dashscope.aliyuncs.com/apps/anthropic",
     mode: "proxy",
@@ -1347,10 +1376,8 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
     name: "千问AI平台 Token Plan",
     family: "qianwen",
     planKey: "tokenPlan",
-    websiteUrl:
-      "https://platform.qianwenai.com/pricing/token-plan",
-    apiKeyUrl:
-      "https://platform.qianwenai.com/home/api-keys",
+    websiteUrl: "https://platform.qianwenai.com/pricing/token-plan",
+    apiKeyUrl: "https://platform.qianwenai.com/home/api-keys",
     category: "cn_official",
     baseUrl: "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic",
     mode: "proxy",
@@ -1403,8 +1430,7 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
     name: "QwenCloud Token Plan",
     family: "qwencloud",
     planKey: "tokenPlan",
-    websiteUrl:
-      "https://www.qwencloud.com/pricing/token-plan",
+    websiteUrl: "https://www.qwencloud.com/pricing/token-plan",
     apiKeyUrl: "https://home.qwencloud.com/api-keys",
     category: "cn_official",
     baseUrl:

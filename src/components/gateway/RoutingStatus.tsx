@@ -379,6 +379,7 @@ export function RoutingStatus({
           <RoutingFlow
             key={JSON.stringify([filters, offset])}
             data={query.data}
+            catalog={catalog}
           />
           {!!query.data.active.length && (
             <div className="flex flex-col gap-3">

@@ -1,11 +1,22 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import userEvent from "@testing-library/user-event";
 import { RoutingFlow } from "@/components/gateway/RoutingFlow";
-import { buildRoutingFlow } from "@/components/gateway/routingFlowModel";
-import type { GatewayRequestTrace, GatewayTracePage } from "@/lib/api/gateway";
+import {
+  buildRoutingFlow,
+  buildTimeline,
+  flattenGroupMembers,
+  laneAttempts,
+  laneFinalState,
+  lanePlayback,
+  latestTracePerApp,
+} from "@/components/gateway/routingFlowModel";
+import type {
+  GatewayCatalog,
+  GatewayRequestTrace,
+  GatewayTracePage,
+} from "@/lib/api/gateway";
 
-const trace: GatewayRequestTrace = {
+const baseTrace: GatewayRequestTrace = {
   id: "request-1",
   createdAt: 1000,
   appId: "claude",
@@ -28,8 +39,9 @@ const trace: GatewayRequestTrace = {
       supplierName: "Historical A",
       model: "model-a",
       outcome: "rate_limit",
-      groupPath: ["root", "nested"],
+      groupPath: ["root"],
       latencyMs: 100,
+      startedAt: 1010,
     },
     {
       supplierId: "b",
@@ -38,6 +50,7 @@ const trace: GatewayRequestTrace = {
       outcome: "upstream_accepted",
       groupPath: ["root"],
       latencyMs: 250,
+      startedAt: 1300,
     },
   ],
   outcome: "completed",
@@ -49,7 +62,6 @@ const trace: GatewayRequestTrace = {
     reason: "group",
     groupId: "root",
     affinity: "hit",
-    intents: [],
     groups: ["root", "nested"].map((id) => ({
       id,
       name: `Snapshot ${id}`,
@@ -66,18 +78,8 @@ const trace: GatewayRequestTrace = {
       nonStreamingTimeout: 600,
       rules: [],
     })),
-    candidates: ["a", "b", "c"].map((supplierId) => ({
-      supplierId,
-      supplierName: `Historical ${supplierId.toUpperCase()}`,
-      model: `model-${supplierId}`,
-      groupPath: supplierId === "a" ? ["root", "nested"] : ["root"],
-      memberPath: [],
-      reason: supplierId === "c" ? "cooldown" : "ordered",
-      available: supplierId !== "c",
-      recentTokens: 0,
-      active: 0,
-      cooldownUntil: supplierId === "c" ? 5000 : null,
-    })),
+    candidates: [],
+    intents: [],
   },
 };
 
@@ -113,141 +115,475 @@ function page(
 
 afterEach(() => vi.useRealTimers());
 
-describe("recorded routing flow", () => {
-  it("keeps failed attempts, nested snapshot paths and the final stream outcome", () => {
-    const { nodes } = buildRoutingFlow(trace, false);
-    expect(nodes.map((node) => node.state)).toEqual([
-      "failed",
-      "completed",
-      "cooldown",
-    ]);
-    expect(nodes[0].groups).toEqual(["Snapshot root", "Snapshot nested"]);
-    expect(nodes[1].latestOutcome).toBe("completed");
-    // Header acceptance must not turn an interrupted response into a success.
+const supplier = (
+  id: string,
+  name: string,
+  model: string,
+): GatewayCatalog["suppliers"][number] => ({
+  id,
+  name,
+  endpoint: { protocol: "anthropic", baseUrl: `https://${id}.test` },
+  models: [model],
+});
+type CatalogGroup = NonNullable<GatewayCatalog["groups"]>[number];
+const group = (
+  overrides: Partial<CatalogGroup> & { id: string },
+): CatalogGroup => ({
+  name: `Group ${overrides.id}`,
+  enabled: true,
+  appIds: [],
+  strategy: "ordered",
+  members: [],
+  sessionAffinity: false,
+  affinityTtlSeconds: 0,
+  failover: true,
+  maxAttempts: 3,
+  streamingFirstByteTimeout: 60,
+  streamingIdleTimeout: 180,
+  nonStreamingTimeout: 600,
+  rules: [],
+  ...overrides,
+});
+const catalog: GatewayCatalog = {
+  revision: 7,
+  suppliers: [
+    supplier("a", "Pool A", "model-a"),
+    supplier("b", "Pool B", "model-b"),
+  ],
+  policies: [
+    {
+      id: "connection/claude",
+      name: "Claude connection",
+      appId: "claude",
+      enabled: true,
+      matchModel: "",
+      priority: 0,
+      failover: false,
+      candidates: [],
+      groupId: "root",
+    },
+  ],
+  groups: [
+    group({
+      id: "root",
+      name: "Root group",
+      appIds: ["claude"],
+      members: [
+        {
+          id: "m1",
+          supplierId: "a",
+          model: "model-a",
+          enabled: true,
+          weight: 1,
+        },
+        {
+          id: "m2",
+          supplierId: "b",
+          model: "model-b",
+          enabled: true,
+          weight: 1,
+        },
+        { id: "m3", groupId: "nested", model: "", enabled: true, weight: 1 },
+      ],
+    }),
+    group({
+      id: "nested",
+      name: "Nested group",
+      strategy: "manual",
+      manualMemberId: "n1",
+      members: [
+        {
+          id: "n1",
+          supplierId: "b",
+          model: "model-nested",
+          enabled: true,
+          weight: 1,
+        },
+      ],
+    }),
+  ],
+};
+
+describe("routing flow model", () => {
+  it("keeps one lane per app using its latest request, active wins", () => {
+    const older = { ...baseTrace, id: "older", createdAt: 500 };
+    const newer = {
+      ...baseTrace,
+      id: "newer",
+      appId: "codex",
+      createdAt: 900,
+    };
+    const live = { ...baseTrace, id: "live", createdAt: 400 };
     expect(
-      buildRoutingFlow({ ...trace, outcome: "interrupted" }, false).nodes[1]
-        .state,
-    ).toBe("failed");
-    // Historical cooldown is evaluated at request time, not against today's clock.
-    expect(nodes[2].state).toBe("cooldown");
+      latestTracePerApp(page([older, newer], [live])).map((t) => t.id),
+    ).toEqual(["live", "newer"]);
+    // claude lane resolves to the active request despite the older history.
+    const { lanes } = buildRoutingFlow(page([older], [live]));
+    expect(lanes.map((lane) => lane.trace.id)).toEqual(["live"]);
+    expect(lanes[0].live).toBe(true);
   });
 
-  it("only animates in-flight attempts present in the active request list", () => {
-    const live = { ...trace, outcome: "upstream_accepted" };
-    expect(buildRoutingFlow(live, true).nodes[1].state).toBe("active");
-    expect(buildRoutingFlow(live, false).nodes[1].state).toBe("unknown");
+  it("collapses repeated attempts and keeps the final stream outcome", () => {
+    const retry = {
+      ...baseTrace,
+      events: [
+        baseTrace.events[0],
+        { ...baseTrace.events[0], outcome: "timeout", startedAt: 1200 },
+      ],
+    };
+    const attempts = laneAttempts(retry, false);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0].attempts).toEqual([1, 2]);
+    expect(attempts[0].state).toBe("failed");
+    // Header acceptance must not turn an interrupted response into a success.
+    expect(
+      laneAttempts({ ...baseTrace, outcome: "interrupted" }, false)[1].state,
+    ).toBe("failed");
+    expect(laneAttempts(baseTrace, false)[1].state).toBe("completed");
+  });
+
+  it("marks the last event of a live lane as active only in the active list", () => {
+    const live = { ...baseTrace, outcome: "upstream_accepted" };
+    expect(laneAttempts(live, true)[1].state).toBe("active");
+    expect(laneAttempts(live, false)[1].state).toBe("unknown");
+    expect(laneFinalState({ ...laneOf(live), live: true })).toBe("active");
+  });
+
+  it("derives group and model columns from the trace without today's catalog", () => {
+    const { lanes, groups, outlets } = buildRoutingFlow(page([baseTrace]));
+    expect(lanes[0].groupName).toBe("Snapshot root");
+    expect(groups).toHaveLength(1);
+    expect(outlets.map((o) => o.model)).toEqual(["model-a", "model-b"]);
+    expect(outlets[0].state).toBe("failed");
+    expect(outlets[1].state).toBe("completed");
+    const legacy = {
+      ...baseTrace,
+      decision: undefined,
+      policy: { ...baseTrace.policy, groupId: null },
+    };
+    const legacyFlow = buildRoutingFlow(page([legacy]));
+    expect(legacyFlow.lanes[0].groupName).toBe("Historical policy");
+    expect(legacyFlow.groups[0].key).toBe("policy:claude:policy");
+  });
+
+  it("draws the configured topology even without any traffic", () => {
+    const { apps, lanes, groups, outlets, liveCount } = buildRoutingFlow(
+      page([]),
+      catalog,
+    );
+    expect(lanes).toEqual([]);
+    expect(liveCount).toBe(0);
+    expect(apps.map((app) => app.appId)).toEqual([
+      "claude",
+      "codex",
+      "gemini",
+      "grokbuild",
+    ]);
+    expect(apps[0]).toMatchObject({
+      lane: null,
+      staticGroupKey: "group:root",
+      staticOutletKeys: ["a|model-a", "b|model-b", "b|model-nested"],
+    });
+    // codex/gemini/grokbuild have no connection: app→PHI only.
+    expect(apps[1].staticGroupKey).toBeNull();
+    // The group column lists directly connected groups; the nested group's
+    // members are flattened into the model list instead.
+    expect(groups.map((g) => g.name)).toEqual(["Root group"]);
+    expect(outlets).toMatchObject([
+      { supplierName: "Pool A", state: null },
+      { supplierName: "Pool B", state: null },
+      { supplierName: "Pool B", state: null },
+    ]);
+  });
+
+  it("merges traffic onto the configured topology, catalog names win", () => {
+    const { apps, groups, outlets } = buildRoutingFlow(
+      page([baseTrace]),
+      catalog,
+    );
+    const claude = apps.find((app) => app.appId === "claude")!;
+    expect(claude.lane).not.toBeNull();
+    expect(claude.staticGroupKey).toBe("group:root");
+    expect(groups[0]).toMatchObject({ key: "group:root", name: "Root group" });
+    // Shared outlets take the traffic state; configured-only ones stay idle.
+    expect(outlets.find((o) => o.key === "a|model-a")!.state).toBe("failed");
+    expect(outlets.find((o) => o.key === "b|model-b")!.state).toBe("completed");
+    expect(outlets.find((o) => o.key === "b|model-nested")!.state).toBeNull();
+  });
+
+  it("flattens nested groups with a cycle guard", () => {
+    const cyclic: GatewayCatalog = {
+      ...catalog,
+      groups: [
+        group({
+          id: "root",
+          name: "Root group",
+          members: [
+            {
+              id: "m3",
+              groupId: "nested",
+              model: "",
+              enabled: true,
+              weight: 1,
+            },
+          ],
+        }),
+        group({
+          id: "nested",
+          name: "Nested group",
+          members: [
+            { id: "n1", groupId: "root", model: "", enabled: true, weight: 1 },
+          ],
+        }),
+      ],
+    };
+    expect(flattenGroupMembers(cyclic, "root")).toEqual([]);
+    expect(flattenGroupMembers(catalog, "root").map((o) => o.key)).toEqual([
+      "a|model-a",
+      "b|model-b",
+      "b|model-nested",
+    ]);
+  });
+
+  it("orders the replay timeline across apps by event time", () => {
+    const claude = baseTrace;
+    const codex = {
+      ...baseTrace,
+      id: "codex-1",
+      appId: "codex",
+      events: [
+        {
+          supplierId: "c",
+          supplierName: "Codex C",
+          model: "model-c",
+          outcome: "completed",
+          groupPath: ["root"],
+          startedAt: 1100,
+        },
+      ],
+    };
+    const { lanes } = buildRoutingFlow(page([claude, codex]));
+    const timeline = buildTimeline(lanes);
+    expect(
+      timeline.map((s) => `${s.laneKey}:${s.attemptKey.split("|")[1]}`),
+    ).toEqual(["claude:model-a", "codex:model-c", "claude:model-b"]);
+    const lane = lanes.find((l) => l.appId === "codex")!;
+    const playback = lanePlayback(lane, timeline, 0);
+    expect(playback.visible).toBe(false);
+    const after = lanePlayback(lane, timeline, 1);
+    expect(after.visible && after.done).toBe(true);
+  });
+});
+
+function laneOf(trace: GatewayRequestTrace) {
+  return {
+    appId: trace.appId,
+    trace,
+    live: false,
+    groupKey: "group:root",
+    groupName: "Snapshot root",
+    groupStrategy: "ordered",
+    attempts: [],
+  };
+}
+
+describe("routing flow diagram", () => {
+  it("renders four columns with per-app colored flow lines", () => {
+    const codex = {
+      ...baseTrace,
+      id: "codex-1",
+      appId: "codex",
+      createdAt: 1200,
+      events: [
+        {
+          supplierId: "a",
+          supplierName: "Historical A",
+          model: "model-a",
+          outcome: "completed",
+          groupPath: ["root"],
+          startedAt: 1210,
+        },
+      ],
+    };
+    const { container } = render(
+      <RoutingFlow data={page([baseTrace, codex])} />,
+    );
+    expect(
+      screen.getByRole("list", { name: "gateway.flow.apps" }).children,
+    ).toHaveLength(2);
+    expect(
+      screen.getByRole("list", { name: "gateway.flow.groups" }).children,
+    ).toHaveLength(1);
+    expect(
+      screen.getByRole("list", { name: "gateway.flow.models" }).children,
+    ).toHaveLength(2);
+    expect(container.querySelector(".phi-flow-hub")).toHaveTextContent("PHI");
+    const colors = new Set(
+      [
+        ...container.querySelectorAll<SVGPathElement>(".phi-flow-wires path"),
+      ].map((p) => p.style.stroke),
+    );
+    expect(colors.size).toBe(2);
+    expect(
+      container.querySelector('path[data-state="active"]'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the live lane as an animated flow line", () => {
+    const live = { ...baseTrace, outcome: "upstream_accepted" };
     const { container, rerender } = render(
       <RoutingFlow data={page([live], [live])} />,
     );
     expect(
       container.querySelector('path[data-state="active"]'),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "gateway.flow.replay" }),
-    ).toBeDisabled();
-    rerender(<RoutingFlow data={page([trace])} />);
+    rerender(<RoutingFlow data={page([baseTrace])} />);
     expect(
       container.querySelector('path[data-state="active"]'),
     ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "gateway.flow.replay" }),
-    ).toBeEnabled();
   });
 
-  it("replays actual attempts in order and restores the full result", () => {
+  it("replays the cross-app timeline step by step", () => {
     vi.useFakeTimers();
-    const { container } = render(<RoutingFlow data={page([trace])} />);
+    const { container } = render(<RoutingFlow data={page([baseTrace])} />);
+    // Final state: app→PHI, PHI→group and two group→model attempts.
+    expect(container.querySelectorAll(".phi-flow-wires path")).toHaveLength(4);
     fireEvent.click(
       screen.getByRole("button", { name: "gateway.flow.replay" }),
     );
-    expect(
-      container.querySelectorAll('.phi-routing-outlet[data-state="failed"]'),
-    ).toHaveLength(0);
+    // Step 0: lane wires are lit but only the first attempt is visible.
+    expect(container.querySelectorAll(".phi-flow-wires path")).toHaveLength(3);
     act(() => vi.advanceTimersByTime(900));
+    // Step 1 already covers both events: the lane settles on its final
+    // completed state with the failed attempt still on the chart.
+    expect(container.querySelectorAll(".phi-flow-wires path")).toHaveLength(4);
     expect(
-      container.querySelector('.phi-routing-outlet[data-state="failed"]'),
+      container.querySelector('.phi-flow-wires path[data-state="active"]'),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector(
+        '.phi-flow-node[data-kind="model"][data-state="failed"]',
+      ),
     ).toHaveTextContent("Historical A");
-    expect(
-      container.querySelectorAll('.phi-routing-outlet[data-state="completed"]'),
-    ).toHaveLength(0);
     act(() => vi.advanceTimersByTime(900));
     expect(
-      container.querySelector('.phi-routing-outlet[data-state="completed"]'),
+      container.querySelector(
+        '.phi-flow-node[data-kind="model"][data-state="completed"]',
+      ),
     ).toHaveTextContent("Historical B");
-    const attempts = screen.getByRole("list", {
-      name: "gateway.flow.attempts",
-    });
-    fireEvent.click(within(attempts).getAllByRole("button")[0]);
     expect(
-      container.querySelectorAll('.phi-routing-outlet[data-state="completed"]'),
-    ).toHaveLength(0);
+      screen.getByRole("button", { name: "gateway.flow.showAll" }),
+    ).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "gateway.flow.showAll" }),
     );
     expect(
-      container.querySelector('.phi-routing-outlet[data-state="completed"]'),
+      container.querySelector(
+        '.phi-flow-node[data-kind="model"][data-state="completed"]',
+      ),
     ).toHaveTextContent("Historical B");
   });
 
-  it("handles legacy traces and repeated attempts without consulting today's catalog", () => {
-    const legacy = {
-      ...trace,
-      decision: undefined,
-      policy: { ...trace.policy, candidates: [] },
-      events: [trace.events[0], { ...trace.events[0], outcome: "timeout" }],
+  it("dims other lanes when an app node is focused", () => {
+    const codex = {
+      ...baseTrace,
+      id: "codex-1",
+      appId: "codex",
+      createdAt: 1200,
+      events: [
+        {
+          supplierId: "c",
+          supplierName: "Codex C",
+          model: "model-c",
+          outcome: "completed",
+          groupPath: ["root"],
+          startedAt: 1210,
+        },
+      ],
     };
-    const { nodes, eventNodes } = buildRoutingFlow(legacy, false);
-    expect(nodes).toHaveLength(1);
-    expect(nodes[0].name).toBe("Historical A");
-    expect(nodes[0].groups).toEqual(["root", "nested"]);
-    expect(nodes[0].attempts).toEqual([1, 2]);
-    expect(eventNodes[0]).toBe(eventNodes[1]);
+    const { container } = render(
+      <RoutingFlow data={page([baseTrace, codex])} />,
+    );
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /gateway.flow.focusApp/ })[1],
+    );
+    const dimmed = container.querySelectorAll<SVGPathElement>(
+      '.phi-flow-wires path[data-dimmed="true"]',
+    );
+    expect(dimmed.length).toBeGreaterThan(0);
+    expect([...dimmed].every((p) => p.style.stroke !== "")).toBe(true);
+  });
+
+  it("draws configured apps, groups and models as gray dashed base lines", () => {
+    const { container } = render(
+      <RoutingFlow data={page([])} catalog={catalog} />,
+    );
+    expect(
+      screen.getByRole("list", { name: "gateway.flow.apps" }).children,
+    ).toHaveLength(4);
+    expect(
+      screen.getByRole("list", { name: "gateway.flow.groups" }).children,
+    ).toHaveLength(1);
+    expect(
+      screen.getByRole("list", { name: "gateway.flow.models" }).children,
+    ).toHaveLength(3);
+    // Configured-only models carry no traffic status text.
+    expect(
+      screen.queryByText("gateway.flow.states.unknown"),
+    ).not.toBeInTheDocument();
+    // 4 app→PHI + 1 PHI→group + 3 group→model gray dashed wires.
+    expect(
+      container.querySelectorAll('path[data-state="static"]'),
+    ).toHaveLength(8);
+    expect(
+      screen.queryByRole("button", { name: "gateway.flow.replay" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("overlays the colored traffic lane on the gray base topology", () => {
+    const { container } = render(
+      <RoutingFlow data={page([baseTrace])} catalog={catalog} />,
+    );
+    const colored = [
+      ...container.querySelectorAll<SVGPathElement>(".phi-flow-wires path"),
+    ].filter((path) => path.getAttribute("data-state") !== "static");
+    // app→PHI + PHI→group + two group→model attempt wires.
+    expect(colored).toHaveLength(4);
+    expect(colored.every((path) => path.style.stroke !== "")).toBe(true);
+    expect(
+      container.querySelectorAll('path[data-state="static"]').length,
+    ).toBeGreaterThan(0);
+    // The shared outlet keeps its traffic state while idle members stay on.
+    expect(
+      container.querySelector(
+        '.phi-flow-node[data-kind="model"][data-state="failed"]',
+      ),
+    ).toHaveTextContent("Pool A");
+  });
+
+  it("explains line styles in the legend and drops node icons", () => {
+    const { container } = render(
+      <RoutingFlow data={page([baseTrace])} catalog={catalog} />,
+    );
+    for (const key of [
+      "gateway.flow.lineActive",
+      "gateway.flow.lineCompleted",
+      "gateway.flow.lineFailed",
+      "gateway.flow.lineUnknown",
+      "gateway.flow.configured",
+    ]) {
+      expect(screen.getByText(key)).toBeInTheDocument();
+    }
+    expect(container.querySelector(".phi-flow-mark")).not.toBeInTheDocument();
   });
 
   it("shows an empty state without inventing traffic", () => {
     const { container } = render(<RoutingFlow data={page([])} />);
     expect(screen.getByRole("status")).toHaveTextContent("gateway.flow.empty");
-    expect(
-      container.querySelector(".phi-routing-wires"),
-    ).not.toBeInTheDocument();
+    expect(container.querySelector(".phi-flow-wires")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "gateway.flow.replay" }),
     ).not.toBeInTheDocument();
-  });
-
-  it("selects a historical request while live data refreshes", async () => {
-    HTMLElement.prototype.scrollIntoView = vi.fn();
-    const user = userEvent.setup();
-    const historical = {
-      ...trace,
-      id: "codex-request",
-      appId: "codex",
-      createdAt: 500,
-    };
-    const live = { ...trace, outcome: "upstream_accepted" };
-    const { container, rerender } = render(
-      <RoutingFlow data={page([historical, live], [live])} />,
-    );
-    expect(container.querySelector(".phi-routing-source")).toHaveTextContent(
-      "Claude",
-    );
-    await user.click(
-      screen.getByRole("combobox", { name: "gateway.flow.request" }),
-    );
-    await user.click(screen.getByRole("option", { name: /Codex/ }));
-    expect(container.querySelector(".phi-routing-source")).toHaveTextContent(
-      "Codex",
-    );
-    expect(
-      container.querySelector('path[data-state="active"]'),
-    ).not.toBeInTheDocument();
-    rerender(
-      <RoutingFlow
-        data={page([historical, { ...live, latencyMs: 500 }], [live])}
-      />,
-    );
-    expect(container.querySelector(".phi-routing-source")).toHaveTextContent(
-      "Codex",
-    );
   });
 });

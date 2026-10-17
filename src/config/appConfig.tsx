@@ -27,6 +27,7 @@ export const APP_IDS: AppId[] = [
   "hermes",
   "pi",
   "mcode",
+  "zcode",
 ];
 
 /**

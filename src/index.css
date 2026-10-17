@@ -3,75 +3,141 @@
 @tailwind utilities;
 
 @layer components {
-  .phi-routing-stage {
+  .phi-flow-stage {
     display: grid;
-    grid-template-columns: 116px 40px 136px 56px minmax(260px, 1fr);
+    grid-template-columns:
+      minmax(128px, 0.9fr) 44px minmax(88px, 0.7fr) 52px minmax(150px, 1fr)
+      52px minmax(250px, 1.5fr);
     align-items: center;
-    min-width: 608px;
+    min-width: 760px;
     padding-block: 12px;
   }
-  .phi-routing-node {
+  .phi-flow-col {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 16px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .phi-flow-hub-wrap {
+    align-items: center;
+    justify-content: center;
+  }
+  .phi-flow-node {
     display: flex;
     min-width: 0;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    gap: 4px;
     border: 1px solid hsl(var(--border));
     border-radius: 14px;
-    padding: 16px 8px;
+    padding: 10px 8px;
     background: var(--bg-card);
     text-align: center;
+    transition:
+      opacity 0.2s ease,
+      border-color 0.2s ease;
   }
-  .phi-routing-node > span {
+  .phi-flow-node > span,
+  .phi-flow-node > strong,
+  .phi-flow-hit > span,
+  .phi-flow-hit > strong {
     max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .phi-routing-hub {
+  .phi-flow-node[data-state="dimmed"] {
+    border-style: dashed;
+    opacity: 0.4;
+  }
+  .phi-flow-node[data-state="idle"] {
+    opacity: 0.75;
+  }
+  /* 仅存在于配置中的节点（无流量）：虚线边框区分。 */
+  .phi-flow-node[data-static="true"] {
+    border-style: dashed;
+  }
+  .phi-flow-node[data-dimmed="true"] {
+    opacity: 0.45;
+  }
+  .phi-flow-hub {
     border-color: var(--border-strong);
     box-shadow: 0 0 0 4px var(--bg-subtle);
   }
-  .phi-routing-mark {
-    display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
-    background: var(--bg-subtle);
-    font-size: 22px;
-    font-weight: 600;
+  .phi-flow-hit {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
   }
-  .phi-routing-wires {
+  .phi-flow-hit:focus-visible {
+    outline: 2px solid var(--action-text);
+    outline-offset: 4px;
+    border-radius: 10px;
+  }
+  .phi-flow-wires {
     width: 100%;
     height: 100%;
     overflow: visible;
     pointer-events: none;
   }
-  .phi-routing-wires path {
+  .phi-flow-wires path {
     fill: none;
-    stroke: hsl(var(--border));
-    stroke-width: 1.5;
+    stroke-width: 2;
     vector-effect: non-scaling-stroke;
   }
-  .phi-routing-outlet {
-    display: flex;
+  .phi-flow-wires path[data-state="completed"] {
+    stroke-width: 2;
+  }
+  .phi-flow-wires path[data-state="failed"] {
+    stroke-dasharray: 5 4;
+    opacity: 0.75;
+  }
+  .phi-flow-wires path[data-state="unknown"] {
+    stroke-dasharray: 2 5;
+    opacity: 0.5;
+  }
+  /* 已配置但未运行的连线：浅灰虚线，常驻作为底层拓扑。 */
+  .phi-flow-wires path[data-state="static"] {
+    stroke: var(--text-3);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 4;
+    opacity: 0.35;
+  }
+  .phi-flow-wires path[data-state="active"] {
+    stroke-width: 2.5;
+    stroke-dasharray: 6 6;
+    animation: phi-flow-dash 0.8s linear infinite;
+  }
+  .phi-flow-wires path[data-dimmed="true"] {
+    opacity: 0.12;
+  }
+  @keyframes phi-flow-dash {
+    to {
+      stroke-dashoffset: -24;
+    }
+  }
+  .phi-flow-outlets .phi-flow-node {
+    flex-direction: row;
     align-items: center;
     gap: 10px;
-    height: 96px;
-    min-width: 0;
     padding: 12px;
-    border: 1px solid hsl(var(--border));
-    border-radius: 12px;
-    background: var(--bg-card);
+    text-align: start;
   }
-  .phi-routing-outlet[data-focused="true"] {
-    border-color: var(--border-strong);
-    background: var(--bg-subtle);
-  }
-  .phi-routing-key {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .phi-routing-dot {
+  .phi-flow-dot {
     flex: none;
     width: 8px;
     height: 8px;
@@ -79,51 +145,74 @@
     border-radius: 50%;
     color: var(--text-3);
   }
-  .phi-routing-outlet[data-state="active"] .phi-routing-dot,
-  .phi-routing-key[data-state="active"] .phi-routing-dot {
+  .phi-flow-node[data-state="active"] .phi-flow-dot {
     color: var(--action-text);
     background: currentColor;
   }
-  .phi-routing-outlet[data-state="completed"] .phi-routing-dot,
-  .phi-routing-key[data-state="completed"] .phi-routing-dot {
+  .phi-flow-node[data-state="completed"] .phi-flow-dot {
     color: var(--success-text);
     background: currentColor;
   }
-  .phi-routing-outlet[data-state="failed"] .phi-routing-dot,
-  .phi-routing-key[data-state="failed"] .phi-routing-dot {
+  .phi-flow-node[data-state="failed"] .phi-flow-dot {
     color: hsl(var(--destructive));
     background: currentColor;
   }
-  .phi-routing-outlet[data-state="cooldown"] .phi-routing-dot,
-  .phi-routing-key[data-state="cooldown"] .phi-routing-dot {
-    color: var(--warning-text);
+  .phi-flow-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
-  .phi-routing-wires path[data-state="completed"] {
-    stroke: var(--success-text);
+  .phi-flow-line {
+    display: inline-block;
+    width: 18px;
+    height: 3px;
+    border-radius: 999px;
   }
-  .phi-routing-wires path[data-state="failed"] {
-    stroke: hsl(var(--destructive));
-    stroke-dasharray: 3 4;
+  .phi-flow-line-static {
+    height: 0;
+    border-top: 2px dashed var(--text-3);
+    opacity: 0.6;
   }
-  .phi-routing-wires path[data-state="cooldown"],
-  .phi-routing-wires path[data-state="skipped"] {
-    stroke-dasharray: 2 6;
-    opacity: 0.55;
+  /* 图例中的线型示例：与连线样式一一对应。 */
+  .phi-flow-line-active {
+    height: 2.5px;
+    background: repeating-linear-gradient(
+      to right,
+      currentColor 0 6px,
+      transparent 6px 12px
+    );
+    animation: phi-flow-key-dash 0.8s linear infinite;
   }
-  .phi-routing-wires path[data-state="active"],
-  .phi-routing-wires path[data-moving="true"] {
-    stroke: var(--action-text);
-    stroke-width: 2;
-    stroke-dasharray: 4 6;
-    animation: phi-routing-flow 0.8s linear infinite;
+  .phi-flow-line-completed {
+    height: 2px;
+    background: currentColor;
   }
-  @keyframes phi-routing-flow {
+  .phi-flow-line-failed {
+    height: 2px;
+    background: repeating-linear-gradient(
+      to right,
+      currentColor 0 5px,
+      transparent 5px 9px
+    );
+    opacity: 0.75;
+  }
+  .phi-flow-line-unknown {
+    height: 2px;
+    background: repeating-linear-gradient(
+      to right,
+      currentColor 0 2px,
+      transparent 2px 7px
+    );
+    opacity: 0.5;
+  }
+  @keyframes phi-flow-key-dash {
     to {
-      stroke-dashoffset: -20;
+      background-position: -12px 0;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .phi-routing-wires path {
+    .phi-flow-wires path,
+    .phi-flow-line-active {
       animation: none !important;
     }
   }

@@ -8,7 +8,6 @@
     "loading": "読み込み中…",
     "noTarget": "未設定",
     "unknown": "ゲートウェイの状態不明",
-
     "statusError": "ゲートウェイの状態を読み取れませんでした。",
     "agent": "アプリ",
     "mode": "モード",
@@ -30,7 +29,7 @@
     },
     "tabs": {
       "connections": "ルーティング",
-      "policies": "ルーティングポリシー",
+      "policies": "ルーティンググループ",
       "traces": "最近のルート"
     },
     "cancel": "キャンセル",
@@ -209,6 +208,8 @@
       "needsReconnect": "未接続です。設定から再接続してください。",
       "appManaged": "アプリ内で選択",
       "unsupported": "未対応の環境",
+      "legacyQueue": "フェイルオーバーキューに {{count}} 個",
+      "legacyStack": "集約スタックに {{count}} 個",
       "legacy": "以前の接続（ルートグループを選択）",
       "unavailableGroup": "{{name}}（利用不可）",
       "detachedGroup": "{{name}}（未接続）",
@@ -218,6 +219,8 @@
       "title": "ルーティンググループ",
       "description": "メンバー、選択方式、フェイルオーバーを設定し、マッチングルールで使用します。",
       "new": "グループを作成",
+      "current": "現在",
+      "goCreate": "作成する",
       "empty": "グループがありません。プロバイダーを追加してから、メンバーと選択方式を設定してください。",
       "group": "グループ",
       "remove": "削除",
@@ -347,22 +350,31 @@
     },
     "flow": {
       "title": "ルーティングフロー",
-      "description": "アプリ → PHI → プロバイダーとモデル。記録された経路とフェイルオーバーを確認できます。",
-      "live": "処理中",
-      "snapshot": "リクエストの記録",
-      "request": "リクエストを選択",
-      "follow": "最新を追跡 · {{count}} 件処理中",
-      "outlets": "プロバイダーとモデル",
-      "empty": "リクエストはまだありません。到着すると経路を表示します",
+      "description": "アプリ → PHI → ルートグループ → モデル。各アプリの直近リクエストの選路とフェイルオーバーを確認できます。",
+      "live": "{{count}} 件処理中",
+      "liveOne": "処理中",
+      "apps": "アプリ",
+      "groups": "ルートグループ",
+      "models": "モデル",
+      "empty": "リクエストはまだありません。到着すると各アプリの直近経路を表示します",
       "pause": "再生を一時停止",
-      "replay": "試行を再生",
+      "replay": "再生",
       "showAll": "全経路を表示",
-      "step": "試行 {{current}} / {{total}}",
-      "diagram": "アプリから PHI を経由してプロバイダーへ送信する経路",
-      "legend": "接続とノードの状態",
-      "attempts": "各試行",
-      "liveHint": "処理中の状態は 5 秒ごとに更新されます。",
-      "historyHint": "リクエスト時点の記録です。下の試行を選択すると、その時点の経路を確認できます。",
+      "step": "ステップ {{current}} / {{total}}",
+      "diagram": "各アプリの直近リクエストが PHI とルートグループを経由してモデルへ流れる図",
+      "legend": "アプリ別の流れ線と状態",
+      "latestHint": "色付きの線は各アプリの直近 1 件のリクエストの流れ、薄い灰色の破線は現在の設定トポロジ（未実行でも常時表示）です。アプリをクリックすると強調表示されます。",
+      "appCount": "{{count}} 件のアプリ",
+      "configured": "設定トポロジ（薄い灰色の破線）",
+      "lineActive": "アニメーション点線＝処理中",
+      "lineCompleted": "実線＝完了",
+      "lineFailed": "破線＝失敗",
+      "lineUnknown": "点々線＝結果未確認",
+      "idle": "未実行",
+      "noGroup": "ルートグループ未接続",
+      "laneCount": "{{count}} 本のアプリ線",
+      "legacyPolicy": "旧ポリシー",
+      "focusApp": "{{app}} の流れ線を強調",
       "states": {
         "available": "未試行",
         "skipped": "スキップ",
@@ -376,6 +388,7 @@
     "routingStatus": {
       "title": "ルーティング状態",
       "description": "5 秒ごとに自動更新",
+      "filter": "絞り込み",
       "window": "集計期間",
       "hours": "過去 {{hours}} 時間",
       "allApps": "すべてのアプリ",
@@ -522,6 +535,7 @@
     "invalidJson": "JSON 形式が正しくありません"
   },
   "claudeConfig": {
+    "advancedJsonToggle": "JSON を設定（詳細）",
     "configLabel": "Claude Code settings.json (JSON) *",
     "fullSettingsHint": "Claude Code の settings.json 全文",
     "hideAttribution": "AI署名を非表示",
@@ -1394,6 +1408,7 @@
     "starPrompt": "PHI がお役に立てたなら、GitHub でスターをお願いします。私たちにとって大きな励みになります",
     "starOnGithub": "GitHub でスター",
     "manualInstallCommands": "手動インストールコマンド",
+    "oneClickInstall": "ワンクリックインストール",
     "oneClickInstallHint": "Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / OpenClaw / Hermes / Pi / MiniMax Code をインストールまたは更新",
     "localEnvCheck": "ローカル環境チェック",
     "updateAllTools": "すべて更新（{{count}}）",
@@ -3929,6 +3944,15 @@
     "circuitOpen": "サーキットオープン",
     "consecutiveFailures": "{{count}} 回連続失敗"
   },
+  "exitCode": "終了コード {{code}}",
+  "image": {
+    "alt": "画像 {{index}}"
+  },
+  "status": {
+    "error": "失敗",
+    "interrupted": "中断されました"
+  },
+  "summaryTokens": "{{tokens}} トークン",
   "failover": {
     "enabled": "{{app}} フェイルオーバーが有効になりました",
     "disabled": "{{app}} フェイルオーバーが無効になりました",
@@ -4489,6 +4513,8 @@
     "columnVersion": "バージョン",
     "columnVisible": "表示",
     "visibleHelp": "オフにすると、このアプリはサイドバー、MCP / Skills のアプリ列、プロンプトとセッションのアプリ選択に表示されなくなります。既存の設定はそのまま同期されます。",
+    "observabilityHelp": "ZCode は使用量とセッションを可視化するデスクトップアプリです。PHI はそのデータを読み取り専用で取り込みます。ここではインストールやアップグレードはできません。",
+    "observabilityVersion": "デスクトップアプリ",
     "desktopHelp": "Claude Desktop はデスクトップアプリのため、ここではインストールやアップグレードはできません。PHI は設定ファイル経由で接続します。",
     "desktopUnsupported": "このシステムには対応していません",
     "desktopConnected": "接続済み",
@@ -4511,6 +4537,7 @@
     }
   },
   "appPage": {
+    "home": "ホーム",
     "moreActions": "{{name}} のその他の操作",
     "viewSessions": "セッションを見る",
     "configDirectory": "設定ディレクトリ",
@@ -4545,6 +4572,7 @@
       "stackLead": "集約が有効 · 既定",
       "stackValue": "{{name}} · ほか {{count}} 社、{{models}} モデル"
     },
+    "legacyRouteTarget": "現在も旧接続を指定しています：{{name}}",
     "activate": {
       "viewing": "「{{view}}」を表示中です。{{app}} は現在{{active}}です。",
       "route": "プロキシを有効化",
@@ -4558,6 +4586,7 @@
       "attachFailed": "前回の{{mode}}モードに再接続できなかったため、{{app}} は直接接続に戻りました。"
     },
     "toast": {
+      "enteredGroup": "{{app}} のプロキシを有効にしました。ルートグループ：{{group}}",
       "enteredRoute": "{{app}} のプロキシを有効化 → {{provider}}。",
       "enteredStack": "{{app}} を集約に切り替えました。{{app}} を再起動すると /model に集約したモデルが表示されます。",
       "enteredStackLive": "{{app}} を集約に切り替えました。集約したモデルが /model に表示されます。",
@@ -5327,7 +5356,7 @@
     "boundary": "トークンが制限するのは、そのトークンを使うリクエストだけです。この PHI や設定を操作できる人は制限を変更できます。同じ端末のユーザーや複数テナントを隔離する機能ではありません。",
     "scope": "ルート範囲",
     "selectedGroups": "指定したルートグループのみ",
-    "noGroups": "このプロトコルには選択できるルートグループがありません。ルーティングポリシーで作成するか、すべてのルートを選択してください。",
+    "noGroups": "このプロトコルには選択できるルートグループがありません。ルーティンググループで作成するか、すべてのルートを選択してください。",
     "selectGroup": "このプロトコルで利用できるルートグループを 1 つ以上選択してください。",
     "required": "クライアント名と集計用ラベルを入力してください。空白のみは使用できません。",
     "retry": "再読み込み",
@@ -5430,6 +5459,16 @@
     "unavailable": "組み込みターミナルを利用できません",
     "closeBeforeHiding": "非表示にする前に、このアプリのターミナルタブを閉じてください",
     "runningCount": "{{count}} 個のターミナルが実行中",
+    "argumentsHistory": "引数履歴",
+    "argumentsHistoryEmpty": "履歴はありません",
+    "split": {
+      "title": "ターミナルを分割",
+      "right": "右に分割",
+      "down": "下に分割",
+      "left": "左に分割",
+      "up": "上に分割",
+      "resize": "分割サイズを調整"
+    },
     "phase": {
       "checking": "CLI を確認中…",
       "starting": "ターミナルを起動中…",

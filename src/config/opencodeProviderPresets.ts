@@ -1891,8 +1891,95 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
     },
   },
   {
+    // 通用按量端点（/api/paas/v4）：普通 API Key 按量计费，与 Coding 网关
+    // /api/coding/paas/v4 分立（docs.bigmodel.cn 通用 API 文档）；模型同阵容
+    name: "Zhipu GLM 按量",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "cn",
+    websiteUrl: "https://open.bigmodel.cn",
+    apiKeyUrl: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    settingsConfig: {
+      npm: "@ai-sdk/openai-compatible",
+      name: "Zhipu GLM 按量",
+      options: {
+        baseURL: "https://open.bigmodel.cn/api/paas/v4",
+        apiKey: "",
+        setCacheKey: true,
+      },
+      models: {
+        "glm-5.3": { name: "GLM-5.3", reasoning: true },
+        "glm-5.3-flash": {
+          name: "GLM-5.3-Flash",
+          reasoning: true,
+          limit: { context: 1048576, output: 131072 },
+          modalities: { input: ["text", "image"], output: ["text"] },
+        },
+      },
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+    templateValues: {
+      baseURL: {
+        label: "Base URL",
+        placeholder: "https://open.bigmodel.cn/api/paas/v4",
+        defaultValue: "https://open.bigmodel.cn/api/paas/v4",
+        editorValue: "",
+      },
+      apiKey: {
+        label: "API Key",
+        placeholder: "",
+        editorValue: "",
+      },
+    },
+  },
+  {
+    name: "Zhipu GLM 按量 en",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "intl",
+    websiteUrl: "https://z.ai",
+    apiKeyUrl: "https://z.ai/manage-apikey/apikey-list",
+    settingsConfig: {
+      npm: "@ai-sdk/openai-compatible",
+      name: "Zhipu GLM 按量 en",
+      options: {
+        baseURL: "https://api.z.ai/api/paas/v4",
+        apiKey: "",
+        setCacheKey: true,
+      },
+      models: {
+        "glm-5.3": { name: "GLM-5.3", reasoning: true },
+        "glm-5.3-flash": {
+          name: "GLM-5.3-Flash",
+          reasoning: true,
+          limit: { context: 1048576, output: 131072 },
+          modalities: { input: ["text", "image"], output: ["text"] },
+        },
+      },
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+    templateValues: {
+      baseURL: {
+        label: "Base URL",
+        placeholder: "https://api.z.ai/api/paas/v4",
+        defaultValue: "https://api.z.ai/api/paas/v4",
+        editorValue: "",
+      },
+      apiKey: {
+        label: "API Key",
+        placeholder: "",
+        editorValue: "",
+      },
+    },
+  },
+  {
     name: "Zhipu GLM",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "cn",
     websiteUrl: "https://open.bigmodel.cn",
     apiKeyUrl: "https://www.bigmodel.cn/claude-code",
@@ -1934,6 +2021,7 @@ export const opencodeProviderPresets: OpenCodeProviderPreset[] = [
   {
     name: "Zhipu GLM en",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "intl",
     websiteUrl: "https://z.ai",
     apiKeyUrl: "https://z.ai/subscribe",

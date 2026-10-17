@@ -41,6 +41,8 @@ export const PRESET_SEARCH_ALIASES: Record<string, string> = {
   YYLX: "鱼鱼连线 yylx.io",
   "Zhipu GLM": "智谱 glm bigmodel z.ai chatglm",
   "Zhipu GLM en": "智谱 glm bigmodel z.ai chatglm",
+  "Zhipu GLM 按量": "智谱 glm bigmodel z.ai chatglm 按量 payg",
+  "Zhipu GLM 按量 en": "智谱 glm bigmodel z.ai chatglm 按量 payg",
   优云智算: "ucloud",
   "优云智算Coding Plan": "ucloud",
   千问AI平台: "千问 通义 阿里 百炼 bailian aliyun qwen",

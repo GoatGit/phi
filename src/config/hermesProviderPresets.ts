@@ -1626,8 +1626,59 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
   // apiFormat "openai_chat" → api_mode "chat_completions"；
   // ANTHROPIC_MODEL / DEFAULT_HAIKU / SONNET / OPUS_MODEL 去重后塞进 models[]。
   {
+    // 通用按量端点（/api/paas/v4）：普通 API Key 按量计费，与 Coding 网关
+    // /api/coding/paas/v4 分立（docs.bigmodel.cn 通用 API 文档）；模型同阵容
+    name: "Zhipu GLM 按量",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "cn",
+    websiteUrl: "https://open.bigmodel.cn",
+    apiKeyUrl: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    settingsConfig: {
+      name: "zhipu_glm_payg",
+      base_url: "https://open.bigmodel.cn/api/paas/v4",
+      api_key: "",
+      api_mode: "chat_completions",
+      models: [
+        { id: "glm-5.3", name: "GLM-5.3" },
+        { id: "glm-5.3-flash", name: "GLM-5.3-Flash", context_length: 1048576 },
+      ],
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+    suggestedDefaults: {
+      model: { default: "glm-5.3", provider: "zhipu_glm_payg" },
+    },
+  },
+  {
+    name: "Zhipu GLM 按量 en",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "intl",
+    websiteUrl: "https://z.ai",
+    apiKeyUrl: "https://z.ai/manage-apikey/apikey-list",
+    settingsConfig: {
+      name: "zhipu_glm_payg_en",
+      base_url: "https://api.z.ai/api/paas/v4",
+      api_key: "",
+      api_mode: "chat_completions",
+      models: [
+        { id: "glm-5.3", name: "GLM-5.3" },
+        { id: "glm-5.3-flash", name: "GLM-5.3-Flash", context_length: 1048576 },
+      ],
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+    suggestedDefaults: {
+      model: { default: "glm-5.3", provider: "zhipu_glm_payg_en" },
+    },
+  },
+  {
     name: "Zhipu GLM",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "cn",
     websiteUrl: "https://open.bigmodel.cn",
     apiKeyUrl: "https://www.bigmodel.cn/claude-code",
@@ -1651,6 +1702,7 @@ export const hermesProviderPresets: HermesProviderPreset[] = [
   {
     name: "Zhipu GLM en",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "intl",
     websiteUrl: "https://z.ai",
     apiKeyUrl: "https://z.ai/subscribe",

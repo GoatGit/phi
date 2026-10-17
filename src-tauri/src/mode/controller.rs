@@ -5640,6 +5640,91 @@ model_provider = "c"
         }
     }
 
+    // 用户报告：路由组 → 直连 → 再进路由组，Codex 连不上本地网关。
+    // 复现完整链路，断言二次接入后的本地路由表与首次一致。
+    #[tokio::test]
+    #[serial]
+    async fn codex_reentering_a_gateway_group_after_direct_rewrites_the_local_route() {
+        let _home = Home::new();
+        set_preservation(true);
+        seed_codex(CODEX_USER_LIVE, None);
+        let state = state_with(AppType::Codex, &codex_a_b(), "a").await;
+
+        let mut catalog = state
+            .db
+            .create_gateway_supplier(crate::gateway::SupplierUpsert {
+                name: Some("Shared".into()),
+                endpoint: Some(crate::gateway::Endpoint {
+                    protocol: "openai_responses".into(),
+                    base_url: "https://pool.example/v1".into(),
+                }),
+                api_key: Some("pool-upstream-secret".into()),
+                auth_field: Some("OPENAI_API_KEY".into()),
+                models: Some(vec!["upstream-model".into()]),
+                ..Default::default()
+            })
+            .unwrap();
+        let supplier_id = catalog.suppliers[0].id.clone();
+        catalog.groups = serde_json::from_value(json!([
+            {"id":"primary", "name":"Primary", "appIds":["codex"],
+             "members":[{"id":"one", "supplierId":supplier_id, "model":"upstream-model"}]}
+        ]))
+        .unwrap();
+        let catalog = state.db.save_gateway_catalog(catalog).unwrap();
+
+        // 第一次接入路由组
+        enter_gateway_group(&state, &AppType::Codex, "primary", Some(catalog.revision))
+            .await
+            .unwrap();
+        let first = codex_doc();
+        let first_route = &first["model_providers"]["custom"];
+        let first_base = first_route["base_url"].as_str().unwrap().to_string();
+        let first_token = first_route["experimental_bearer_token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(first["model_provider"].as_str(), Some("custom"));
+        assert!(first_base.starts_with("http://127.0.0.1"), "{first}");
+        assert!(first_token.starts_with("phi-local-v1"), "{first}");
+        assert_eq!(first["model"].as_str(), Some("upstream-model"));
+
+        // 退回直连
+        exit(&state, &AppType::Codex).await.unwrap();
+        let direct = codex_doc();
+        assert_eq!(direct["model_provider"].as_str(), Some("a"), "{direct}");
+        assert_eq!(
+            direct["model_providers"]["a"]["base_url"].as_str(),
+            Some("https://a.example/v1")
+        );
+
+        // 再接入路由组
+        let revision = state.db.gateway_catalog().unwrap().revision;
+        enter_gateway_group(&state, &AppType::Codex, "primary", Some(revision))
+            .await
+            .unwrap();
+        let again = codex_doc();
+        let again_route = &again["model_providers"]["custom"];
+        assert_eq!(
+            again_route["base_url"].as_str(),
+            Some(first_base.as_str()),
+            "{again}"
+        );
+        assert_eq!(
+            again_route["experimental_bearer_token"].as_str(),
+            Some(first_token.as_str())
+        );
+        assert_eq!(again["model_provider"].as_str(), Some("custom"));
+        assert_eq!(again["model"].as_str(), Some("upstream-model"));
+        let live = crate::services::provider::read_live_settings(AppType::Codex).unwrap();
+        assert!(
+            live.to_string()
+                .contains(crate::proxy::ingress::token("codex")),
+            "{live}"
+        );
+
+        detach_all(&state).await;
+    }
+
     #[tokio::test]
     #[serial]
     async fn failed_group_attachment_restores_the_previous_selection() {

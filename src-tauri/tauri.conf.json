@@ -68,8 +68,10 @@
       }
     },
     "updater": {
-      "pubkey": "",
-      "endpoints": []
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlFNDczNDU3NkMxOUM4RDcKUldUWHlCbHNWelJIbmoxczc2UXRqSXRCbjlQbk5rR3VueStnWXExTW4wMzdDMUVuWG5rYTJ3U1EK",
+      "endpoints": [
+        "https://github.com/GoatGit/phi/releases/latest/download/latest.json"
+      ]
     }
   }
 }

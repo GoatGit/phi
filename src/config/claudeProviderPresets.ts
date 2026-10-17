@@ -1315,8 +1315,54 @@ export const providerPresets: ProviderPreset[] = [
     iconColor: "#0052D9",
   },
   {
+    // Anthropic 兼容端点 /api/anthropic 对普通 Key（按量计费）与 Coding Key
+    // 同 URL（智谱 Claude API 兼容文档用普通 Key 直连）；两条预设只差 Key
+    // 获取入口与计费口径
+    name: "Zhipu GLM 按量",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "cn",
+    websiteUrl: "https://open.bigmodel.cn",
+    apiKeyUrl: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    settingsConfig: {
+      env: {
+        ANTHROPIC_BASE_URL: "https://open.bigmodel.cn/api/anthropic",
+        ANTHROPIC_AUTH_TOKEN: "",
+        ANTHROPIC_MODEL: "glm-5.3",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "glm-5.3",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "glm-5.3",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.3",
+      },
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+  },
+  {
+    name: "Zhipu GLM 按量 en",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "intl",
+    websiteUrl: "https://z.ai",
+    apiKeyUrl: "https://z.ai/manage-apikey/apikey-list",
+    settingsConfig: {
+      env: {
+        ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic",
+        ANTHROPIC_AUTH_TOKEN: "",
+        ANTHROPIC_MODEL: "glm-5.3",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "glm-5.3",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "glm-5.3",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.3",
+      },
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+  },
+  {
     name: "Zhipu GLM",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "cn",
     websiteUrl: "https://open.bigmodel.cn",
     apiKeyUrl: "https://www.bigmodel.cn/claude-code",
@@ -1337,6 +1383,7 @@ export const providerPresets: ProviderPreset[] = [
   {
     name: "Zhipu GLM en",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "intl",
     websiteUrl: "https://z.ai",
     apiKeyUrl: "https://z.ai/subscribe",

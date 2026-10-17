@@ -1197,8 +1197,60 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
     iconColor: "#1E88E5",
   },
   {
+    // 通用按量端点（OpenAI 兼容 /api/paas/v4）：普通 API Key 按量计费，与
+    // Coding 网关 /api/coding/paas/v4 分立（docs.bigmodel.cn 通用 API 文档）；
+    // 模型与 Coding 版同阵容
+    name: "Zhipu GLM 按量",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "cn",
+    providerKey: "phi-zhipu-glm-payg",
+    websiteUrl: "https://open.bigmodel.cn",
+    apiKeyUrl: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    settingsConfig: {
+      name: "Zhipu GLM 按量",
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      api: "openai-completions",
+      apiKey: "",
+      models: [
+        piModel("zai/glm-5.3", {
+          id: "glm-5.3",
+        }),
+        piModel("zai/glm-5.3-flash", { id: "glm-5.3-flash" }),
+      ],
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+  },
+  {
+    name: "Zhipu GLM 按量 en",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "intl",
+    providerKey: "phi-zhipu-glm-payg-en",
+    websiteUrl: "https://z.ai",
+    apiKeyUrl: "https://z.ai/manage-apikey/apikey-list",
+    settingsConfig: {
+      name: "Zhipu GLM 按量 en",
+      baseUrl: "https://api.z.ai/api/paas/v4",
+      api: "openai-completions",
+      apiKey: "",
+      models: [
+        piModel("zai/glm-5.3", {
+          id: "glm-5.3",
+        }),
+        piModel("zai/glm-5.3-flash", { id: "glm-5.3-flash" }),
+      ],
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+  },
+  {
     name: "Zhipu GLM",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "cn",
     providerKey: "phi-zhipu-glm",
     websiteUrl: "https://open.bigmodel.cn",
@@ -1222,6 +1274,7 @@ const piProviderPresetDefinitions: PiProviderPreset[] = [
   {
     name: "Zhipu GLM en",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "intl",
     providerKey: "phi-zhipu-glm-en",
     websiteUrl: "https://z.ai",

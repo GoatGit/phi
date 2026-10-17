@@ -4,7 +4,7 @@
  *
  * 写法：预设上加 `family`（这里的 id），再按版本的实际差别写两个维度：
  * `planKey`（套餐，见 PRESET_PLAN_KEYS）和 `regionKey`（地区，见 PRESET_REGION_KEYS）。
- * 只在一个维度上有差别的只写那一个（例如智谱只有国内 / 海外，火山只有不同套餐）。
+ * 只在一个维度上有差别的只写那一个（例如 MiniMax 只有国内 / 海外，火山只有不同套餐）。
  * 只给在同一个应用里真有多个版本的厂商打；某个应用里只剩一个版本时不打，照旧单独一行。
  * 两个都没写的版本用它的域名当标签（例如 SudoCode 的 sudocode.chat / sudocode.us）。
  */
@@ -46,7 +46,10 @@ export const PRESET_FAMILIES = {
     nameKey: "providerPreset.family.volcengine",
   },
   "xiaomi-mimo": { name: "Xiaomi MiMo" },
-  zhipu: { name: "Zhipu GLM" },
+  zhipu: {
+    name: "Zhipu GLM",
+    planOrder: ["payg", "coding"],
+  },
 } as const satisfies Record<string, PresetFamilyInfo>;
 
 export type PresetFamilyId = keyof typeof PRESET_FAMILIES;

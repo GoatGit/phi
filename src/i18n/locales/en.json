@@ -8,7 +8,6 @@
     "loading": "Loading…",
     "noTarget": "Not set",
     "unknown": "Gateway status unknown",
-
     "statusError": "Could not read gateway status.",
     "agent": "App",
     "mode": "Mode",
@@ -30,7 +29,7 @@
     },
     "tabs": {
       "connections": "Routing",
-      "policies": "Routing policies",
+      "policies": "Route groups",
       "traces": "Recent routes"
     },
     "cancel": "Cancel",
@@ -209,6 +208,8 @@
       "needsReconnect": "Not connected. Reconnect in configuration.",
       "appManaged": "Selected in app",
       "unsupported": "Unsupported platform",
+      "legacyQueue": "{{count}} in failover queue",
+      "legacyStack": "{{count}} in proxy stack",
       "legacy": "Previous connection (choose a group)",
       "unavailableGroup": "{{name}} (unavailable)",
       "detachedGroup": "{{name}} (disconnected)",
@@ -218,6 +219,8 @@
       "title": "Route groups",
       "description": "Configure members, selection strategy and failover for matching rules.",
       "new": "New route group",
+      "current": "Current",
+      "goCreate": "Create a group",
       "empty": "No route groups yet. Add a supplier, then configure members and a selection strategy.",
       "group": "Route group",
       "remove": "Remove",
@@ -347,22 +350,31 @@
     },
     "flow": {
       "title": "Routing flow",
-      "description": "App → PHI → supplier and model. Follow recorded routing and failover decisions.",
-      "live": "In progress",
-      "snapshot": "Request snapshot",
-      "request": "Select request",
-      "follow": "Follow latest request · {{count}} active",
-      "outlets": "Suppliers and models",
-      "empty": "No requests yet — routes appear once requests arrive",
+      "description": "App → PHI → route group → model. Follow each app's latest routing and failover decisions.",
+      "live": "{{count}} in progress",
+      "liveOne": "in progress",
+      "apps": "Apps",
+      "groups": "Route groups",
+      "models": "Models",
+      "empty": "No requests yet — each app's latest route appears once requests arrive",
       "pause": "Pause replay",
-      "replay": "Replay attempts",
+      "replay": "Replay",
       "showAll": "Show full trace",
-      "step": "Attempt {{current}} / {{total}}",
-      "diagram": "Request flow from the app through PHI to suppliers",
-      "legend": "Connection and node states",
-      "attempts": "Request attempts",
-      "liveHint": "Current request status updates every 5 seconds.",
-      "historyHint": "Recorded at request time. Select an attempt below to inspect its path.",
+      "step": "Step {{current}} / {{total}}",
+      "diagram": "Each app's latest request flowing through PHI and route groups to models",
+      "legend": "App flow lines and states",
+      "latestHint": "Colored lines trace each app's latest request; light gray dashed lines show the configured topology and stay visible even when idle. Click an app to highlight it.",
+      "appCount": "{{count}} apps",
+      "configured": "Configured topology (light gray dashed)",
+      "lineActive": "Animated dashes = in progress",
+      "lineCompleted": "Solid = completed",
+      "lineFailed": "Dashed = failed",
+      "lineUnknown": "Dotted = unconfirmed",
+      "idle": "Idle",
+      "noGroup": "No route group",
+      "laneCount": "{{count}} app lines",
+      "legacyPolicy": "Legacy policy",
+      "focusApp": "Highlight {{app}}'s flow line",
       "states": {
         "available": "Not tried",
         "skipped": "Skipped",
@@ -376,6 +388,7 @@
     "routingStatus": {
       "title": "Routing status",
       "description": "Auto-refreshes every 5 s",
+      "filter": "Filter",
       "window": "Time window",
       "hours": "Last {{hours}} hours",
       "allApps": "All applications",
@@ -522,6 +535,7 @@
     "invalidJson": "Invalid JSON format"
   },
   "claudeConfig": {
+    "advancedJsonToggle": "Configure JSON (advanced)",
     "configLabel": "Claude Code settings.json (JSON) *",
     "fullSettingsHint": "Full Claude Code settings.json content",
     "hideAttribution": "Hide AI Attribution",
@@ -1394,6 +1408,7 @@
     "starPrompt": "If PHI has helped you, please star us on GitHub — it means a lot to us",
     "starOnGithub": "Star on GitHub",
     "manualInstallCommands": "Manual Install Commands",
+    "oneClickInstall": "One-click install",
     "oneClickInstallHint": "Install or upgrade Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / OpenClaw / Hermes / Pi / MiniMax Code",
     "localEnvCheck": "Local environment check",
     "updateAllTools": "Update All ({{count}})",
@@ -3929,6 +3944,15 @@
     "circuitOpen": "Circuit Open",
     "consecutiveFailures": "{{count}} consecutive failures"
   },
+  "exitCode": "exit {{code}}",
+  "image": {
+    "alt": "Image {{index}}"
+  },
+  "status": {
+    "error": "Failed",
+    "interrupted": "Interrupted"
+  },
+  "summaryTokens": "{{tokens}} tokens",
   "failover": {
     "enabled": "{{app}} failover enabled",
     "disabled": "{{app}} failover disabled",
@@ -4489,6 +4513,8 @@
     "columnVersion": "Version",
     "columnVisible": "Show",
     "visibleHelp": "When off, the app no longer appears in the sidebar, in the MCP / Skills app columns, or in the app pickers on Prompts and Sessions. Its existing config stays and keeps syncing.",
+    "observabilityHelp": "ZCode is a desktop app for usage and session insights. PHI imports its data read-only; it can't be installed or upgraded here.",
+    "observabilityVersion": "Desktop app",
     "desktopHelp": "Claude Desktop is a desktop app and can't be installed or upgraded here; PHI connects to it through its config file.",
     "desktopUnsupported": "Not supported on this system",
     "desktopConnected": "Connected",
@@ -4511,6 +4537,7 @@
     }
   },
   "appPage": {
+    "home": "Home",
     "moreActions": "More actions for {{name}}",
     "viewSessions": "View sessions",
     "configDirectory": "Config directory",
@@ -4545,6 +4572,7 @@
       "stackLead": "Aggregation is active · default",
       "stackValue": "{{name}} · {{count}} more with {{models}} models"
     },
+    "legacyRouteTarget": "Currently targeting the previous connection: {{name}}",
     "activate": {
       "viewing": "You're viewing “{{view}}”. {{app}} is currently on {{active}}.",
       "route": "Enable proxy",
@@ -4558,6 +4586,7 @@
       "attachFailed": "{{mode}} couldn't reconnect last time, so {{app}} went back to direct."
     },
     "toast": {
+      "enteredGroup": "{{app}} is now using route group {{group}}.",
       "enteredRoute": "Proxy enabled for {{app}} → {{provider}}.",
       "enteredStack": "{{app}} switched to Aggregation. Restart {{app}} to see the aggregated models in /model.",
       "enteredStackLive": "{{app}} switched to Aggregation. The aggregated models are now in /model.",
@@ -5327,7 +5356,7 @@
     "boundary": "A token only restricts requests made with that token. Anyone who controls this PHI instance or its configuration can change those restrictions. This is not isolation between local users or tenants.",
     "scope": "Route scope",
     "selectedGroups": "Selected route groups only",
-    "noGroups": "No route groups are available for this protocol. Create one under Routing policies, or choose all routes.",
+    "noGroups": "No route groups are available for this protocol. Create one under Route groups, or choose all routes.",
     "selectGroup": "Select at least one available route group for this protocol.",
     "required": "Enter a client name and usage label; whitespace alone is not valid.",
     "retry": "Reload",
@@ -5430,6 +5459,16 @@
     "unavailable": "Embedded terminal service is unavailable",
     "closeBeforeHiding": "Close this application’s terminal tabs before hiding it",
     "runningCount": "{{count}} running terminals",
+    "argumentsHistory": "Arguments history",
+    "argumentsHistoryEmpty": "No recent arguments",
+    "split": {
+      "title": "Split terminal",
+      "right": "Split right",
+      "down": "Split down",
+      "left": "Split left",
+      "up": "Split up",
+      "resize": "Resize split"
+    },
     "phase": {
       "checking": "Checking CLI…",
       "starting": "Starting terminal…",

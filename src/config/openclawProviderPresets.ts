@@ -2488,8 +2488,112 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
     },
   },
   {
+    // 通用按量端点（/api/paas/v4）：普通 API Key 按量计费，与 Coding 网关
+    // /api/coding/paas/v4 分立（docs.bigmodel.cn 通用 API 文档）；模型同阵容，
+    // cost 沿用同模型平台口径
+    name: "Zhipu GLM 按量",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "cn",
+    websiteUrl: "https://open.bigmodel.cn",
+    apiKeyUrl: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    settingsConfig: {
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      apiKey: "",
+      api: "openai-completions",
+      models: [
+        {
+          id: "glm-5.3",
+          name: "GLM-5.3",
+          contextWindow: 1048576,
+          cost: { input: 1.4, output: 4.4, cacheRead: 0.26 },
+        },
+        {
+          id: "glm-5.3-flash",
+          name: "GLM-5.3-Flash",
+          reasoning: true,
+          input: ["text", "image"],
+          contextWindow: 1048576,
+          maxTokens: 131072,
+          cost: { input: 0.15, output: 0.5, cacheRead: 0.03 },
+        },
+      ],
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+    templateValues: {
+      baseUrl: {
+        label: "Base URL",
+        placeholder: "https://open.bigmodel.cn/api/paas/v4",
+        defaultValue: "https://open.bigmodel.cn/api/paas/v4",
+        editorValue: "",
+      },
+      apiKey: {
+        label: "API Key",
+        placeholder: "",
+        editorValue: "",
+      },
+    },
+    suggestedDefaults: {
+      model: { primary: "zhipu/glm-5.3" },
+      modelCatalog: { "zhipu/glm-5.3": { alias: "GLM" } },
+    },
+  },
+  {
+    name: "Zhipu GLM 按量 en",
+    family: "zhipu",
+    planKey: "payg",
+    regionKey: "intl",
+    websiteUrl: "https://z.ai",
+    apiKeyUrl: "https://z.ai/manage-apikey/apikey-list",
+    settingsConfig: {
+      baseUrl: "https://api.z.ai/api/paas/v4",
+      apiKey: "",
+      api: "openai-completions",
+      models: [
+        {
+          id: "glm-5.3",
+          name: "GLM-5.3",
+          contextWindow: 1048576,
+          cost: { input: 1.4, output: 4.4, cacheRead: 0.26 },
+        },
+        {
+          id: "glm-5.3-flash",
+          name: "GLM-5.3-Flash",
+          reasoning: true,
+          input: ["text", "image"],
+          contextWindow: 1048576,
+          maxTokens: 131072,
+          cost: { input: 0.15, output: 0.5, cacheRead: 0.03 },
+        },
+      ],
+    },
+    category: "cn_official",
+    icon: "zhipu",
+    iconColor: "#0F62FE",
+    templateValues: {
+      baseUrl: {
+        label: "Base URL",
+        placeholder: "https://api.z.ai/api/paas/v4",
+        defaultValue: "https://api.z.ai/api/paas/v4",
+        editorValue: "",
+      },
+      apiKey: {
+        label: "API Key",
+        placeholder: "",
+        editorValue: "",
+      },
+    },
+    suggestedDefaults: {
+      model: { primary: "zhipu-en/glm-5.3" },
+      modelCatalog: { "zhipu-en/glm-5.3": { alias: "GLM" } },
+    },
+  },
+  {
     name: "Zhipu GLM",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "cn",
     websiteUrl: "https://open.bigmodel.cn",
     apiKeyUrl: "https://www.bigmodel.cn/claude-code",
@@ -2539,6 +2643,7 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
   {
     name: "Zhipu GLM en",
     family: "zhipu",
+    planKey: "coding",
     regionKey: "intl",
     websiteUrl: "https://z.ai",
     apiKeyUrl: "https://z.ai/subscribe",

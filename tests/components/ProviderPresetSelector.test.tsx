@@ -298,8 +298,9 @@ describe("preset families", () => {
       dimension: "plan",
     });
     expect(layoutOf(claude, "zhipu")).toEqual({
-      kind: "single",
-      dimension: "region",
+      kind: "grid",
+      plans: ["payg", "coding"],
+      regions: ["cn", "intl"],
     });
     // 两维都没写：用域名区分
     expect(layoutOf(claude, "sudocode")).toEqual({
