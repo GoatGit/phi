@@ -61,6 +61,23 @@ export function protocolCompatibleWith(app: string, protocol: string): boolean {
   return allowed[app]?.includes(protocol) ?? false;
 }
 
+/**
+ * 与后端 gateway::direct_protocol_for 对齐：每个应用能直接消费的本地协议。
+ * 转换类协议只能走本地路由，路由页据此禁用不可直连的池内供应商。
+ */
+export function supplierDirectCompatible(
+  app: string,
+  protocol: string,
+): boolean {
+  const native: Record<string, string> = {
+    claude: "anthropic",
+    codex: "openai_responses",
+    grokbuild: "openai_responses",
+    gemini: "gemini_native",
+  };
+  return native[app] === protocol;
+}
+
 /** Deletion can empty an ancestor too; disable it until the user repairs it. */
 export function disableEmptyGroups(catalog: GatewayCatalog): GatewayCatalog {
   const groups = catalog.groups?.map((g) => ({ ...g }));

@@ -278,6 +278,19 @@ export const gatewayApi = {
   ): Promise<void> {
     return invoke("connect_gateway_app", { appId, groupId, revision });
   },
+  /**
+   * 把资源池供应商落成该应用的直连供应商行（幂等），返回 provider id。
+   * 调用方随后仍需走常规 switch（含退出本地路由）流程。
+   */
+  async materializeSupplierProvider(
+    appId: string,
+    supplierId: string,
+  ): Promise<string> {
+    return invoke("materialize_gateway_supplier_provider", {
+      appId,
+      supplierId,
+    });
+  },
   /** 读取整份网关目录（资源池 + 策略）。 */
   async getCatalog(): Promise<GatewayCatalog> {
     return invoke("get_gateway_catalog");

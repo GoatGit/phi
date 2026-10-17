@@ -167,6 +167,7 @@
       "invalidCredential": "凭证引用无效。",
       "invalidApp": "该应用不支持网关路由。",
       "invalidSecret": "凭证为空、格式无效，或鉴权方式与协议不兼容。",
+      "directIncompatible": "该供应商协议与应用直连不兼容，请改用路由组。",
       "modelFetchFailed": "模型发现失败。请检查端点、凭证和该服务是否支持模型列表，然后重试。",
       "noPolicy": "该 Agent 没有可用的启用策略。请先配置候选模型并启用策略。",
       "missingSecret": "供应商缺少凭证，请编辑后重新保存。",
@@ -213,7 +214,8 @@
       "legacy": "旧连接（请选择路由组）",
       "unavailableGroup": "{{name}}（不可用）",
       "detachedGroup": "{{name}}（待连接）",
-      "reconnectGroup": "尚未接入，重新选择路由组即可连接。"
+      "reconnectGroup": "尚未接入，重新选择路由组即可连接。",
+      "supplierNeedsRoute": "该供应商协议需转换，只能通过路由组接入"
     },
     "groups": {
       "title": "路由组",
@@ -363,7 +365,6 @@
       "step": "第 {{current}} / {{total}} 步",
       "diagram": "各应用最近请求经过 PHI 与路由组到达模型的路由流转图",
       "legend": "应用流转线与状态",
-      "latestHint": "彩色线为各应用最近一次请求的实际流转；浅灰虚线为当前配置的拓扑，未运行也常驻显示。点击应用可单独高亮。",
       "appCount": "{{count}} 个应用",
       "configured": "配置拓扑（浅灰虚线）",
       "lineActive": "动画虚线 = 进行中",
@@ -403,7 +404,6 @@
       "unknown": "另有 {{count}} 条未知，不计入已知值",
       "classifierCost": "意图分类估算费用",
       "classifierCalls": "分类尝试 {{count}} 次 · 费用未知 {{unknown}} 次",
-      "retention": "数据保留自 {{date}}",
       "costNote": "费用为美元估算，不含失败尝试与分类调用",
       "costWithClassifier": "含分类 ${{cost}}",
       "classifierUsage": "分类尝试 {{count}} 次",
@@ -5226,7 +5226,7 @@
     "refresh": "刷新",
     "open": "打开 PHI",
     "settings": "设置",
-    "provider": "出口",
+    "provider": "供应商",
     "models": "模型",
     "noModels": "未配置模型",
     "unconfigured": "未配置",
@@ -5234,7 +5234,7 @@
     "direct": "直连",
     "modelCount": "{{count}} 个模型",
     "connectAgent": "接入 {{name}}",
-    "selectProvider": "{{name}} 的出口",
+    "selectProvider": "{{name}} 的供应商或 PHI",
     "manageModels": "打开应用页管理模型",
     "attention": "需要关注",
     "status": "当前状态",
@@ -5253,7 +5253,11 @@
     "active": "进行中",
     "failovers": "故障转移",
     "noTraces": "暂无共享资源池的请求记录。接入应用并发出请求后可查看。",
-    "unavailable": "该操作已不可用，请刷新后重试。"
+    "unavailable": "该操作已不可用，请刷新后重试。",
+    "groups": "路由组",
+    "selectModel": "选择 {{name}} 的模型",
+    "selectGroup": "选择 {{name}} 的路由组",
+    "appManagedModel": "Claude Desktop 的当前模型需在应用内选择。"
   },
   "ledger": {
     "systemNotifications": "系统预算通知",

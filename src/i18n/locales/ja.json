@@ -167,6 +167,7 @@
       "invalidCredential": "認証情報の参照が無効です。",
       "invalidApp": "このアプリはゲートウェイルーティングに対応していません。",
       "invalidSecret": "認証情報が空・無効、またはプロトコルと互換性がありません。",
+      "directIncompatible": "このサプライヤーのプロトコルはアプリとの直接接続に非対応です。ルートグループをご利用ください。",
       "modelFetchFailed": "モデル取得に失敗しました。接続先・認証情報・一覧取得への対応を確認し再試行してください。",
       "noPolicy": "有効なポリシーがありません。候補を設定して有効にしてください。",
       "missingSecret": "認証情報がありません。編集して保存してください。",
@@ -213,7 +214,8 @@
       "legacy": "以前の接続（ルートグループを選択）",
       "unavailableGroup": "{{name}}（利用不可）",
       "detachedGroup": "{{name}}（未接続）",
-      "reconnectGroup": "ルートグループを再選択して接続してください。"
+      "reconnectGroup": "ルートグループを再選択して接続してください。",
+      "supplierNeedsRoute": "このサプライヤーはプロトコル変換が必要なため、ルートグループ経由のみ利用できます"
     },
     "groups": {
       "title": "ルーティンググループ",
@@ -363,7 +365,6 @@
       "step": "ステップ {{current}} / {{total}}",
       "diagram": "各アプリの直近リクエストが PHI とルートグループを経由してモデルへ流れる図",
       "legend": "アプリ別の流れ線と状態",
-      "latestHint": "色付きの線は各アプリの直近 1 件のリクエストの流れ、薄い灰色の破線は現在の設定トポロジ（未実行でも常時表示）です。アプリをクリックすると強調表示されます。",
       "appCount": "{{count}} 件のアプリ",
       "configured": "設定トポロジ（薄い灰色の破線）",
       "lineActive": "アニメーション点線＝処理中",
@@ -403,7 +404,6 @@
       "unknown": "ほかに不明な記録が {{count}} 件あり、既知の合計には含みません",
       "classifierCost": "意図分類の推定費用",
       "classifierCalls": "分類試行 {{count}} 回 · 費用不明 {{unknown}} 回",
-      "retention": "{{date}} 以降の記録を集計",
       "costNote": "費用は米ドルの推定値。失敗した試行と分類呼び出しは含みません",
       "costWithClassifier": "分類 ${{cost}} を含む",
       "classifierUsage": "分類 {{count}} 回",
@@ -5226,7 +5226,7 @@
     "refresh": "更新",
     "open": "PHI を開く",
     "settings": "設定",
-    "provider": "出口",
+    "provider": "プロバイダー",
     "models": "モデル",
     "noModels": "モデル未設定",
     "unconfigured": "未設定",
@@ -5234,7 +5234,7 @@
     "direct": "直接接続",
     "modelCount": "{{count}} モデル",
     "connectAgent": "{{name}} を接続",
-    "selectProvider": "{{name}} の出口",
+    "selectProvider": "{{name}} のプロバイダーまたは PHI",
     "manageModels": "アプリ画面でモデルを管理",
     "attention": "要確認",
     "status": "現在の状態",
@@ -5253,7 +5253,11 @@
     "active": "実行中",
     "failovers": "フェイルオーバー",
     "noTraces": "リソースプールのリクエストはまだありません。アプリを接続してリクエストを送信してください。",
-    "unavailable": "この操作は利用できません。更新して再試行してください。"
+    "unavailable": "この操作は利用できません。更新して再試行してください。",
+    "groups": "ルートグループ",
+    "selectModel": "{{name}} のモデルを選択",
+    "selectGroup": "{{name}} のルートグループを選択",
+    "appManagedModel": "Claude Desktop の現在のモデルはアプリ内で選択してください。"
   },
   "ledger": {
     "systemNotifications": "システム予算通知",

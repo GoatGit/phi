@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RoutingFlow } from "@/components/gateway/RoutingFlow";
+import { RoutingFlow, wirePath } from "@/components/gateway/RoutingFlow";
 import {
   buildRoutingFlow,
   buildTimeline,
@@ -387,6 +387,10 @@ function laneOf(trace: GatewayRequestTrace) {
   };
 }
 
+/** 连线按区域分组：app / group / model 三段，分别对应三条连线轨道。 */
+const regionOf = (container: HTMLElement, region: string) =>
+  container.querySelector(`.phi-flow-wires g[data-region="${region}"]`)!;
+
 describe("routing flow diagram", () => {
   it("renders four columns with per-app colored flow lines", () => {
     const codex = {
@@ -417,7 +421,9 @@ describe("routing flow diagram", () => {
     expect(
       screen.getByRole("list", { name: "gateway.flow.models" }).children,
     ).toHaveLength(2);
-    expect(container.querySelector(".phi-flow-hub")).toHaveTextContent("PHI");
+    expect(container.querySelector(".phi-flow-hub")).toContainElement(
+      screen.getByRole("img", { name: "phi" }),
+    );
     const colors = new Set(
       [
         ...container.querySelectorAll<SVGPathElement>(".phi-flow-wires path"),
@@ -541,7 +547,7 @@ describe("routing flow diagram", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("overlays the colored traffic lane on the gray base topology", () => {
+  it("replaces matching gray edges with traffic and retains unused branches", () => {
     const { container } = render(
       <RoutingFlow data={page([baseTrace])} catalog={catalog} />,
     );
@@ -552,14 +558,91 @@ describe("routing flow diagram", () => {
     expect(colored).toHaveLength(4);
     expect(colored.every((path) => path.style.stroke !== "")).toBe(true);
     expect(
-      container.querySelectorAll('path[data-state="static"]').length,
-    ).toBeGreaterThan(0);
+      regionOf(container, "app").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(3);
+    expect(
+      regionOf(container, "group").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(0);
+    expect(
+      regionOf(container, "model").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(1);
     // The shared outlet keeps its traffic state while idle members stay on.
     expect(
       container.querySelector(
         '.phi-flow-node[data-kind="model"][data-state="failed"]',
       ),
     ).toHaveTextContent("Pool A");
+  });
+
+  it("replaces shared group and model edges even when another app is idle", () => {
+    const sharedCatalog: GatewayCatalog = {
+      ...catalog,
+      policies: [
+        ...catalog.policies,
+        { ...catalog.policies[0], id: "connection/codex", appId: "codex" },
+      ],
+    };
+    const { container } = render(
+      <RoutingFlow data={page([baseTrace])} catalog={sharedCatalog} />,
+    );
+    expect(
+      regionOf(container, "app").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(3);
+    expect(
+      regionOf(container, "group").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(0);
+    // Both configured apps retain only their unused nested-model connection.
+    expect(
+      regionOf(container, "model").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(2);
+  });
+
+  it("keeps configured edges when historical traffic used another group", () => {
+    const historical = {
+      ...baseTrace,
+      decision: { ...baseTrace.decision!, groupId: "old" },
+      policy: { ...baseTrace.policy, groupId: "old" },
+      events: baseTrace.events.map((event) => ({
+        ...event,
+        groupPath: ["old"],
+      })),
+    };
+    const { container } = render(
+      <RoutingFlow data={page([historical])} catalog={catalog} />,
+    );
+    expect(
+      regionOf(container, "app").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(3);
+    expect(
+      regionOf(container, "group").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(1);
+    expect(
+      regionOf(container, "model").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(3);
+  });
+
+  it("replaces gray model edges only as their attempts become visible in replay", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <RoutingFlow data={page([baseTrace])} catalog={catalog} />,
+    );
+    const modelWires = regionOf(container, "model");
+    fireEvent.click(
+      screen.getByRole("button", { name: "gateway.flow.replay" }),
+    );
+    expect(modelWires.querySelectorAll('[data-state="static"]')).toHaveLength(
+      2,
+    );
+    expect(
+      modelWires.querySelectorAll('path:not([data-state="static"])'),
+    ).toHaveLength(1);
+    act(() => vi.advanceTimersByTime(900));
+    expect(modelWires.querySelectorAll('[data-state="static"]')).toHaveLength(
+      1,
+    );
+    expect(
+      modelWires.querySelectorAll('path:not([data-state="static"])'),
+    ).toHaveLength(2);
   });
 
   it("explains line styles in the legend and drops node icons", () => {
@@ -585,5 +668,19 @@ describe("routing flow diagram", () => {
     expect(
       screen.queryByRole("button", { name: "gateway.flow.replay" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("wirePath geometry", () => {
+  it("starts on the source's right edge and lands on the target's left edge", () => {
+    const d = wirePath({ right: 100, cy: 40 }, { left: 220, cy: 96 });
+    expect(d.startsWith("M 100 40")).toBe(true);
+    expect(d.endsWith("220 96")).toBe(true);
+  });
+
+  it("applies the fan-out offset at both endpoints", () => {
+    const d = wirePath({ right: 10, cy: 50 }, { left: 90, cy: 70 }, -5);
+    expect(d.startsWith("M 10 45")).toBe(true);
+    expect(d.endsWith("90 65")).toBe(true);
   });
 });

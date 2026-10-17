@@ -64,13 +64,33 @@ fn direct_provider(state: &AppState, app: &AppType) -> Result<Option<Provider>, 
     }
     // Pool connections need no application provider row. Keep the native direct
     // projection locally (0600, never synced) so leaving the pool can restore it.
-    state::load(&DeviceStore::for_device())
+    let baseline = state::load(&DeviceStore::for_device())
         .map_err(err)?
         .apps
         .get(app.as_str())
         .and_then(|app| app.extra.get("gatewayDirectBaseline"))
-        .map(|value| serde_json::from_value(value.clone()).map_err(err))
-        .transpose()
+        .map(|value| serde_json::from_value::<Provider>(value.clone()).map_err(err))
+        .transpose()?;
+    Ok(baseline.map(|mut baseline| {
+        // 存量兜底：早期版本可能把 PHI 的网关表（带着当时的真令牌）录进了 baseline，
+        // 每次退出都会把它写回 live。这里在内存里洗净（幂等），磁盘上的 baseline
+        // 由下一次从直连进入路由组时的快照重写。
+        if *app == AppType::Codex {
+            let mut settings = baseline.settings_config.clone();
+            if strip_phi_owned_codex_tables(state, &mut settings).is_ok_and(|outcome| {
+                matches!(
+                    outcome,
+                    PhiTableStrip::Stripped | PhiTableStrip::RoutedAtProxy
+                )
+            }) {
+                if baseline.category.as_deref() == Some("official") {
+                    baseline.category = None;
+                }
+                baseline.settings_config = settings;
+            }
+        }
+        baseline
+    }))
 }
 
 fn native_config_exists(app: &AppType) -> bool {
@@ -96,11 +116,24 @@ fn remember_unmanaged_direct(state: &AppState, app: &AppType) -> Result<(), Stri
     {
         return Ok(());
     }
-    let settings = if native_config_exists(app) {
+    let mut settings = if native_config_exists(app) {
         crate::services::provider::read_live_settings(app.clone()).map_err(err)?
     } else {
         json!({})
     };
+    // 只对 Codex：live 里 PHI 自己留下的网关表不算用户原生配置（详见下方函数）。
+    let mut stripped = false;
+    if *app == AppType::Codex {
+        match strip_phi_owned_codex_tables(state, &mut settings)? {
+            PhiTableStrip::RoutedAtProxy => {
+                // live 还是网关投影（选路还指着 PHI 的表）：不是用户的直连态，
+                // 刷新 baseline 只会录进 PHI 的痕迹，保留已有的。
+                return Ok(());
+            }
+            PhiTableStrip::Stripped => stripped = true,
+            PhiTableStrip::Untouched => {}
+        }
+    }
     let mut baseline = Provider::with_id(
         format!("gateway-baseline:{}", app.as_str()),
         "Native configuration".into(),
@@ -109,7 +142,9 @@ fn remember_unmanaged_direct(state: &AppState, app: &AppType) -> Result<(), Stri
     );
     if *app == AppType::Codex {
         baseline.category = Some("official".into());
-        if !crate::proxy::providers::is_codex_official_provider(&baseline) {
+        // 剔除过 PHI 网关表的快照不是官方卡：它的 auth 是接管期间清空的，
+        // 按官方写回会把 auth.json 写成空登录。
+        if stripped || !crate::proxy::providers::is_codex_official_provider(&baseline) {
             baseline.category = None;
         }
     }
@@ -142,6 +177,90 @@ fn remember_unmanaged_direct(state: &AppState, app: &AppType) -> Result<(), Stri
             .insert("gatewayDirectBaseline".into(), value);
     })
     .map_err(err)
+}
+
+/// `strip_phi_owned_codex_tables` 的结果。
+enum PhiTableStrip {
+    /// 没有 PHI 的表，什么都没改。
+    Untouched,
+    /// 剔除了 PHI 的表（退出直连时按「保留会话分桶」留下的本地网关表，
+    /// 无令牌；或官方直连写的休眠表，带本进程令牌/占位符）。
+    Stripped,
+    /// 选路还指着 PHI 的表：live 是网关投影，不是用户的直连态。
+    RoutedAtProxy,
+}
+
+/// 从 Codex 快照里剔除 PHI 自己写进 live 的 provider 表。返回 `RoutedAtProxy` 时
+/// 配置同样已被洗净（含悬空的选路），但调用方可以据此知道这不是用户的直连态。
+///
+/// 退出直连时 `write_direct` 有意保留指向本地网关的 `custom` 表（Codex 按表分桶会话，
+/// 表一删旧会话就 resume 不了），官方直连还会把它改写成带本进程令牌的休眠表。
+/// 这些是 PHI 的痕迹，不是用户原生配置：照快照的话 baseline 会永远带着本地网关
+/// 地址，还会因「无选路无令牌」被误判成官方卡，退出时把已失效的令牌写回 live、
+/// 把 auth.json 写成空登录。地址对得上当前本地代理的表一律剔除；用户的第三方表
+/// （别的地址）不受影响。
+fn strip_phi_owned_codex_tables(
+    state: &AppState,
+    settings: &mut Value,
+) -> Result<PhiTableStrip, String> {
+    let Some(text) = settings
+        .get("config")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return Ok(PhiTableStrip::Untouched);
+    };
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|error| format!("解析 config.toml 失败: {error}"))?;
+    let (address, port) = state.db.get_proxy_client_endpoint_sync();
+    let is_phi_table = |item: &toml_edit::Item| {
+        item.get("base_url")
+            .and_then(toml_edit::Item::as_str)
+            .is_some_and(|url| {
+                crate::services::provider::codex_direct::is_proxy_base_url(url, &address, port)
+            })
+    };
+    let routed_at_proxy = doc
+        .get("model_provider")
+        .and_then(toml_edit::Item::as_str)
+        .is_some_and(|id| {
+            doc.get("model_providers")
+                .and_then(|providers| providers.get(id))
+                .is_some_and(is_phi_table)
+        });
+    let Some(providers) = doc
+        .get_mut("model_providers")
+        .and_then(toml_edit::Item::as_table_like_mut)
+    else {
+        return Ok(PhiTableStrip::Untouched);
+    };
+    let doomed: Vec<String> = providers
+        .iter()
+        .filter(|(_, item)| is_phi_table(item))
+        .map(|(id, _)| id.to_string())
+        .collect();
+    if doomed.is_empty() {
+        return Ok(PhiTableStrip::Untouched);
+    }
+    for id in &doomed {
+        providers.remove(id);
+    }
+    if providers.is_empty() {
+        doc.as_table_mut().remove("model_providers");
+    }
+    if routed_at_proxy {
+        // 选路指着的是刚被剔除的表：一并摘掉，不留悬空的 model_provider。
+        doc.as_table_mut().remove("model_provider");
+    }
+    if let Some(settings) = settings.as_object_mut() {
+        settings.insert("config".into(), Value::String(doc.to_string()));
+    }
+    if routed_at_proxy {
+        Ok(PhiTableStrip::RoutedAtProxy)
+    } else {
+        Ok(PhiTableStrip::Stripped)
+    }
 }
 
 fn route_provider(
@@ -2519,6 +2638,7 @@ mod mode_tests {
     use super::*;
     use crate::database::Database;
     use crate::live::engine::DeviceStore;
+    use crate::live::project::codex::PROXY_TOKEN_PLACEHOLDER;
     use crate::mode::operation::failpoint;
     use crate::mode::stack::StackMemberView;
     use crate::mode::state::{self, Mode};
@@ -3792,7 +3912,9 @@ command = "fs-server"
         );
         assert_eq!(
             dormant["experimental_bearer_token"].as_str(),
-            Some(crate::proxy::ingress::token("codex"))
+            Some(PROXY_TOKEN_PLACEHOLDER),
+            "休眠表不携带本进程的真令牌：进程换代后它会变成失效凭据，还会被当成
+             可用的网关凭据去拨本地网关"
         );
         assert!(dormant.get("name").is_some(), "Codex loads it: {text}");
         assert!(!text.contains("sk-a"), "no real key stays behind: {text}");
@@ -5688,14 +5810,23 @@ model_provider = "c"
         assert!(first_token.starts_with("phi-local-v1"), "{first}");
         assert_eq!(first["model"].as_str(), Some("upstream-model"));
 
-        // 退回直连
+        // 退回直连。设计上直连写回也是 custom 表就地改写（见
+        // codex_direct_switch_replaces_only_key_fields_and_round_trips）：
+        // model_provider 保持 "custom"，表内容换回直连上游。
         exit(&state, &AppType::Codex).await.unwrap();
         let direct = codex_doc();
-        assert_eq!(direct["model_provider"].as_str(), Some("a"), "{direct}");
         assert_eq!(
-            direct["model_providers"]["a"]["base_url"].as_str(),
-            Some("https://a.example/v1")
+            direct["model_provider"].as_str(),
+            Some("custom"),
+            "{direct}"
         );
+        assert_eq!(
+            direct["model_providers"]["custom"]["base_url"].as_str(),
+            Some("https://a.example/v1"),
+            "{direct}"
+        );
+        // 已不再指向本地网关
+        assert!(!codex_text().contains(&first_base), "{}", codex_text());
 
         // 再接入路由组
         let revision = state.db.gateway_catalog().unwrap().revision;
@@ -5723,6 +5854,371 @@ model_provider = "c"
         );
 
         detach_all(&state).await;
+    }
+
+    /// 无直连行时，baseline 不能把 PHI 自己留下的网关表当成用户原生配置
+    /// （事故链：退出留表 → 再进组快照录进网关地址+真令牌 → 误判官方卡 →
+    /// 每次退出把失效令牌写回 live，PHI 关闭期间 resume 旧会话拨本地网关失败）。
+    #[tokio::test]
+    #[serial]
+    async fn gateway_baseline_does_not_absorb_phi_owned_tables() {
+        let _home = Home::new();
+        set_preservation(true);
+        // 用户没有自己的 custom 表（官方登录形态）：退出直连时 live 里留下的
+        // gateway 表只能是 PHI 的，再进入时快照必须剔除它。
+        seed_codex(
+            r#"# 用户的注释
+approval_policy = "on-request"
+
+[projects."/work"]
+trust_level = "trusted"
+
+[agents]
+default_subagent_model = "gpt-a-mini"
+max_threads = 4
+
+[model_providers.ollama_local]
+name = "Ollama"
+base_url = "http://localhost:11434/v1"
+
+[mcp_servers.fs]
+command = "fs-server"
+"#,
+            None,
+        );
+        let state = state_without_providers().await;
+        let mut catalog = state
+            .db
+            .create_gateway_supplier(crate::gateway::SupplierUpsert {
+                name: Some("Shared".into()),
+                endpoint: Some(crate::gateway::Endpoint {
+                    protocol: "openai_responses".into(),
+                    base_url: "https://pool.example/v1".into(),
+                }),
+                api_key: Some("pool-upstream-secret".into()),
+                auth_field: Some("OPENAI_API_KEY".into()),
+                models: Some(vec!["upstream-model".into()]),
+                ..Default::default()
+            })
+            .unwrap();
+        let supplier_id = catalog.suppliers[0].id.clone();
+        catalog.groups = serde_json::from_value(json!([
+            {"id":"primary", "name":"Primary", "appIds":["codex"],
+             "members":[{"id":"one", "supplierId":supplier_id, "model":"upstream-model"}]}
+        ]))
+        .unwrap();
+        state.db.save_gateway_catalog(catalog).unwrap();
+        let enter_group = || {
+            let state = state.clone();
+            Box::pin(async move {
+                let revision = state.db.gateway_catalog().unwrap().revision;
+                enter_gateway_group(&state, &AppType::Codex, "primary", Some(revision)).await
+            })
+        };
+
+        let baseline_config = |label: &str| {
+            let live = state::load(&DeviceStore::for_device()).unwrap();
+            let baseline = live
+                .apps
+                .get("codex")
+                .and_then(|app| app.extra.get("gatewayDirectBaseline"))
+                .unwrap_or_else(|| panic!("baseline missing after {label}"));
+            let config = baseline["settingsConfig"]["config"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let category = baseline["category"].as_str().map(str::to_string);
+            (config, category)
+        };
+
+        // 进入→退出：退出投影视设计保留 custom 表（删令牌）。再进入时快照必须
+        // 剔除这张 PHI 的表，而不是把它当成用户原生配置。
+        enter_group().await.expect("enter 1");
+        exit(&state, &AppType::Codex).await.expect("exit");
+        enter_group().await.expect("enter 2");
+
+        let (config, category) = baseline_config("reenter");
+        assert!(!config.contains("[model_providers.custom]"), "{config}");
+        assert!(
+            !config.contains("127.0.0.1"),
+            "PHI 的本地网关表不能进入 baseline: {config}"
+        );
+        assert!(
+            config.contains("[model_providers.ollama_local]"),
+            "用户的表要保留: {config}"
+        );
+        assert_ne!(
+            category.as_deref(),
+            Some("official"),
+            "不是官方卡，不能写空登录"
+        );
+
+        // 退出写回的是净化后的直连投影：不带本地凭据。
+        // （live 里指向网关的 custom 表会按「保留会话分桶」的设计留下，但已无令牌。）
+        exit(&state, &AppType::Codex).await.expect("final exit");
+        let text = codex_text();
+        assert!(
+            !text.contains("phi-local-v1"),
+            "live 不该带本地凭据: {text}"
+        );
+        assert!(!text.contains("PROXY_MANAGED"), "live 不该带占位符: {text}");
+        assert!(
+            text.contains("[model_providers.ollama_local]"),
+            "用户的表要保留: {text}"
+        );
+
+        // 再进一次后直接退出清理（PHI 退出）：同样不带本地凭据。
+        enter_group().await.expect("enter 3");
+        detach_all(&state).await;
+        let text = codex_text();
+        assert!(!text.contains("phi-local-v1"), "detach 后: {text}");
+    }
+
+    /// live 还是网关投影（选路指着 PHI 的表）时不是用户的直连态：刷新 baseline
+    /// 只会录进 PHI 的痕迹，要保留已有的。
+    #[tokio::test]
+    #[serial]
+    async fn gateway_baseline_keeps_the_previous_snapshot_when_live_is_a_proxy_projection() {
+        let _home = Home::new();
+        set_preservation(true);
+        seed_codex(CODEX_USER_LIVE, None);
+        let state = state_without_providers().await;
+        let mut catalog = state
+            .db
+            .create_gateway_supplier(crate::gateway::SupplierUpsert {
+                name: Some("Shared".into()),
+                endpoint: Some(crate::gateway::Endpoint {
+                    protocol: "openai_responses".into(),
+                    base_url: "https://pool.example/v1".into(),
+                }),
+                api_key: Some("pool-upstream-secret".into()),
+                auth_field: Some("OPENAI_API_KEY".into()),
+                models: Some(vec!["upstream-model".into()]),
+                ..Default::default()
+            })
+            .unwrap();
+        let supplier_id = catalog.suppliers[0].id.clone();
+        catalog.groups = serde_json::from_value(json!([
+            {"id":"primary", "name":"Primary", "appIds":["codex"],
+             "members":[{"id":"one", "supplierId":supplier_id, "model":"upstream-model"}]}
+        ]))
+        .unwrap();
+        state.db.save_gateway_catalog(catalog).unwrap();
+        let enter_group = || {
+            let state = state.clone();
+            Box::pin(async move {
+                let revision = state.db.gateway_catalog().unwrap().revision;
+                enter_gateway_group(&state, &AppType::Codex, "primary", Some(revision)).await
+            })
+        };
+
+        enter_group().await.expect("enter");
+        // 第一次进入时快照了用户原生配置。
+        let live = state::load(&DeviceStore::for_device()).unwrap();
+        let first = live.apps["codex"].extra["gatewayDirectBaseline"].clone();
+        assert!(
+            first["settingsConfig"]["config"]
+                .as_str()
+                .unwrap()
+                .contains("[model_providers.custom]"),
+            "原生快照里用户自己的 custom 表在: {first:?}"
+        );
+
+        // 模拟异常态：文件还是网关投影，但落定模式回到了直连
+        // （比如退出写回被中断）。再进入时不能把网关投影录进 baseline。
+        state::update(&DeviceStore::for_device(), |live| {
+            if let Some(app) = live.apps.get_mut("codex") {
+                app.mode = Some(Mode::Direct);
+                app.attached = false;
+                app.proxy_route = None;
+                app.contract = None;
+            }
+        })
+        .unwrap();
+        enter_group().await.expect("reenter");
+        let live = state::load(&DeviceStore::for_device()).unwrap();
+        let second = live.apps["codex"].extra["gatewayDirectBaseline"].clone();
+        assert_eq!(
+            second, first,
+            "网关投影不能刷新 baseline（否则网关地址+真令牌会被永久录进直连基线）"
+        );
+
+        detach_all(&state).await;
+        let text = codex_text();
+        assert!(
+            !text.contains("phi-local-v1"),
+            "退出写回的是用户原生配置，不带本地凭据: {text}"
+        );
+        assert!(
+            text.contains("https://a.example/v1"),
+            "用户的直连上游要写回: {text}"
+        );
+    }
+
+    /// 读旧 baseline 时的存量兜底：早期版本可能把「选路指着网关表+真令牌」的
+    /// 污染形态存进了 gatewayDirectBaseline，退出时原样写回就会让旧会话拨
+    /// 已失效的本地网关凭据。读出来的那一刻就要洗净。
+    #[tokio::test]
+    #[serial]
+    async fn reading_a_polluted_codex_baseline_sanitizes_it() {
+        let _home = Home::new();
+        let state = state_without_providers().await;
+        let polluted = r#"model_provider = "custom"
+model = "upstream-model"
+
+[model_providers.custom]
+name = "custom"
+base_url = "http://127.0.0.1:15821/v1"
+wire_api = "responses"
+experimental_bearer_token = "phi-local-v1:codex:stale"
+
+[model_providers.ollama_local]
+name = "Ollama"
+base_url = "http://localhost:11434/v1"
+"#;
+        let mut baseline = Provider::with_id(
+            "gateway-baseline:codex".into(),
+            "Native configuration".into(),
+            json!({"config": polluted}),
+            None,
+        );
+        baseline.category = Some("official".into());
+        let value = serde_json::to_value(&baseline).unwrap();
+        state::update(&DeviceStore::for_device(), |live| {
+            live.apps
+                .entry("codex".into())
+                .or_default()
+                .extra
+                .insert("gatewayDirectBaseline".into(), value);
+        })
+        .unwrap();
+
+        let provider = direct_provider(&state, &AppType::Codex)
+            .unwrap()
+            .expect("baseline");
+        let text = provider.settings_config["config"].as_str().unwrap();
+        assert!(!text.contains("127.0.0.1"), "网关表要剔除: {text}");
+        assert!(!text.contains("phi-local-v1"), "本地凭据要剔除: {text}");
+        assert!(!text.contains("model_provider ="), "悬空选路要摘掉: {text}");
+        assert!(
+            text.contains("[model_providers.ollama_local]"),
+            "用户的表要保留: {text}"
+        );
+        assert_eq!(provider.category, None, "污染快照不是官方卡");
+    }
+
+    /// 进入→退出→再进入的连通性不变量，跨多种真实初始状态（探针矩阵）。
+    #[tokio::test]
+    #[serial]
+    async fn codex_gateway_reenter_probe_matrix() {
+        let probe = |label: &str, rows: bool, auth: Option<Value>| {
+            let label = label.to_string();
+            Box::pin(async move {
+                let _home = Home::new();
+                seed_settings(USER_SETTINGS);
+                seed_codex(CODEX_USER_LIVE, auth.as_ref());
+                let state = if rows {
+                    state_with(AppType::Codex, &codex_a_b(), "a").await
+                } else {
+                    state_without_providers().await
+                };
+                let mut catalog = state
+                    .db
+                    .create_gateway_supplier(crate::gateway::SupplierUpsert {
+                        name: Some("Shared".into()),
+                        endpoint: Some(crate::gateway::Endpoint {
+                            protocol: "openai_responses".into(),
+                            base_url: "https://pool.example/v1".into(),
+                        }),
+                        api_key: Some("pool-upstream-secret".into()),
+                        auth_field: Some("OPENAI_API_KEY".into()),
+                        models: Some(vec!["upstream-model".into()]),
+                        ..Default::default()
+                    })
+                    .unwrap();
+                let supplier_id = catalog.suppliers[0].id.clone();
+                catalog.groups = serde_json::from_value(json!([
+                    {"id":"primary", "name":"Primary", "appIds":["codex"],
+                     "members":[{"id":"one", "supplierId":supplier_id, "model":"upstream-model"}]}
+                ]))
+                .unwrap();
+                state.db.save_gateway_catalog(catalog).unwrap();
+
+                let enter_group = |state: &AppState| {
+                    let state = state.clone();
+                    Box::pin(async move {
+                        let revision = state.db.gateway_catalog().unwrap().revision;
+                        enter_gateway_group(&state, &AppType::Codex, "primary", Some(revision))
+                            .await
+                    })
+                };
+                let check_gateway = |phase: &str| {
+                    let doc = codex_doc();
+                    let route = &doc["model_providers"]["custom"];
+                    let base = route["base_url"].as_str().unwrap_or_default().to_string();
+                    let token = route["experimental_bearer_token"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string();
+                    let requires = route["requires_openai_auth"].as_bool();
+                    let auth_text = fs::read_to_string(codex_auth_path()).ok();
+                    let has_login_from_text = |text: &Option<String>| {
+                        text.as_ref()
+                            .and_then(|t| serde_json::from_str::<Value>(t).ok())
+                            .is_some_and(|auth| {
+                                crate::codex_config::codex_auth_has_login_material(&auth)
+                            })
+                    };
+                    let mode = current::mode_state(&AppType::Codex);
+                    println!(
+                        "[{label}#{phase}] base={base} token_ok={} requires={requires:?} auth.json={auth_text:?} mode={:?} attached={} route={:?}",
+                        token == crate::proxy::ingress::token("codex"),
+                        mode.mode,
+                        mode.attached,
+                        mode.proxy_route
+                    );
+                    assert!(
+                        base.starts_with("http://127.0.0.1"),
+                        "[{label}#{phase}] {doc}"
+                    );
+                    assert_eq!(
+                        token,
+                        crate::proxy::ingress::token("codex"),
+                        "[{label}#{phase}] {doc}"
+                    );
+                    if requires == Some(true) {
+                        assert!(
+                            has_login_from_text(&auth_text),
+                            "[{label}#{phase}] requires_openai_auth=true 但没有登录: {}",
+                            auth_text.unwrap_or_default()
+                        );
+                    }
+                };
+
+                enter_group(&state).await.expect("enter 1");
+                check_gateway("enter1");
+                exit(&state, &AppType::Codex).await.expect("exit");
+                enter_group(&state).await.expect("enter 2");
+                check_gateway("enter2");
+                detach_all(&state).await;
+            })
+        };
+        // A：有直连行，auth.json 是 ChatGPT 登录（最常见的真实切换场景）
+        probe(
+            "chatgpt-login",
+            true,
+            Some(chatgpt_login("user@example.com")),
+        )
+        .await;
+        // B：没有直连行（只用网关），native 是第三方配置 + ChatGPT 登录（baseline 路径）
+        probe(
+            "baseline-native",
+            false,
+            Some(chatgpt_login("user@example.com")),
+        )
+        .await;
+        // C：auth.json 是第三方 key 残留
+        probe("key-residue", true, Some(json!({"OPENAI_API_KEY": "sk-a"}))).await;
     }
 
     #[tokio::test]

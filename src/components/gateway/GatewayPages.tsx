@@ -35,7 +35,18 @@ import { ResourcePoolSection } from "@/components/gateway/ResourcePoolSection";
 import { NativeAppConnectionRow } from "@/components/gateway/NativeAppConnectionRow";
 import { RoutingStatus } from "@/components/gateway/RoutingStatus";
 import { appConnectionId, appRouteGroup } from "@/lib/api/gateway";
-import { GatewaySelect, GroupSection } from "@/components/gateway/GroupSection";
+import { GroupSection } from "@/components/gateway/GroupSection";
+import { supplierDirectCompatible } from "@/components/gateway/useGatewayCatalog";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   useGatewayCatalog,
   useGatewayErrorMessage,
@@ -47,6 +58,9 @@ interface GatewayPageProps {
 
 // Unlike the legacy picker, a failed read must not look like an empty catalog.
 // Keep the key under providers/app so existing mutations invalidate this view.
+/** 后端 materialize_supplier_provider 落行的固定 id 前缀。 */
+const SUPPLIER_PROVIDER_PREFIX = "gateway-supplier:";
+
 function useCatalog(app: AppId) {
   return useQuery({
     queryKey: ["providers", app, "catalog"] as const,
@@ -143,10 +157,9 @@ export function ProviderCatalogPage({
 
 function RouteRow({
   app,
-  onOpenApp,
   running,
   gatewayCatalog,
-}: GatewayPageProps & {
+}: {
   app: ProxyAppId;
   running: boolean | undefined;
   gatewayCatalog: GatewayCatalog;
@@ -177,6 +190,12 @@ function RouteRow({
   const detachedGroup =
     isProxy && !!groupId && groupAvailable && !state?.attached;
   const hasDirectConfig = state?.directConfigured ?? !!state?.directProviderId;
+  // 池内供应商直连由后端落成固定 id 的应用供应商行，能映射回 supplier 选项；
+  // 其它直连目标（如官方登录）保持 provider/ 值并以下拉外禁用项展示。
+  const directSupplierId =
+    !isProxy && state?.directProviderId?.startsWith(SUPPLIER_PROVIDER_PREFIX)
+      ? state.directProviderId.slice(SUPPLIER_PROVIDER_PREFIX.length)
+      : null;
   const connection = isProxy
     ? isPool && storedConnection && (!storedConnection.enabled || !groupId)
       ? "unconfigured"
@@ -184,7 +203,11 @@ function RouteRow({
         ? `${detachedGroup ? "detached" : "group"}/${groupId}`
         : "legacy"
     : hasDirectConfig
-      ? "direct"
+      ? directSupplierId
+        ? `supplier/${directSupplierId}`
+        : state?.directProviderId
+          ? `provider/${state.directProviderId}`
+          : "direct"
       : "unconfigured";
   const targetId = isProxy ? state?.routeProviderId : state?.directProviderId;
   // 旧连接仍由应用页那套路由概念驱动（默认路由 + 故障转移队列 + 聚合模型）；
@@ -221,7 +244,25 @@ function RouteRow({
       ? t("gateway.connections.nativeTarget")
       : "—";
   const connectionMutation = useMutation({
-    mutationFn: (connection: string) => {
+    mutationFn: async (connection: string) => {
+      if (connection.startsWith("supplier/")) {
+        // 池内供应商 = 直连：先落成该应用的供应商行，再走常规直连切换。
+        const providerId = await gatewayApi.materializeSupplierProvider(
+          app,
+          connection.slice("supplier/".length),
+        );
+        if (isProxy) await proxyApi.setProxyTakeoverForApp(app, false);
+        await providersApi.switch(providerId, app);
+        return;
+      }
+      if (connection.startsWith("provider/")) {
+        // A provider selection means direct access even when currently routing.
+        // Refresh on settlement also exposes the actual mode if switching fails
+        // after the existing direct configuration has been restored.
+        if (isProxy) await proxyApi.setProxyTakeoverForApp(app, false);
+        await providersApi.switch(connection.slice("provider/".length), app);
+        return;
+      }
       if (connection === "direct") {
         return proxyApi.setProxyTakeoverForApp(app, false);
       }
@@ -289,26 +330,65 @@ function RouteRow({
         </TableCell>
       )}
       <TableCell className="w-64">
-        <div className="flex items-center gap-2">
-          {!failed && !pending && (
-            <div className="min-w-0 flex-1">
-              <GatewaySelect
-                label={t("gateway.connections.methodForApp", {
-                  app: getAppLabel(app),
+        {!failed && !pending && (
+          <Select
+            value={connection}
+            disabled={connectionMutation.isPending}
+            onValueChange={(value) => connectionMutation.mutate(value)}
+          >
+            <SelectTrigger
+              aria-label={t("gateway.connections.methodForApp", {
+                app: getAppLabel(app),
+              })}
+              className="min-w-0"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>
+                  {t("gateway.providers")} · {t("gateway.connections.direct")}
+                </SelectLabel>
+                {gatewayCatalog.suppliers.map((supplier) => {
+                  const direct = supplierDirectCompatible(
+                    app,
+                    supplier.endpoint.protocol,
+                  );
+                  return (
+                    <SelectItem
+                      key={supplier.id}
+                      value={`supplier/${supplier.id}`}
+                      disabled={!direct}
+                      title={
+                        direct
+                          ? undefined
+                          : t("gateway.connections.supplierNeedsRoute")
+                      }
+                    >
+                      {supplier.name}
+                    </SelectItem>
+                  );
                 })}
-                value={connection}
-                disabled={connectionMutation.isPending}
-                onChange={(value) => connectionMutation.mutate(value)}
-                options={[
-                  {
-                    value: "direct",
-                    label: t("gateway.connections.direct"),
-                    disabled: !hasDirectConfig && !isProxy,
-                  },
-                  ...availableGroups.map((g) => ({
-                    value: `group/${g.id}`,
-                    label: g.name,
-                  })),
+                {connection.startsWith("provider/") && (
+                  <SelectItem value={connection} disabled>
+                    {target}
+                  </SelectItem>
+                )}
+                {hasDirectConfig && !state?.directProviderId && (
+                  <SelectItem value="direct">
+                    {t("gateway.connections.nativeTarget")}
+                  </SelectItem>
+                )}
+              </SelectGroup>
+              <SelectSeparator />
+              <SelectGroup>
+                <SelectLabel>{t("gateway.groups.title")}</SelectLabel>
+                {availableGroups.map((g) => (
+                  <SelectItem key={g.id} value={`group/${g.id}`}>
+                    {g.name}
+                  </SelectItem>
+                ))}
+                {[
                   ...(detachedGroup
                     ? [
                         {
@@ -349,23 +429,15 @@ function RouteRow({
                         },
                       ]
                     : []),
-                ]}
-              />
-            </div>
-          )}
-          <Button
-            variant={
-              connection === "unconfigured" && !failed && !pending
-                ? "outline"
-                : "ghost"
-            }
-            size="sm"
-            disabled={connectionMutation.isPending}
-            onClick={() => onOpenApp(app)}
-          >
-            {t("gateway.configure")}
-          </Button>
-        </div>
+                ].map((option) => (
+                  <SelectItem key={option.value} value={option.value} disabled>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        )}
         {!failed &&
           !pending &&
           isProxy &&
@@ -479,7 +551,6 @@ export function RoutingOverviewPage({
                         app={app}
                         running={running}
                         gatewayCatalog={gatewayCatalog}
-                        onOpenApp={onOpenApp}
                       />
                     ) : (
                       <NativeAppConnectionRow

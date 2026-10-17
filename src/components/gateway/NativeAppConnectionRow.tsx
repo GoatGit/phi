@@ -5,7 +5,7 @@ import { AppGlyph } from "@/components/shell/AppGlyph";
 import { providersApi, type AppId } from "@/lib/api";
 import { piApi } from "@/lib/api/pi";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { badgeVariants } from "@/components/ui/badge";
 import { TableCell, TableRow } from "@/components/ui/table";
 
 type NativeAppId = Exclude<AppId, ProxyAppId>;
@@ -114,18 +114,15 @@ export function NativeAppConnectionRow({
         )}
       </TableCell>
       <TableCell className="w-64">
-        <div className="flex items-center gap-2">
-          {query.isSuccess && connection && (
-            <div className="w-32 shrink-0">
-              <Badge variant="secondary">
-                {t(`gateway.connections.${connection.method}`)}
-              </Badge>
-            </div>
-          )}
-          <Button variant="ghost" size="sm" onClick={() => onOpenApp(app)}>
-            {t("gateway.configure")}
-          </Button>
-        </div>
+        {query.isSuccess && connection && (
+          <button
+            type="button"
+            className={badgeVariants({ variant: "secondary" })}
+            onClick={() => onOpenApp(app)}
+          >
+            {t(`gateway.connections.${connection.method}`)}
+          </button>
+        )}
         {query.isSuccess && connection?.needsRepair && (
           <p role="status" className="mt-2 text-xs text-fg-2">
             {t("gateway.connections.needsReconnect")}

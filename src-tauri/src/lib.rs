@@ -1472,6 +1472,7 @@ pub fn run() {
             commands::fetch_gateway_models,
             commands::preview_gateway_route,
             commands::connect_gateway_app,
+            commands::materialize_gateway_supplier_provider,
             commands::get_providers,
             commands::get_current_provider,
             commands::add_provider,

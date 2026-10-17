@@ -17,6 +17,7 @@ export interface TrayAgent {
   providerName: string | null;
   providers: TrayOption[];
   models: string[];
+  modelOptions: TrayOption[];
   quota: { text: string; remaining: number | null; resetsAt: string | null }[];
   quotaError: string | null;
   attention: boolean;

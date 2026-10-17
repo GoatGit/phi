@@ -167,6 +167,7 @@
       "invalidCredential": "Invalid credential reference.",
       "invalidApp": "This app does not support gateway routing.",
       "invalidSecret": "Credential is empty, invalid or incompatible with the protocol.",
+      "directIncompatible": "This supplier protocol cannot connect directly to the app; use a route group.",
       "modelFetchFailed": "Model discovery failed. Check the endpoint, credential and model-list support, then retry.",
       "noPolicy": "This agent has no enabled policy. Configure candidates and enable a policy first.",
       "missingSecret": "Supplier credential is missing. Edit and save it again.",
@@ -213,7 +214,8 @@
       "legacy": "Previous connection (choose a group)",
       "unavailableGroup": "{{name}} (unavailable)",
       "detachedGroup": "{{name}} (disconnected)",
-      "reconnectGroup": "Select the route group again to reconnect."
+      "reconnectGroup": "Select the route group again to reconnect.",
+      "supplierNeedsRoute": "This supplier needs protocol conversion; use a route group instead"
     },
     "groups": {
       "title": "Route groups",
@@ -363,7 +365,6 @@
       "step": "Step {{current}} / {{total}}",
       "diagram": "Each app's latest request flowing through PHI and route groups to models",
       "legend": "App flow lines and states",
-      "latestHint": "Colored lines trace each app's latest request; light gray dashed lines show the configured topology and stay visible even when idle. Click an app to highlight it.",
       "appCount": "{{count}} apps",
       "configured": "Configured topology (light gray dashed)",
       "lineActive": "Animated dashes = in progress",
@@ -403,7 +404,6 @@
       "unknown": "{{count}} additional unknown records, excluded from known totals",
       "classifierCost": "Estimated classification cost",
       "classifierCalls": "{{count}} classification attempts · {{unknown}} unknown costs",
-      "retention": "Data retained since {{date}}",
       "costNote": "USD estimates; excludes failed attempts and classifier calls",
       "costWithClassifier": "Incl. classifier ${{cost}}",
       "classifierUsage": "{{count}} classifier calls",
@@ -5226,7 +5226,7 @@
     "refresh": "Refresh",
     "open": "Open PHI",
     "settings": "Settings",
-    "provider": "Outlet",
+    "provider": "Provider",
     "models": "Models",
     "noModels": "No models configured",
     "unconfigured": "Not configured",
@@ -5234,7 +5234,7 @@
     "direct": "Direct",
     "modelCount": "{{count}} models",
     "connectAgent": "Connect {{name}}",
-    "selectProvider": "Outlet for {{name}}",
+    "selectProvider": "Provider or PHI for {{name}}",
     "manageModels": "Open the app page to manage models",
     "attention": "Needs attention",
     "status": "Current status",
@@ -5253,7 +5253,11 @@
     "active": "Active",
     "failovers": "Failovers",
     "noTraces": "No resource pool requests yet. Connect an app and send a request to see its route.",
-    "unavailable": "This action is no longer available. Refresh and try again."
+    "unavailable": "This action is no longer available. Refresh and try again.",
+    "groups": "Route group",
+    "selectModel": "Select a model for {{name}}",
+    "selectGroup": "Select a route group for {{name}}",
+    "appManagedModel": "Choose the current Claude Desktop model in the app."
   },
   "ledger": {
     "systemNotifications": "System budget notifications",

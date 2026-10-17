@@ -145,3 +145,17 @@ pub async fn get_gateway_trace_page(
         .gateway_trace_page(query)
         .map_err(|e| e.to_string())
 }
+
+/// 把资源池供应商落成指定应用的直连供应商行，返回 provider id。
+/// 调用方随后仍需走常规 switch（含退出本地路由）流程。
+#[tauri::command]
+pub async fn materialize_gateway_supplier_provider(
+    state: State<'_, AppState>,
+    app_id: String,
+    supplier_id: String,
+) -> Result<String, String> {
+    state
+        .db
+        .materialize_supplier_provider(&app_id, &supplier_id)
+        .map_err(|e| e.to_string())
+}

@@ -53,6 +53,7 @@ pub struct PanelAgent {
     provider_name: Option<String>,
     providers: Vec<PanelOption>,
     models: Vec<String>,
+    model_options: Vec<PanelOption>,
     quota: Vec<PanelQuota>,
     quota_error: Option<String>,
     attention: bool,
@@ -74,27 +75,124 @@ pub struct PanelProfile {
     items: Vec<PanelOption>,
 }
 
-fn option(entry: TrayEntry) -> Option<PanelOption> {
-    match entry {
-        TrayEntry::Check {
-            id,
-            text,
-            enabled,
-            checked,
-        } => Some(PanelOption {
-            id,
-            label: text,
-            enabled,
-            selected: checked,
-        }),
-        TrayEntry::Item { id, text, enabled } if !id.starts_with("info:") => Some(PanelOption {
-            id,
-            label: text,
-            enabled,
-            selected: false,
-        }),
+fn group_options(catalog: &crate::gateway::Catalog, app_id: &str) -> Vec<PanelOption> {
+    let selected = crate::gateway::routing::app_connection(catalog, app_id)
+        .and_then(|p| p.group_id.as_deref());
+    catalog
+        .groups
+        .iter()
+        .filter(|g| g.enabled && g.app_ids.iter().any(|a| a == app_id))
+        .map(|g| PanelOption {
+            id: format!("group:{app_id}:{}", g.id),
+            label: g.name.clone(),
+            enabled: true,
+            selected: selected == Some(g.id.as_str()),
+        })
+        .collect()
+}
+
+fn direct_model_options(app: &AppType, provider: &Provider) -> Vec<PanelOption> {
+    let settings = &provider.settings_config;
+    let config = settings
+        .get("config")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<toml::Value>().ok());
+    let selected = match app {
+        AppType::Claude => settings
+            .pointer("/env/ANTHROPIC_MODEL")
+            .and_then(|v| v.as_str()),
+        AppType::Gemini => settings
+            .pointer("/env/GEMINI_MODEL")
+            .and_then(|v| v.as_str()),
+        AppType::Codex => config
+            .as_ref()
+            .and_then(|c| c.get("model"))
+            .and_then(|v| v.as_str()),
+        AppType::GrokBuild => config
+            .as_ref()
+            .and_then(|c| c.get("models"))
+            .and_then(|c| c.get("default"))
+            .and_then(|v| v.as_str()),
         _ => None,
+    };
+    let models = if *app == AppType::GrokBuild {
+        config
+            .as_ref()
+            .and_then(|c| c.get("model"))
+            .and_then(|m| m.as_table())
+            .map(|models| models.keys().cloned().collect())
+            .unwrap_or_default()
+    } else if *app == AppType::ClaudeDesktop {
+        // Desktop owns the active conversation model; PHI can publish its
+        // catalog, but cannot set a native default that Desktop doesn't expose.
+        provider
+            .meta
+            .as_ref()
+            .map(|m| m.claude_desktop_model_routes.keys().cloned().collect())
+            .unwrap_or_default()
+    } else {
+        crate::gateway::provider_models(provider)
+    };
+    models
+        .into_iter()
+        .map(|model| PanelOption {
+            id: format!(
+                "model:{}:{}",
+                app.as_str(),
+                serde_json::to_string(&(&provider.id, &model)).unwrap()
+            ),
+            selected: selected == Some(model.as_str()),
+            label: model,
+            enabled: matches!(
+                app,
+                AppType::Claude | AppType::Codex | AppType::Gemini | AppType::GrokBuild
+            ),
+        })
+        .collect()
+}
+
+fn set_direct_model(app: &AppType, provider: &mut Provider, model: &str) -> Result<(), String> {
+    if !direct_model_options(app, provider)
+        .iter()
+        .any(|o| o.enabled && o.label == model)
+    {
+        return Err("trayPanel.unavailable".into());
     }
+    match app {
+        AppType::Claude | AppType::Gemini => {
+            let key = if *app == AppType::Claude {
+                "ANTHROPIC_MODEL"
+            } else {
+                "GEMINI_MODEL"
+            };
+            let root = provider
+                .settings_config
+                .as_object_mut()
+                .ok_or("trayPanel.unavailable")?;
+            let env = root.entry("env").or_insert_with(|| serde_json::json!({}));
+            env.as_object_mut()
+                .ok_or("trayPanel.unavailable")?
+                .insert(key.into(), serde_json::Value::String(model.into()));
+        }
+        AppType::Codex | AppType::GrokBuild => {
+            let config = provider
+                .settings_config
+                .get("config")
+                .and_then(|v| v.as_str())
+                .ok_or("trayPanel.unavailable")?;
+            let mut document = config
+                .parse::<toml_edit::DocumentMut>()
+                .map_err(|e| e.to_string())?;
+            if *app == AppType::Codex {
+                document["model"] = toml_edit::value(model);
+            } else {
+                document["models"]["default"] = toml_edit::value(model);
+            }
+            provider.settings_config["config"] = serde_json::Value::String(document.to_string());
+        }
+        _ => return Err("trayPanel.unavailable".into()),
+    }
+    Ok(())
 }
 #[tauri::command]
 pub async fn get_tray_panel(state: tauri::State<'_, AppState>) -> Result<PanelSnapshot, String> {
@@ -112,9 +210,23 @@ pub async fn get_tray_panel(state: tauri::State<'_, AppState>) -> Result<PanelSn
                 .as_deref()
                 .is_some_and(|id| id.starts_with("gateway-entry:"));
         let can_connect = crate::mode::controller::PROXY_APPS.contains(&snapshot.app);
-        let mut providers: Vec<_> = provider_rows(&texts, &snapshot)
-            .into_iter()
-            .filter_map(option)
+        // A provider selection always means direct access, regardless of the
+        // current native menu mode (route/failover/stack).
+        let listed: Vec<_> = snapshot
+            .providers
+            .iter()
+            .filter(|p| !p.id.starts_with("gateway-entry:"))
+            .collect();
+        let mut providers: Vec<_> = listed
+            .iter()
+            .zip(display_names(&listed))
+            .map(|(p, label)| PanelOption {
+                id: provider_id_for(&snapshot.app, &p.id),
+                label,
+                enabled: !p.needs_routing || snapshot.app == AppType::ClaudeDesktop,
+                selected: !mode_state.is_proxy()
+                    && snapshot.current_id.as_deref() == Some(p.id.as_str()),
+            })
             .collect();
         let has_gateway = catalog
             .policies
@@ -124,7 +236,7 @@ pub async fn get_tray_panel(state: tauri::State<'_, AppState>) -> Result<PanelSn
                 .groups
                 .iter()
                 .any(|g| g.enabled && g.app_ids.iter().any(|a| a == app_id));
-        if can_connect && has_gateway {
+        if can_connect {
             if gateway {
                 for option in &mut providers {
                     option.selected = false;
@@ -135,39 +247,27 @@ pub async fn get_tray_panel(state: tauri::State<'_, AppState>) -> Result<PanelSn
                 PanelOption {
                     id: format!("gateway:{app_id}"),
                     label: "PHI".into(),
-                    enabled: true,
+                    enabled: has_gateway,
                     selected: gateway,
                 },
             );
         }
-        let models = if gateway {
-            catalog
-                .groups
-                .iter()
-                .filter(|g| g.enabled && g.app_ids.iter().any(|a| a == app_id))
-                .map(|g| g.name.clone())
-                .chain(
-                    catalog
-                        .policies
-                        .iter()
-                        .filter(|p| p.enabled && p.app_id == app_id)
-                        .flat_map(|p| {
-                            if !p.match_model.is_empty() {
-                                vec![p.match_model.clone()]
-                            } else {
-                                p.candidates.iter().map(|c| c.model.clone()).collect()
-                            }
-                        }),
-                )
-                .collect()
-        } else {
+        let model_options = if gateway {
+            group_options(&catalog, app_id)
+        } else if !mode_state.is_proxy() {
             snapshot
                 .current_id
                 .as_deref()
-                .and_then(|id| state.db.get_provider_by_id(id, app_id).ok().flatten())
-                .map(|p| crate::gateway::provider_models(&p))
+                .map(|id| state.db.get_provider_by_id(id, app_id))
+                .transpose()
+                .map_err(|e| e.to_string())?
+                .flatten()
+                .map(|p| direct_model_options(&snapshot.app, &p))
                 .unwrap_or_default()
+        } else {
+            vec![]
         };
+        let models = model_options.iter().map(|o| o.label.clone()).collect();
         let (quota, quota_error) = match &snapshot.quota {
             Some(QuotaView::Lines(lines)) => (
                 lines
@@ -224,6 +324,7 @@ pub async fn get_tray_panel(state: tauri::State<'_, AppState>) -> Result<PanelSn
             },
             providers,
             models,
+            model_options,
             quota,
             quota_error,
             attention: snapshot.needs_attention,
@@ -284,7 +385,7 @@ pub async fn tray_panel_action(app: tauri::AppHandle, id: String) -> Result<Vec<
     if !snapshot
         .agents
         .iter()
-        .flat_map(|a| &a.providers)
+        .flat_map(|a| a.providers.iter().chain(&a.model_options))
         .chain(snapshot.profiles.iter().flat_map(|p| &p.items))
         .any(|o| o.id == id && o.enabled)
     {
@@ -293,8 +394,34 @@ pub async fn tray_panel_action(app: tauri::AppHandle, id: String) -> Result<Vec<
     let mut warnings = vec![];
     if let Some(app_id) = id.strip_prefix("gateway:") {
         crate::commands::connect_gateway_app(state, app_id.into(), None, None).await?;
+    } else if let Some(rest) = id.strip_prefix("group:") {
+        let (app_id, group_id) = rest.split_once(':').ok_or("trayPanel.unavailable")?;
+        crate::commands::connect_gateway_app(
+            state.clone(),
+            app_id.into(),
+            Some(group_id.into()),
+            None,
+        )
+        .await?;
+    } else if let Some(rest) = id.strip_prefix("model:") {
+        let (app_id, selection) = rest.split_once(':').ok_or("trayPanel.unavailable")?;
+        let (provider_id, model): (String, String) =
+            serde_json::from_str(selection).map_err(|_| "trayPanel.unavailable")?;
+        let app_type = app_id.parse::<AppType>().map_err(|e| e.to_string())?;
+        let mut provider = state
+            .db
+            .get_provider_by_id(&provider_id, app_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("trayPanel.unavailable")?;
+        set_direct_model(&app_type, &mut provider, &model)?;
+        crate::commands::update_provider(app.clone(), app_id.into(), provider, None, None).await?;
+        emit_switched(&app, &app_type, &provider_id);
     } else if let Some(rest) = id.strip_prefix("prov:") {
         let (app_id, provider_id) = rest.split_once(':').ok_or("trayPanel.unavailable")?;
+        let app_type = app_id.parse::<AppType>().map_err(|e| e.to_string())?;
+        if crate::mode::current::is_proxy(&app_type) {
+            crate::mode::controller::exit(state.inner(), &app_type).await?;
+        }
         warnings = crate::commands::switch_provider(app.clone(), app_id.into(), provider_id.into())
             .await?
             .warnings;
@@ -425,6 +552,99 @@ pub fn toggle(app: &tauri::AppHandle, rect: tauri::Rect) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn group_options_only_include_enabled_groups_for_the_app() {
+        let mut catalog = crate::gateway::Catalog::default();
+        for (id, enabled, app) in [
+            ("one", true, "claude"),
+            ("off", false, "claude"),
+            ("other", true, "codex"),
+        ] {
+            catalog.groups.push(
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "name": id, "enabled": enabled, "appIds": [app]
+                }))
+                .unwrap(),
+            );
+        }
+        catalog.policies.push(crate::gateway::RoutePolicy {
+            id: crate::gateway::routing::connection_id("claude"),
+            name: "connection".into(),
+            app_id: "claude".into(),
+            enabled: true,
+            match_model: String::new(),
+            priority: 0,
+            failover: true,
+            candidates: vec![],
+            group_id: Some("one".into()),
+        });
+        let options = group_options(&catalog, "claude");
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].id, "group:claude:one");
+        assert!(options[0].selected);
+    }
+
+    #[test]
+    fn direct_model_change_preserves_credentials_and_other_settings() {
+        let mut provider = Provider::with_id(
+            "p:1".into(),
+            "Test".into(),
+            serde_json::json!({
+                "env": {
+                    "ANTHROPIC_MODEL": "sonnet",
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL": "opus",
+                    "ANTHROPIC_AUTH_TOKEN": "test-key"
+                },
+                "permissions": { "allow": ["Read"] }
+            }),
+            None,
+        );
+        let options = direct_model_options(&AppType::Claude, &provider);
+        assert!(options.iter().any(|o| o.selected && o.label == "sonnet"));
+        let encoded = options[0].id.strip_prefix("model:claude:").unwrap();
+        let (id, _): (String, String) = serde_json::from_str(encoded).unwrap();
+        assert_eq!(id, "p:1");
+        set_direct_model(&AppType::Claude, &mut provider, "opus").unwrap();
+        assert_eq!(provider.settings_config["env"]["ANTHROPIC_MODEL"], "opus");
+        assert_eq!(
+            provider.settings_config["env"]["ANTHROPIC_AUTH_TOKEN"],
+            "test-key"
+        );
+        assert_eq!(provider.settings_config["permissions"]["allow"][0], "Read");
+        let saved = provider.settings_config.clone();
+        assert!(set_direct_model(&AppType::Claude, &mut provider, "unknown").is_err());
+        assert_eq!(provider.settings_config, saved);
+    }
+
+    #[test]
+    fn codex_model_change_preserves_toml_tables_and_comments() {
+        let mut provider = Provider::with_id(
+            "codex".into(),
+            "Test".into(),
+            serde_json::json!({
+                "config": "# keep this\nmodel = \"one\"\n[model_catalog]\nmodels = [\"one\", \"two\"]\n[model_providers.custom]\nbase_url = \"https://example.com\"\n"
+            }),
+            None,
+        );
+        set_direct_model(&AppType::Codex, &mut provider, "two").unwrap();
+        let config = provider.settings_config["config"].as_str().unwrap();
+        assert!(config.starts_with("# keep this\n"));
+        let document: toml::Value = config.parse().unwrap();
+        assert_eq!(document["model"].as_str(), Some("two"));
+        assert_eq!(
+            document["model_providers"]["custom"]["base_url"].as_str(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            document["model_catalog"]["models"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
     #[test]
     fn both_buttons_toggle_once_on_release() {
         use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};

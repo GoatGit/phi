@@ -507,6 +507,19 @@ pub fn proxy_route_table(name: &str, base_url: &str, requires_openai_auth: bool)
     table
 }
 
+/// 官方直连留下的休眠表：地址指本地代理，令牌用占位符。真令牌只在本进程有效
+/// （`ingress::token` 每次启动重新生成），写进休眠表会在进程换代后变成失效凭据，
+/// 还会被外部工具当成可用的网关凭据继续拨本地网关。占位符同样被
+/// `holds_placeholder`/`is_local_credential` 认作 PHI 的痕迹，清理路径不变。
+fn dormant_proxy_route_table(base_url: &str) -> Table {
+    let mut table = proxy_route_table(ROUTE_ID, base_url, false);
+    table.insert(
+        "experimental_bearer_token",
+        toml_edit::value(PROXY_TOKEN_PLACEHOLDER),
+    );
+    table
+}
+
 /// 一张能证明是 PHI 写进去的 provider 表：id 和地址都对得上某个供应商行的投影。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KnownTable {
@@ -748,7 +761,7 @@ impl CodexConfigPatch {
         match &self.route {
             RouteWrite::Official { dormant_base_url } => {
                 if providers.contains_key(ROUTE_ID) {
-                    let dormant = proxy_route_table(ROUTE_ID, dormant_base_url, false);
+                    let dormant = dormant_proxy_route_table(dormant_base_url);
                     put_table(providers, ROUTE_ID, dormant, container_inline);
                 }
             }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Trash2 } from "lucide-react";
+import { ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { getAppLabel } from "@/config/appConfig";
 import {
   gatewayApi,
@@ -22,14 +23,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
@@ -161,153 +154,156 @@ export function ResourcePoolSection({
         <Notice tone="danger" title={describeError(save.error)} />
       ) : null}
       {catalog.suppliers.length === 0 ? (
-        <p className="text-sm text-fg-3">{t("gateway.pool.empty")}</p>
+        <div className="rounded-lg border border-dashed px-4 py-10 text-center">
+          <p className="text-sm text-fg-3">{t("gateway.pool.empty")}</p>
+        </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("gateway.pool.name")}</TableHead>
-              <TableHead>{t("gateway.pool.endpoint")}</TableHead>
-              <TableHead>{t("gateway.pool.models")}</TableHead>
-              <TableHead>{t("gateway.pool.usedBy")}</TableHead>
-              <TableHead className="w-24">{t("gateway.actions")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visibleSuppliers.map((supplier) => {
-              const policyRefs = catalog.policies.filter((policy) =>
-                policy.candidates.some(
-                  (candidate) => candidate.supplierId === supplier.id,
-                ),
-              );
-              const groupRefs = (catalog.groups ?? []).filter(
-                (g) =>
-                  g.members.some((m) => m.supplierId === supplier.id) ||
-                  g.classifier?.supplierId === supplier.id,
-              );
-              const refCount = policyRefs.length + groupRefs.length;
-              const refsOpen = expandedRefs.has(supplier.id);
-              return (
-                <TableRow key={supplier.id}>
-                  <TableCell className="max-w-56">
-                    <span
-                      className="block truncate font-medium"
-                      title={supplier.name}
-                    >
-                      {supplier.name}
-                    </span>
-                    <span className="block font-mono text-xs text-fg-3">
-                      {supplier.endpoint.protocol}
-                    </span>
-                  </TableCell>
-                  <TableCell className="max-w-48">
-                    <span
-                      className="block truncate font-mono text-xs text-fg-2"
+        <div className="grid gap-3 lg:grid-cols-2">
+          {visibleSuppliers.map((supplier) => {
+            const policyRefs = catalog.policies.filter((policy) =>
+              policy.candidates.some(
+                (candidate) => candidate.supplierId === supplier.id,
+              ),
+            );
+            const groupRefs = (catalog.groups ?? []).filter(
+              (g) =>
+                g.members.some((m) => m.supplierId === supplier.id) ||
+                g.classifier?.supplierId === supplier.id,
+            );
+            const refCount = policyRefs.length + groupRefs.length;
+            const refsOpen = expandedRefs.has(supplier.id);
+            return (
+              <article
+                key={supplier.id}
+                className="group flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:border-border-strong"
+              >
+                <div className="flex items-start gap-3">
+                  <ProviderIcon
+                    icon={supplierIcon(supplier)}
+                    name={supplier.name}
+                    size={30}
+                    className="mt-0.5 rounded-lg"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="truncate text-sm font-medium text-fg-1"
+                        title={supplier.name}
+                      >
+                        {supplier.name}
+                      </span>
+                      <span className="shrink-0 rounded bg-subtle px-1.5 font-mono text-[10px] leading-4 text-fg-3">
+                        {supplier.endpoint.protocol}
+                      </span>
+                    </div>
+                    <p
+                      className="mt-0.5 truncate font-mono text-xs text-fg-3"
                       title={supplier.endpoint.baseUrl}
                     >
                       {endpointHost(supplier.endpoint.baseUrl)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                    <Button
+                      variant="ghost"
+                      size="icon-compact"
+                      aria-label={t("gateway.pool.edit")}
+                      title={t("gateway.pool.edit")}
+                      onClick={() => {
+                        setEditorTarget(supplier);
+                        setEditorRevision(catalog.revision);
+                        setEditorOpen(true);
+                      }}
+                    >
+                      <Pencil data-icon aria-hidden />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-compact"
+                      aria-label={t("gateway.pool.remove")}
+                      title={t("gateway.pool.removeTitle")}
+                      onClick={() => setDeleteTarget(supplier)}
+                    >
+                      <Trash2 data-icon aria-hidden />
+                    </Button>
+                  </div>
+                </div>
+
+                {supplier.models.length > 0 && (
+                  <ModelBadges models={supplier.models} />
+                )}
+
+                <div className="mt-auto border-t pt-2.5">
+                  {refCount === 0 ? (
+                    <span className="text-xs text-fg-3">
+                      {t("gateway.pool.unused")}
                     </span>
-                  </TableCell>
-                  <TableCell>
-                    <ModelBadges models={supplier.models} />
-                  </TableCell>
-                  <TableCell className="max-w-48">
-                    {refCount === 0 ? (
-                      <span className="text-xs text-fg-3">
-                        {t("gateway.pool.unused")}
-                      </span>
-                    ) : (
-                      <div className="flex flex-col gap-1">
-                        <Button
-                          variant="link"
-                          size="sm"
-                          className="h-auto py-0 text-xs"
-                          aria-expanded={refsOpen}
-                          aria-label={t(
-                            refsOpen
-                              ? "gateway.pool.hideReferences"
-                              : "gateway.pool.showReferences",
-                          )}
-                          onClick={() =>
-                            setExpandedRefs((current) => {
-                              const next = new Set(current);
-                              if (next.has(supplier.id))
-                                next.delete(supplier.id);
-                              else next.add(supplier.id);
-                              return next;
-                            })
-                          }
-                        >
-                          {t("gateway.pool.usedBySummary", {
-                            count: refCount,
-                          })}
-                          <ChevronDown
-                            data-icon="inline-end"
-                            aria-hidden
-                            className={cn(
-                              "transition-transform",
-                              refsOpen && "rotate-180",
-                            )}
-                          />
-                        </Button>
-                        {refsOpen && (
-                          <div className="flex flex-wrap gap-1">
-                            {policyRefs.map((policy) => (
-                              <Button
-                                key={policy.id}
-                                variant="link"
-                                size="sm"
-                                className="h-auto py-0 text-xs"
-                                onClick={() => onOpenPolicy?.(policy.id)}
-                              >
-                                {getAppLabel(policy.appId)} · {policy.name}
-                                {!policy.enabled
-                                  ? ` (${t("gateway.policy.disabled")})`
-                                  : ""}
-                              </Button>
-                            ))}
-                            {groupRefs.map((g) => (
-                              <Badge key={g.id} variant="secondary">
-                                {g.name}
-                                {g.classifier?.supplierId === supplier.id
-                                  ? ` · ${t("gateway.groups.classifier")}`
-                                  : ""}
-                              </Badge>
-                            ))}
-                          </div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      <button
+                        type="button"
+                        className="flex w-fit items-center gap-1 text-xs text-fg-3 transition-colors hover:text-fg-2"
+                        aria-expanded={refsOpen}
+                        aria-label={t(
+                          refsOpen
+                            ? "gateway.pool.hideReferences"
+                            : "gateway.pool.showReferences",
                         )}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setEditorTarget(supplier);
-                          setEditorRevision(catalog.revision);
-                          setEditorOpen(true);
-                        }}
+                        onClick={() =>
+                          setExpandedRefs((current) => {
+                            const next = new Set(current);
+                            if (next.has(supplier.id)) next.delete(supplier.id);
+                            else next.add(supplier.id);
+                            return next;
+                          })
+                        }
                       >
-                        {t("gateway.pool.edit")}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-compact"
-                        aria-label={t("gateway.pool.remove")}
-                        title={t("gateway.pool.removeTitle")}
-                        onClick={() => setDeleteTarget(supplier)}
-                      >
-                        <Trash2 data-icon="inline-start" aria-hidden />
-                      </Button>
+                        {t("gateway.pool.usedBySummary", { count: refCount })}
+                        <ChevronDown
+                          aria-hidden
+                          className={cn(
+                            "h-3 w-3 transition-transform",
+                            refsOpen && "rotate-180",
+                          )}
+                        />
+                      </button>
+                      {refsOpen && (
+                        <div className="flex flex-wrap gap-1">
+                          {policyRefs.map((policy) => (
+                            <Button
+                              key={policy.id}
+                              variant="secondary"
+                              size="sm"
+                              className="h-auto rounded-full px-2.5 py-0.5 text-xs font-normal"
+                              onClick={() => onOpenPolicy?.(policy.id)}
+                            >
+                              {getAppLabel(policy.appId)} · {policy.name}
+                              {!policy.enabled
+                                ? ` (${t("gateway.policy.disabled")})`
+                                : ""}
+                            </Button>
+                          ))}
+                          {groupRefs.map((g) => (
+                            <Badge
+                              key={g.id}
+                              variant="secondary"
+                              className="rounded-full px-2.5 font-normal"
+                            >
+                              {g.name}
+                              {g.classifier?.supplierId === supplier.id
+                                ? ` · ${t("gateway.groups.classifier")}`
+                                : ""}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
       )}
 
       {createOpen && (
@@ -388,6 +384,31 @@ function endpointHost(url: string): string {
   } catch {
     return url;
   }
+}
+
+// 按名称/端点猜品牌图标，仅取图标库里确定存在的 SVG；猜不中就回落到首字母。
+const SUPPLIER_ICON_PATTERNS: readonly (readonly [RegExp, string])[] = [
+  [/deepseek/i, "deepseek"],
+  [/openai|\bgpt\b/i, "openai"],
+  [/anthropic|claude/i, "anthropic"],
+  [/gemini|google/i, "gemini"],
+  [/openrouter/i, "openrouter"],
+  [/siliconflow|硅基/i, "siliconflow"],
+  [/moonshot|kimi/i, "kimi"],
+  [/qwen|通义/i, "qwen"],
+  [/zhipu|智谱|bigmodel|glm/i, "zhipu"],
+  [/doubao|豆包|volc|火山/i, "doubao"],
+  [/minimax/i, "minimax"],
+  [/ollama/i, "ollama"],
+  [/packy/i, "packycode"],
+];
+
+function supplierIcon(supplier: GatewaySupplier): string | undefined {
+  const haystack = `${supplier.name} ${supplier.endpoint.baseUrl}`;
+  for (const [pattern, icon] of SUPPLIER_ICON_PATTERNS) {
+    if (pattern.test(haystack)) return icon;
+  }
+  return undefined;
 }
 
 /** 各协议允许的鉴权字段，与后端 auth_field_for 的映射一致。 */

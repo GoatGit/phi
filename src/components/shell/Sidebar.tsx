@@ -66,7 +66,7 @@ interface SidebarProps {
 type DirectoryProps = SidebarProps & { collapsed: boolean };
 
 /**
- * 主导航（v7）：顶条 44 → 供应商/路由 → 滚动区（应用列表 + 全局导航 + 用量统计/设置）。
+ * 主导航（v7）：顶条 44 → 供应商/路由/工具箱/用量统计/设置 → 滚动区（应用列表）。
  * 进入设置后整条侧栏换成设置目录。收起时是 52px 的图标轨；
  * 展开 / 收起时宽度一步到位，边缘的滑动由盖板的 transform 动画画出（见 useSidebarCollapsed），文字不换行、被裁掉而不是挤成两行。
  * 收起时各行只剩图标，名字由 HoverTip 从右侧报；展开时文字可见，不再挂提示。
@@ -256,6 +256,7 @@ const TOOLBOX_PAGES: GlobalPage[] = [
   "skills",
   "skillsDiscovery",
   "prompts",
+  "sessions",
 ];
 
 function MainDirectory({
@@ -279,18 +280,7 @@ function MainDirectory({
       ? t("nav.todayCost", { cost: fmtUsd(todayCost, 2) })
       : undefined;
 
-  const globals: {
-    page: GlobalPage;
-    label: string;
-    icon: IconComponent;
-    trailing?: string;
-    alert?: string;
-  }[] = [{ page: "sessions", label: t("nav.sessions"), icon: History }];
-
-  const isGlobalSelected = (page: GlobalPage) =>
-    view === page || (page === "skills" && view === "skillsDiscovery");
-
-  // 工具箱（MCP/Skills/提示词 的二级菜单）：进入其中任一页时自动展开一次
+  // 工具箱（MCP/Skills/提示词/会话 的二级菜单）：进入其中任一页时自动展开一次
   const toolboxActive = (TOOLBOX_PAGES as string[]).includes(view);
   const [toolboxOpen, setToolboxOpen] = useState(toolboxActive);
   useEffect(() => {
@@ -322,6 +312,25 @@ function MainDirectory({
           view={view}
           onSelectPage={onSelectPage}
         />
+        <NavItem
+          collapsed={collapsed}
+          selected={view === "usage"}
+          icon={ChartColumn}
+          label={t("nav.usage")}
+          trailing={todayLabel}
+          onClick={() => onSelectPage("usage")}
+        />
+        <NavItem
+          collapsed={collapsed}
+          selected={false}
+          icon={Settings}
+          label={t("nav.settings")}
+          title={hasUpdate ? t("nav.settingsHasUpdate") : t("nav.settings")}
+          alert={authNeedsAttention ? t("nav.authNeedsReauth") : undefined}
+          dot={hasUpdate || appsUpdateAvailable}
+          dotTone={hasUpdate ? "success" : "neutral"}
+          onClick={() => onSelectPage("settings")}
+        />
       </div>
       <div
         className={cn(
@@ -346,48 +355,6 @@ function MainDirectory({
               onSelect={() => onSelectApp(app)}
             />
           ))}
-        </div>
-
-        {/* 会话 紧跟应用列表顺序排列，不吸底 */}
-        <div
-          className={cn(
-            "h-px shrink-0 bg-border",
-            collapsed ? "mx-[18px] my-1.5" : "mx-4 mb-1.5 mt-3",
-          )}
-        />
-        <div className="flex shrink-0 flex-col pb-2">
-          {globals.map((item) => (
-            <NavItem
-              key={item.page}
-              collapsed={collapsed}
-              selected={isGlobalSelected(item.page)}
-              icon={item.icon}
-              label={item.label}
-              trailing={item.trailing}
-              alert={item.alert}
-              onClick={() => onSelectPage(item.page)}
-            />
-          ))}
-          {/* 用量统计 / 设置与全局导航同组，不再单独贴底 */}
-          <NavItem
-            collapsed={collapsed}
-            selected={view === "usage"}
-            icon={ChartColumn}
-            label={t("nav.usage")}
-            trailing={todayLabel}
-            onClick={() => onSelectPage("usage")}
-          />
-          <NavItem
-            collapsed={collapsed}
-            selected={false}
-            icon={Settings}
-            label={t("nav.settings")}
-            title={hasUpdate ? t("nav.settingsHasUpdate") : t("nav.settings")}
-            alert={authNeedsAttention ? t("nav.authNeedsReauth") : undefined}
-            dot={hasUpdate || appsUpdateAvailable}
-            dotTone={hasUpdate ? "success" : "neutral"}
-            onClick={() => onSelectPage("settings")}
-          />
         </div>
       </div>
     </>
@@ -552,7 +519,7 @@ function AlertGlyph({ className }: { className?: string }) {
 }
 
 /**
- * 工具箱：把 MCP / Skills / 提示词 合并成「路由」下面的二级菜单。
+ * 工具箱：把 MCP / Skills / 提示词 / 会话 合并成「路由」下面的二级菜单。
  * 展开侧栏：点击组行展开/收起，子项导航；收起（图标轨）：点击弹浮层选子项。
  */
 function ToolboxNavItem({
@@ -577,6 +544,7 @@ function ToolboxNavItem({
     { page: "mcp", label: "MCP", icon: Server },
     { page: "skills", label: "Skills", icon: SkillsIcon },
     { page: "prompts", label: t("nav.prompts"), icon: BookOpen },
+    { page: "sessions", label: t("nav.sessions"), icon: History },
   ];
   const selected = (page: GlobalPage) =>
     view === page || (page === "skills" && view === "skillsDiscovery");

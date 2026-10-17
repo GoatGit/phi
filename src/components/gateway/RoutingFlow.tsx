@@ -1,10 +1,20 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type { GatewayCatalog, GatewayTracePage } from "@/lib/api/gateway";
 import { getAppLabel } from "@/config/appConfig";
+import phiLogoLight from "@/assets/icons/phi/phi-logo-light.png";
+import phiLogoDark from "@/assets/icons/phi/phi-logo-dark.png";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import {
   buildRoutingFlow,
   buildTimeline,
@@ -15,12 +25,130 @@ import {
   type FlowState,
 } from "./routingFlowModel";
 
-const NODE_H = 72;
-const NODE_GAP = 16;
+function PhiFlowLogo() {
+  return (
+    <span role="img" aria-label="phi" className="inline-flex size-7 shrink-0">
+      <img
+        src={phiLogoLight}
+        alt=""
+        draggable={false}
+        className="size-full object-contain dark:hidden"
+      />
+      <img
+        src={phiLogoDark}
+        alt=""
+        draggable={false}
+        className="hidden size-full object-contain dark:block"
+      />
+    </span>
+  );
+}
+
+/** A node's real on-screen box, relative to the flow stage. Wires are drawn
+ *  from these measured values, so they always touch the rendered nodes no
+ *  matter how the CSS grid distributes rows or how tall columns grow. */
+type NodeBox = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  cy: number;
+};
+
+type FlowGeometry = {
+  width: number;
+  height: number;
+  hub: NodeBox | null;
+  apps: Map<string, NodeBox>;
+  groups: Map<string, NodeBox>;
+  models: Map<string, NodeBox>;
+};
+
+const round1 = (value: number) => Math.round(value * 10) / 10;
+
+function boxOf(el: Element, stage: DOMRect): NodeBox {
+  const rect = el.getBoundingClientRect();
+  return {
+    left: round1(rect.left - stage.left),
+    top: round1(rect.top - stage.top),
+    right: round1(rect.right - stage.left),
+    bottom: round1(rect.bottom - stage.top),
+    cy: round1(rect.top + rect.height / 2 - stage.top),
+  };
+}
+
+function readGeometry(stage: HTMLElement): FlowGeometry {
+  const stageBox = stage.getBoundingClientRect();
+  const collect = (kind: string) => {
+    const boxes = new Map<string, NodeBox>();
+    stage
+      .querySelectorAll<HTMLElement>(`[data-flow="${kind}"][data-flow-key]`)
+      .forEach((el) => {
+        boxes.set(el.dataset.flowKey!, boxOf(el, stageBox));
+      });
+    return boxes;
+  };
+  const hub = stage.querySelector<HTMLElement>('[data-flow="hub"]');
+  return {
+    width: round1(stageBox.width),
+    height: round1(stageBox.height),
+    hub: hub ? boxOf(hub, stageBox) : null,
+    apps: collect("app"),
+    groups: collect("group"),
+    models: collect("model"),
+  };
+}
+
+const sameBox = (a?: NodeBox, b?: NodeBox) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.right === b.right &&
+    a.bottom === b.bottom &&
+    a.cy === b.cy);
+
+function sameGeometry(a: FlowGeometry | null, b: FlowGeometry) {
+  if (
+    !a ||
+    a.width !== b.width ||
+    a.height !== b.height ||
+    !sameBox(a.hub ?? undefined, b.hub ?? undefined)
+  )
+    return false;
+  const layers = [
+    [a.apps, b.apps],
+    [a.groups, b.groups],
+    [a.models, b.models],
+  ] as const;
+  for (const [from, to] of layers) {
+    if (from.size !== to.size) return false;
+    for (const [key, box] of from) {
+      if (!sameBox(box, to.get(key))) return false;
+    }
+  }
+  return true;
+}
+
+/** Horizontal cubic that leaves the source's right edge and lands exactly
+ *  on the target's left edge. Pure function so the shape stays testable. */
+export function wirePath(
+  from: Pick<NodeBox, "right" | "cy">,
+  to: Pick<NodeBox, "left" | "cy">,
+  offset = 0,
+): string {
+  const x1 = round1(from.right);
+  const y1 = round1(from.cy + offset);
+  const x2 = round1(to.left);
+  const y2 = round1(to.cy + offset);
+  const bend = round1(Math.max(18, (x2 - x1) * 0.45));
+  return `M ${x1} ${y1} C ${round1(x1 + bend)} ${y1}, ${round1(x2 - bend)} ${y2}, ${x2} ${y2}`;
+}
 
 /** Shares the status page's filtered query; the catalog only supplies the
- * configured base topology. Historical names and paths still come from the
- * traces so past requests render as they happened. */
+ *  configured base topology. Historical names and paths still come from the
+ *  traces so past requests render as they happened. */
 export function RoutingFlow({
   data,
   catalog,
@@ -40,6 +168,37 @@ export function RoutingFlow({
   const timeline = useMemo(() => buildTimeline(lanes), [lanes]);
   const total = timeline.length;
 
+  // The stage grows with its tallest column; every node reports its real
+  // box back so wires stay glued to the nodes at any size.
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [geometry, setGeometry] = useState<FlowGeometry | null>(null);
+  const measure = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const next = readGeometry(stage);
+    setGeometry((current) => (sameGeometry(current, next) ? current : next));
+  }, []);
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    measure();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    if (observer) {
+      observer.observe(stage);
+      stage
+        .querySelectorAll("[data-flow]")
+        .forEach((node) => observer.observe(node));
+    }
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [apps, groups, outlets, measure]);
+
   useEffect(() => {
     setStep((current) =>
       current != null && current > total ? total : current,
@@ -56,21 +215,25 @@ export function RoutingFlow({
     return () => window.clearTimeout(timer);
   }, [playing, step, total]);
 
-  const rows = Math.max(apps.length, groups.length, outlets.length, 1);
-  const listHeight = rows * NODE_H + Math.max(0, rows - 1) * NODE_GAP;
-  const height = Math.max(236, listHeight);
-  const nodeY = (index: number, count: number) =>
-    (height - (count * NODE_H + Math.max(0, count - 1) * NODE_GAP)) / 2 +
-    index * (NODE_H + NODE_GAP) +
-    NODE_H / 2;
-  const centerY = height / 2;
-  const appIndex = new Map(apps.map((app, index) => [app.appId, index]));
-  const groupY = new Map(
-    groups.map((group, index) => [group.key, nodeY(index, groups.length)]),
-  );
-  const outletY = new Map(
-    outlets.map((outlet, index) => [outlet.key, nodeY(index, outlets.length)]),
-  );
+  // Hide configured edges whenever visible traffic connects the same nodes,
+  // including shared groups/models reached by another app during replay.
+  const visibleApps = new Set<string>();
+  const visibleGroups = new Set<string>();
+  const visibleOutlets = new Map<string, Set<string>>();
+  for (const lane of lanes) {
+    const playback = lanePlayback(lane, timeline, step);
+    if (playback.visible) {
+      visibleApps.add(lane.appId);
+      visibleGroups.add(lane.groupKey);
+    }
+    for (const attempt of lane.attempts) {
+      if (!playback.attemptVisible(attempt)) continue;
+      const keys = visibleOutlets.get(lane.groupKey) ?? new Set<string>();
+      keys.add(`${attempt.supplierId}|${attempt.model}`);
+      visibleOutlets.set(lane.groupKey, keys);
+    }
+  }
+
   // Wires sharing both endpoints would overlap exactly; fan parallel wires
   // out symmetrically so every wire keeps its own visible line. The gray
   // configured base layer and the colored traffic lanes share the offset
@@ -117,51 +280,52 @@ export function RoutingFlow({
   const dimmed = (appId: string): { "data-dimmed": "true" } | {} =>
     focus && focus !== appId ? { "data-dimmed": "true" } : {};
 
+  const hub = geometry?.hub ?? null;
+  const appBox = (appId: string) => geometry?.apps.get(appId);
+  const groupBox = (key: string) => geometry?.groups.get(key);
+  const modelBox = (key: string) => geometry?.models.get(key);
+
   return (
     <Card role="region" aria-label={t("gateway.flow.title")}>
-      <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle>{t("gateway.flow.title")}</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
-            {liveCount > 0 && (
-              <Badge variant="outline">
-                {t("gateway.flow.live", { count: liveCount })}
-              </Badge>
-            )}
-            {!!total && (
-              <>
+      {(liveCount > 0 || total > 0) && (
+        <CardHeader className="flex-row flex-wrap items-center justify-end gap-2 space-y-0 p-3 pb-0">
+          {liveCount > 0 && (
+            <Badge variant="outline">
+              {t("gateway.flow.live", { count: liveCount })}
+            </Badge>
+          )}
+          {!!total && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (playing) setPlaying(false);
+                  else {
+                    setStep(0);
+                    setPlaying(true);
+                  }
+                }}
+              >
+                {t(playing ? "gateway.flow.pause" : "gateway.flow.replay")}
+              </Button>
+              {step != null && (
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={() => {
-                    if (playing) setPlaying(false);
-                    else {
-                      setStep(0);
-                      setPlaying(true);
-                    }
+                    setStep(null);
+                    setPlaying(false);
                   }}
                 >
-                  {t(playing ? "gateway.flow.pause" : "gateway.flow.replay")}
+                  {t("gateway.flow.showAll")}
                 </Button>
-                {step != null && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setStep(null);
-                      setPlaying(false);
-                    }}
-                  >
-                    {t("gateway.flow.showAll")}
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-        <p className="text-xs text-fg-3">{t("gateway.flow.latestHint")}</p>
-      </CardHeader>
-      <CardContent>
+              )}
+            </>
+          )}
+        </CardHeader>
+      )}
+      <CardContent className="p-4 pt-3">
         {apps.length ? (
           <div
             className="overflow-x-auto"
@@ -172,14 +336,14 @@ export function RoutingFlow({
             <span className="sr-only" id={titleId}>
               {t("gateway.flow.diagram")}
             </span>
-            <div className="phi-flow-stage" style={{ height: height + 24 }}>
+            {/* The stage has no fixed height: columns stack naturally and the
+                tallest one defines the canvas. An absolutely positioned SVG
+                overlays it and draws pixel-exact wires between the measured
+                node boxes, so links can never drift off their endpoints. */}
+            <div className="phi-flow-stage" ref={stageRef}>
               {/* Column 1 · apps — configured apps are always present; the
                   latest request adds the colored lane overlay on top. */}
-              <ol
-                className="phi-flow-col"
-                aria-label={t("gateway.flow.apps")}
-                style={{ height }}
-              >
+              <ol className="phi-flow-col" aria-label={t("gateway.flow.apps")}>
                 {apps.map((entry) => {
                   const lane = entry.lane;
                   const playback = lane
@@ -189,6 +353,8 @@ export function RoutingFlow({
                     <li
                       key={entry.appId}
                       className="phi-flow-node"
+                      data-flow="app"
+                      data-flow-key={entry.appId}
                       data-kind="app"
                       data-state={
                         lane
@@ -200,7 +366,6 @@ export function RoutingFlow({
                       data-dimmed={
                         focus && focus !== entry.appId ? "true" : undefined
                       }
-                      style={{ height: NODE_H }}
                     >
                       <button
                         type="button"
@@ -235,53 +400,10 @@ export function RoutingFlow({
                   );
                 })}
               </ol>
-              {/* Wire: app → PHI. The configured base line is light gray
-                  dashed; each app's traffic lane overlays it in its color. */}
-              <svg
-                className="phi-flow-wires"
-                viewBox={`0 0 44 ${height}`}
-                preserveAspectRatio="none"
-                aria-hidden
-              >
-                {apps.map((entry) => {
-                  if (!entry.configured) return null;
-                  const index = appIndex.get(entry.appId) ?? 0;
-                  return (
-                    <path
-                      key={`static:${entry.appId}`}
-                      d={`M 0 ${nodeY(index, apps.length)} C 22 ${nodeY(index, apps.length)}, 22 ${centerY + 3}, 44 ${centerY + 3}`}
-                      data-state="static"
-                      {...dimmed(entry.appId)}
-                    />
-                  );
-                })}
-                {lanes.map((lane) => {
-                  const playback = lanePlayback(lane, timeline, step);
-                  if (!playback.visible) return null;
-                  const state = playback.done ? laneFinalState(lane) : "active";
-                  const index = appIndex.get(lane.appId) ?? 0;
-                  return (
-                    <path
-                      key={lane.appId}
-                      d={`M 0 ${nodeY(index, apps.length)} C 22 ${nodeY(index, apps.length)}, 22 ${centerY}, 44 ${centerY}`}
-                      data-dimmed={
-                        focus && focus !== lane.appId ? "true" : undefined
-                      }
-                      {...laneStyle(lane, state)}
-                    />
-                  );
-                })}
-              </svg>
               {/* Column 2 · PHI */}
-              <div
-                className="phi-flow-col phi-flow-hub-wrap"
-                style={{ height }}
-              >
-                <div
-                  className="phi-flow-node phi-flow-hub"
-                  style={{ height: NODE_H + 8 }}
-                >
-                  <strong>PHI</strong>
+              <div className="phi-flow-col phi-flow-hub-wrap">
+                <div className="phi-flow-node phi-flow-hub" data-flow="hub">
+                  <PhiFlowLogo />
                   {step != null ? (
                     <Badge variant="outline">
                       {t("gateway.flow.step", { current: step, total })}
@@ -293,61 +415,21 @@ export function RoutingFlow({
                   )}
                 </div>
               </div>
-              {/* Wire: PHI → group. Gray configured connections stay visible
-                  under historical traffic lanes into other groups. */}
-              <svg
-                className="phi-flow-wires"
-                viewBox={`0 0 52 ${height}`}
-                preserveAspectRatio="none"
-                aria-hidden
-              >
-                {apps.map((entry) => {
-                  if (!entry.staticGroupKey) return null;
-                  const target = groupY.get(entry.staticGroupKey) ?? 0;
-                  const offset =
-                    groupWireOffset.get(`g:${entry.staticGroupKey}`) ?? 0;
-                  return (
-                    <path
-                      key={`static:${entry.appId}`}
-                      d={`M 0 ${centerY + offset} C 26 ${centerY + offset}, 26 ${target + offset}, 52 ${target + offset}`}
-                      data-state="static"
-                      {...dimmed(entry.appId)}
-                    />
-                  );
-                })}
-                {lanes.map((lane) => {
-                  const playback = lanePlayback(lane, timeline, step);
-                  if (!playback.visible) return null;
-                  const state = playback.done ? laneFinalState(lane) : "active";
-                  const target = groupY.get(lane.groupKey) ?? 0;
-                  const offset = groupWireOffset.get(`g:${lane.groupKey}`) ?? 0;
-                  return (
-                    <path
-                      key={lane.appId}
-                      d={`M 0 ${centerY + offset} C 26 ${centerY + offset}, 26 ${target + offset}, 52 ${target + offset}`}
-                      data-dimmed={
-                        focus && focus !== lane.appId ? "true" : undefined
-                      }
-                      {...laneStyle(lane, state)}
-                    />
-                  );
-                })}
-              </svg>
               {/* Column 3 · route groups */}
               <ol
                 className="phi-flow-col"
                 aria-label={t("gateway.flow.groups")}
-                style={{ height }}
               >
                 {groups.map((group) => (
                   <li
                     key={group.key}
                     className="phi-flow-node"
+                    data-flow="group"
+                    data-flow-key={group.key}
                     data-kind="group"
                     data-static={
                       trafficGroups.has(group.key) ? undefined : "true"
                     }
-                    style={{ height: NODE_H }}
                   >
                     <strong className="w-full truncate" title={group.name}>
                       {group.name}
@@ -366,75 +448,21 @@ export function RoutingFlow({
                   </li>
                 ))}
               </ol>
-              {/* Wire: group → model. Gray wires carry every configured
-                  member model; colored wires carry recorded attempts. */}
-              <svg
-                className="phi-flow-wires"
-                viewBox={`0 0 52 ${height}`}
-                preserveAspectRatio="none"
-                aria-hidden
-              >
-                {apps.flatMap((entry) =>
-                  entry.staticOutletKeys.map((key) => {
-                    const from = groupY.get(entry.staticGroupKey!) ?? 0;
-                    const to = outletY.get(key) ?? 0;
-                    const offset =
-                      attemptWireOffset.get(
-                        `a:${entry.staticGroupKey}:${key}`,
-                      ) ?? 0;
-                    return (
-                      <path
-                        key={`static:${entry.appId}:${key}`}
-                        d={`M 0 ${from + offset} C 26 ${from + offset}, 26 ${to + offset}, 52 ${to + offset}`}
-                        data-state="static"
-                        {...dimmed(entry.appId)}
-                      />
-                    );
-                  }),
-                )}
-                {lanes.flatMap((lane) =>
-                  lane.attempts.map((attempt) => {
-                    const playback = lanePlayback(lane, timeline, step);
-                    if (!playback.attemptVisible(attempt)) return null;
-                    const outletKey = `${attempt.supplierId}|${attempt.model}`;
-                    const from = groupY.get(lane.groupKey) ?? 0;
-                    const to = outletY.get(outletKey) ?? 0;
-                    const offset =
-                      attemptWireOffset.get(
-                        `a:${lane.groupKey}:${outletKey}`,
-                      ) ?? 0;
-                    const state: FlowState =
-                      playback.headAttempt === attempt.key
-                        ? "active"
-                        : attempt.state;
-                    return (
-                      <path
-                        key={`${lane.appId}:${attempt.key}`}
-                        d={`M 0 ${from + offset} C 26 ${from + offset}, 26 ${to + offset}, 52 ${to + offset}`}
-                        data-dimmed={
-                          focus && focus !== lane.appId ? "true" : undefined
-                        }
-                        {...laneStyle(lane, state)}
-                      />
-                    );
-                  }),
-                )}
-              </svg>
               {/* Column 4 · models — configured members without traffic keep
                   a neutral idle state. */}
               <ol
                 className="phi-flow-col phi-flow-outlets"
                 aria-label={t("gateway.flow.models")}
-                style={{ height }}
               >
                 {outlets.map((outlet) => (
                   <li
                     key={outlet.key}
                     className="phi-flow-node"
+                    data-flow="model"
+                    data-flow-key={outlet.key}
                     data-kind="model"
                     data-state={outlet.state ?? undefined}
                     data-static={outlet.state == null ? "true" : undefined}
-                    style={{ height: NODE_H }}
                   >
                     <span className="phi-flow-dot" aria-hidden />
                     <div className="min-w-0 flex-1 text-start">
@@ -459,6 +487,149 @@ export function RoutingFlow({
                   </li>
                 ))}
               </ol>
+              {/* Wires: app → PHI → group → model. Drawn once geometry is
+                  measured; every path starts and ends on a node edge. */}
+              <svg
+                className="phi-flow-wires"
+                width={geometry?.width ?? 0}
+                height={geometry?.height ?? 0}
+                viewBox={`0 0 ${geometry?.width ?? 0} ${geometry?.height ?? 0}`}
+                preserveAspectRatio="none"
+                aria-hidden
+              >
+                <g data-region="app">
+                  {hub &&
+                    apps.map((entry) => {
+                      if (!entry.configured || visibleApps.has(entry.appId))
+                        return null;
+                      const from = appBox(entry.appId);
+                      if (!from) return null;
+                      return (
+                        <path
+                          key={`static:${entry.appId}`}
+                          d={wirePath(from, hub)}
+                          data-state="static"
+                          {...dimmed(entry.appId)}
+                        />
+                      );
+                    })}
+                  {hub &&
+                    lanes.map((lane) => {
+                      const playback = lanePlayback(lane, timeline, step);
+                      if (!playback.visible) return null;
+                      const from = appBox(lane.appId);
+                      if (!from) return null;
+                      const state = playback.done
+                        ? laneFinalState(lane)
+                        : "active";
+                      return (
+                        <path
+                          key={lane.appId}
+                          d={wirePath(from, hub)}
+                          data-dimmed={
+                            focus && focus !== lane.appId ? "true" : undefined
+                          }
+                          {...laneStyle(lane, state)}
+                        />
+                      );
+                    })}
+                </g>
+                <g data-region="group">
+                  {hub &&
+                    apps.map((entry) => {
+                      if (
+                        !entry.staticGroupKey ||
+                        visibleGroups.has(entry.staticGroupKey)
+                      )
+                        return null;
+                      const target = groupBox(entry.staticGroupKey);
+                      if (!target) return null;
+                      const offset =
+                        groupWireOffset.get(`g:${entry.staticGroupKey}`) ?? 0;
+                      return (
+                        <path
+                          key={`static:${entry.appId}`}
+                          d={wirePath(hub, target, offset)}
+                          data-state="static"
+                          {...dimmed(entry.appId)}
+                        />
+                      );
+                    })}
+                  {hub &&
+                    lanes.map((lane) => {
+                      const playback = lanePlayback(lane, timeline, step);
+                      if (!playback.visible) return null;
+                      const target = groupBox(lane.groupKey);
+                      if (!target) return null;
+                      const state = playback.done
+                        ? laneFinalState(lane)
+                        : "active";
+                      const offset =
+                        groupWireOffset.get(`g:${lane.groupKey}`) ?? 0;
+                      return (
+                        <path
+                          key={lane.appId}
+                          d={wirePath(hub, target, offset)}
+                          data-dimmed={
+                            focus && focus !== lane.appId ? "true" : undefined
+                          }
+                          {...laneStyle(lane, state)}
+                        />
+                      );
+                    })}
+                </g>
+                <g data-region="model">
+                  {apps.flatMap((entry) =>
+                    entry.staticOutletKeys.map((key) => {
+                      if (visibleOutlets.get(entry.staticGroupKey!)?.has(key))
+                        return null;
+                      const from = groupBox(entry.staticGroupKey!);
+                      const to = modelBox(key);
+                      if (!from || !to) return null;
+                      const offset =
+                        attemptWireOffset.get(
+                          `a:${entry.staticGroupKey}:${key}`,
+                        ) ?? 0;
+                      return (
+                        <path
+                          key={`static:${entry.appId}:${key}`}
+                          d={wirePath(from, to, offset)}
+                          data-state="static"
+                          {...dimmed(entry.appId)}
+                        />
+                      );
+                    }),
+                  )}
+                  {lanes.flatMap((lane) =>
+                    lane.attempts.map((attempt) => {
+                      const playback = lanePlayback(lane, timeline, step);
+                      if (!playback.attemptVisible(attempt)) return null;
+                      const outletKey = `${attempt.supplierId}|${attempt.model}`;
+                      const from = groupBox(lane.groupKey);
+                      const to = modelBox(outletKey);
+                      if (!from || !to) return null;
+                      const offset =
+                        attemptWireOffset.get(
+                          `a:${lane.groupKey}:${outletKey}`,
+                        ) ?? 0;
+                      const state: FlowState =
+                        playback.headAttempt === attempt.key
+                          ? "active"
+                          : attempt.state;
+                      return (
+                        <path
+                          key={`${lane.appId}:${attempt.key}`}
+                          d={wirePath(from, to, offset)}
+                          data-dimmed={
+                            focus && focus !== lane.appId ? "true" : undefined
+                          }
+                          {...laneStyle(lane, state)}
+                        />
+                      );
+                    }),
+                  )}
+                </g>
+              </svg>
             </div>
           </div>
         ) : (
@@ -469,7 +640,7 @@ export function RoutingFlow({
             >
               <span>{t("gateway.flow.apps")}</span>
               <span>→</span>
-              <strong>PHI</strong>
+              <PhiFlowLogo />
               <span>→</span>
               <span>{t("gateway.flow.groups")}</span>
               <span>→</span>

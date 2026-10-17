@@ -86,10 +86,10 @@ function AgentCard({
   onToggle: (enabled: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const modelText = agent.models.length
-    ? agent.models.slice(0, 2).join(", ") +
-      (agent.models.length > 2 ? ` +${agent.models.length - 2}` : "")
-    : t("trayPanel.noModels");
+  const selectionLabel = t(
+    agent.gateway ? "trayPanel.selectGroup" : "trayPanel.selectModel",
+    { name: agent.name },
+  );
   // 卡片摘要展示当前出口（PHI 或直连供应商）；未配置时明确写「未配置」。
   const outletText = agent.providerName ?? t("trayPanel.unconfigured");
   return (
@@ -137,9 +137,6 @@ function AgentCard({
                 {t(
                   agent.connected ? "trayPanel.connected" : "trayPanel.direct",
                 )}
-                {agent.connected && agent.models.length
-                  ? ` · ${t("trayPanel.modelCount", { count: agent.models.length })}`
-                  : ""}
               </span>
             </div>
             {agent.canConnect && (
@@ -160,16 +157,22 @@ function AgentCard({
               onSelect={onAction}
             />
           </div>
-          <button
-            type="button"
-            className="tray-model-button"
-            onClick={() => onAction(`nav:app:${agent.id}`)}
-            title={t("trayPanel.manageModels")}
-          >
-            <span>{t("trayPanel.models")}</span>
-            <span className="truncate">{modelText}</span>
-            <ChevronRight className="size-3.5" />
-          </button>
+          <div className="tray-selector">
+            <span>
+              {t(agent.gateway ? "trayPanel.groups" : "trayPanel.models")}
+            </span>
+            <Options
+              options={agent.modelOptions}
+              label={selectionLabel}
+              busy={busy}
+              onSelect={onAction}
+            />
+          </div>
+          {agent.id === "claude-desktop" && (
+            <p className="text-xs text-fg-3">
+              {t("trayPanel.appManagedModel")}
+            </p>
+          )}
         </CardContent>
       )}
     </Card>
@@ -204,8 +207,8 @@ export function TrayPanel() {
     mutationFn: (id: string) => trayPanelApi.action(id),
     onSuccess: async (warnings) => {
       setWarnings(warnings);
-      await refreshQueries();
     },
+    onSettled: refreshQueries,
   });
   const toggle = useMutation({
     mutationFn: async ({
@@ -217,7 +220,7 @@ export function TrayPanel() {
     }) => {
       if (
         enabled &&
-        agent.providers.some((p) => p.id === `gateway:${agent.id}`)
+        agent.providers.some((p) => p.id === `gateway:${agent.id}` && p.enabled)
       )
         await gatewayApi.connectApp(agent.id);
       else await proxyApi.setProxyTakeoverForApp(agent.id, enabled);

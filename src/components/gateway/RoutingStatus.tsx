@@ -76,7 +76,7 @@ export function RoutingFilterBar({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button variant="toolbar" size="sm" data-active={active > 0}>
           <SlidersHorizontal data-icon="inline-start" aria-hidden />
           {t("gateway.routingStatus.filter")}
           {active > 0 && (
@@ -190,10 +190,8 @@ export function RoutingFilterBar({
 }
 export function RoutingSummary({
   summary: s,
-  retainedSince,
 }: {
   summary: GatewayRoutingSummary;
-  retainedSince: number | null;
 }) {
   const { t } = useTranslation();
   const costHints = [
@@ -208,7 +206,8 @@ export function RoutingSummary({
     s.unknownCost > 0 &&
       t("gateway.routingStatus.unknown", { count: s.unknownCost }),
   ].filter(Boolean) as string[];
-  // 主指标回答“路由是否健康”；用量与费用是次级观测，视觉上降一级。
+  // 单行摘要：去掉卡片边框与分栏，压缩统计区纵向占用；标签保持独立
+  // 文本节点，便于屏幕阅读器与测试定位。
   const metrics = [
     {
       label: t("gateway.routingStatus.requests"),
@@ -221,7 +220,6 @@ export function RoutingSummary({
               interrupted: s.interrupted,
             })
           : null,
-      primary: true,
     },
     {
       label: t("gateway.routingStatus.successRate"),
@@ -232,13 +230,11 @@ export function RoutingSummary({
         s.failovers > 0
           ? t("gateway.routingStatus.failovers", { count: s.failovers })
           : null,
-      primary: true,
     },
     {
       label: t("gateway.routingStatus.latency"),
       value: s.requests ? `${s.p50LatencyMs} / ${s.p95LatencyMs} ms` : "—",
       hint: null,
-      primary: true,
     },
     {
       label: t("gateway.trace.tokens"),
@@ -247,50 +243,39 @@ export function RoutingSummary({
         s.unknownUsage > 0
           ? t("gateway.routingStatus.unknown", { count: s.unknownUsage })
           : null,
-      primary: false,
     },
     {
       label: t("gateway.trace.cost"),
       value: `$${s.estimatedCost}`,
       hint: costHints.join(" · ") || null,
-      primary: false,
     },
   ];
   return (
-    <>
-      <dl className="grid grid-cols-2 gap-4 rounded-lg border p-4 sm:grid-cols-3 lg:grid-cols-5">
-        {metrics.map((metric) => (
-          <div key={metric.label} className="min-w-0">
-            <dt className="text-xs text-fg-2">{metric.label}</dt>
-            <dd
-              className={cn(
-                "mt-1 tabular-nums break-words",
-                metric.primary
-                  ? "text-lg font-medium"
-                  : "text-sm font-medium text-fg-2",
-              )}
-              title={
-                metric.label === t("gateway.trace.cost")
-                  ? t("gateway.routingStatus.costNote")
-                  : undefined
-              }
-            >
-              {metric.value}
-            </dd>
+    <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs">
+      {metrics.map((metric) => (
+        <div
+          key={metric.label}
+          className="flex items-baseline gap-1.5 whitespace-nowrap"
+        >
+          <dt className="text-fg-3">{metric.label}</dt>
+          <dd
+            className="font-medium text-fg tabular-nums"
+            title={
+              metric.label === t("gateway.trace.cost")
+                ? t("gateway.routingStatus.costNote")
+                : undefined
+            }
+          >
+            {metric.value}
             {metric.hint && (
-              <dd className="mt-1 text-xs text-fg-3">{metric.hint}</dd>
+              <span className="ms-1 font-normal text-fg-3">
+                · {metric.hint}
+              </span>
             )}
-          </div>
-        ))}
-      </dl>
-      {retainedSince != null && (
-        <p className="text-xs text-fg-3">
-          {t("gateway.routingStatus.retention", {
-            date: new Date(retainedSince).toLocaleString(),
-          })}
-        </p>
-      )}
-    </>
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -353,12 +338,17 @@ export function RoutingStatus({
             catalog={catalog}
           />
           <Button
-            variant="outline"
+            variant="toolbar"
             size="sm"
+            aria-busy={query.isFetching}
             disabled={query.isFetching}
             onClick={() => void query.refetch()}
           >
-            <RefreshCw data-icon="inline-start" aria-hidden />
+            <RefreshCw
+              data-icon="inline-start"
+              aria-hidden
+              className={cn(query.isFetching && "motion-safe:animate-spin")}
+            />
             {t("gateway.trace.refresh")}
           </Button>
         </div>
@@ -372,15 +362,12 @@ export function RoutingStatus({
         <p role="status">{t("gateway.loading")}</p>
       ) : (
         <>
-          <RoutingSummary
-            summary={query.data.summary}
-            retainedSince={query.data.retainedSince}
-          />
           <RoutingFlow
             key={JSON.stringify([filters, offset])}
             data={query.data}
             catalog={catalog}
           />
+          <RoutingSummary summary={query.data.summary} />
           {!!query.data.active.length && (
             <div className="flex flex-col gap-3">
               <h3 className="font-medium">

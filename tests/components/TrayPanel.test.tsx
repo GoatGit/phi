@@ -1,6 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import i18n from "i18next";
 import zh from "@/i18n/locales/zh.json";
 import { TrayPanel } from "@/components/tray/TrayPanel";
@@ -27,7 +35,21 @@ const snapshot: TraySnapshot = {
         { id: "prov:claude:a", label: "Acme", enabled: true, selected: true },
         { id: "gateway:claude", label: "PHI", enabled: true, selected: false },
       ],
-      models: ["sonnet"],
+      models: ["sonnet", "opus"],
+      modelOptions: [
+        {
+          id: 'model:claude:["a","sonnet"]',
+          label: "sonnet",
+          enabled: true,
+          selected: true,
+        },
+        {
+          id: 'model:claude:["a","opus"]',
+          label: "opus",
+          enabled: true,
+          selected: false,
+        },
+      ],
       quota: [],
       quotaError: null,
       attention: false,
@@ -42,6 +64,7 @@ const snapshot: TraySnapshot = {
       providerName: null,
       providers: [],
       models: [],
+      modelOptions: [],
       quota: [],
       quotaError: null,
       attention: false,
@@ -62,6 +85,13 @@ function mount() {
   );
   return { ...view, client };
 }
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+beforeAll(() => {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+});
+afterAll(() => {
+  HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+});
 beforeEach(() => {
   i18n.addResourceBundle(
     i18n.language,
@@ -80,17 +110,89 @@ beforeEach(() => {
   vi.spyOn(proxyApi, "setProxyTakeoverForApp").mockResolvedValue();
 });
 describe("menu-bar panel", () => {
-  it("shows every app card and keeps model management discoverable", async () => {
+  it("shows two selectors and switches the direct model without navigating away", async () => {
     mount();
     await screen.findByText("Claude Code");
     expect(screen.getByText("Codex")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /应用/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "路由状态" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "额度" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTitle("打开应用页管理模型"));
-    await waitFor(() =>
-      expect(trayPanelApi.action).toHaveBeenCalledWith("nav:app:claude"),
+    expect(
+      screen.getByRole("combobox", { name: "Claude Code 的供应商或 PHI" }),
+    ).toHaveTextContent("Acme");
+    fireEvent.keyDown(
+      screen.getByRole("combobox", { name: "选择 Claude Code 的模型" }),
+      { key: "Enter" },
     );
+    fireEvent.click(await screen.findByRole("option", { name: "opus" }));
+    await waitFor(() =>
+      expect(trayPanelApi.action).toHaveBeenCalledWith(
+        'model:claude:["a","opus"]',
+      ),
+    );
+  });
+  it("selects PHI in the first box and uses route groups in the second box", async () => {
+    const agent = snapshot.agents[0];
+    const connected = {
+      ...agent,
+      connected: true,
+      gateway: true,
+      providerName: "PHI",
+      providers: agent.providers.map((p) => ({
+        ...p,
+        selected: p.id === "gateway:claude",
+      })),
+      modelOptions: [
+        {
+          id: "group:claude:one",
+          label: "路由一",
+          enabled: true,
+          selected: true,
+        },
+        {
+          id: "group:claude:two",
+          label: "路由二",
+          enabled: true,
+          selected: false,
+        },
+      ],
+    };
+    vi.mocked(trayPanelApi.action).mockImplementation(async (id) => {
+      if (id === "gateway:claude") {
+        vi.mocked(trayPanelApi.snapshot).mockResolvedValue({
+          ...snapshot,
+          agents: [connected],
+        });
+      }
+      return [];
+    });
+    mount();
+    fireEvent.keyDown(
+      await screen.findByRole("combobox", {
+        name: "Claude Code 的供应商或 PHI",
+      }),
+      { key: "Enter" },
+    );
+    fireEvent.click(await screen.findByRole("option", { name: "PHI" }));
+    const groups = await screen.findByRole("combobox", {
+      name: "选择 Claude Code 的路由组",
+    });
+    expect(groups).toHaveTextContent("路由一");
+    expect(
+      screen.queryByRole("combobox", { name: "选择 Claude Code 的模型" }),
+    ).not.toBeInTheDocument();
+    fireEvent.keyDown(groups, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("option", { name: "路由二" }));
+    await waitFor(() =>
+      expect(trayPanelApi.action).toHaveBeenCalledWith("group:claude:two"),
+    );
+  });
+  it("disables an empty model list", async () => {
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Codex/ }));
+    expect(
+      screen.getByRole("combobox", { name: "选择 Codex 的模型" }),
+    ).toBeDisabled();
   });
   it("connects through the shared gateway when offered, and does not optimistically change the switch", async () => {
     mount();

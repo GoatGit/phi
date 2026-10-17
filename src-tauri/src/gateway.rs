@@ -182,6 +182,93 @@ fn app(id: &str) -> Result<AppType, AppError> {
     }
     AppType::from_str(id).map_err(|_| invalid("gateway.invalidApp"))
 }
+
+/// 每个应用可直接消费的本地协议。转换类协议（如 chat/anthropic 进 codex）
+/// 只能走本地路由，直连一律拒绝；前端路由页按同一规则禁用对应选项。
+fn direct_protocol_for(app: &AppType) -> Option<&'static str> {
+    match app {
+        AppType::Claude => Some("anthropic"),
+        AppType::Codex | AppType::GrokBuild => Some("openai_responses"),
+        AppType::Gemini => Some("gemini_native"),
+        _ => None,
+    }
+}
+
+/// TOML 基本字符串（含转义），对应前端 `generateThirdPartyConfig` 的 tomlString。
+fn toml_text(value: &str) -> String {
+    toml_edit::value(value.to_string()).to_string()
+}
+
+/// 资源池供应商落成 codex/grokbuild 直连行时生成的 config TOML，
+/// 与供应商预设 `generateThirdPartyConfig` / `grokPresetConfig` 同构。
+/// 供应商未声明模型时省略 `model` 行，交给 CLI 自带默认模型。
+fn supplier_codex_config(name: &str, base_url: &str, model: &str) -> String {
+    let model_line = if model.is_empty() {
+        String::new()
+    } else {
+        format!("\nmodel = {}", toml_text(model))
+    };
+    format!(
+        "model_provider = \"custom\"{model_line}\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.custom]\nname = {}\nbase_url = {}\nwire_api = \"responses\"\nrequires_openai_auth = true",
+        toml_text(name),
+        toml_text(base_url),
+    )
+}
+
+/// 按应用把资源池供应商合成为直连供应商的 settingsConfig，形状与各应用
+/// 第三方预设保持一致（前端表单、apply 管线都直接复用）。
+fn supplier_direct_settings(
+    app: &AppType,
+    supplier: &Supplier,
+    secret: &SupplierSecret,
+) -> Result<serde_json::Value, AppError> {
+    if direct_protocol_for(app) != Some(supplier.endpoint.protocol.as_str()) {
+        return Err(invalid("gateway.directIncompatible"));
+    }
+    let base_url = &supplier.endpoint.base_url;
+    Ok(match app {
+        AppType::Claude => {
+            // auth_field 由密钥表给出（ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY）。
+            let mut env = serde_json::Map::new();
+            env.insert(
+                "ANTHROPIC_BASE_URL".into(),
+                serde_json::Value::String(base_url.clone()),
+            );
+            env.insert(
+                secret.auth_field.clone(),
+                serde_json::Value::String(secret.api_key.clone()),
+            );
+            serde_json::json!({ "env": serde_json::Value::Object(env) })
+        }
+        AppType::Gemini => {
+            let mut env = serde_json::Map::new();
+            env.insert(
+                "GOOGLE_GEMINI_BASE_URL".into(),
+                serde_json::Value::String(base_url.clone()),
+            );
+            env.insert(
+                "GEMINI_API_KEY".into(),
+                serde_json::Value::String(secret.api_key.clone()),
+            );
+            if let Some(model) = supplier.models.first() {
+                env.insert(
+                    "GEMINI_MODEL".into(),
+                    serde_json::Value::String(model.clone()),
+                );
+            }
+            serde_json::json!({ "env": serde_json::Value::Object(env) })
+        }
+        AppType::Codex | AppType::GrokBuild => serde_json::json!({
+            "auth": { "OPENAI_API_KEY": secret.api_key },
+            "config": supplier_codex_config(
+                &supplier.name,
+                base_url,
+                supplier.models.first().map(String::as_str).unwrap_or(""),
+            ),
+        }),
+        _ => return Err(invalid("gateway.directIncompatible")),
+    })
+}
 fn identifier(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 200
@@ -595,8 +682,7 @@ impl Database {
         }
         match app_id {
             "claude" => {
-                provider.settings_config["env"]["ANTHROPIC_MODEL"] =
-                    serde_json::json!(entry_model);
+                provider.settings_config["env"]["ANTHROPIC_MODEL"] = serde_json::json!(entry_model);
                 provider.settings_config["env"]["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] =
                     serde_json::json!("1");
             }
@@ -764,6 +850,31 @@ impl Database {
         )
         .optional()
         .map_err(db_error)
+    }
+    /// 把资源池供应商落成指定应用的直连供应商行（幂等）：路由页「供应商·直连」
+    /// 下拉选中即调用，随后走常规 switch 流程。密钥在落行时从池子复制；池内
+    /// 后续改密钥以再次选中时刷新为准。返回固定 provider id，前端用它把
+    /// 当前连接映射回 `supplier/{id}` 选项。
+    pub fn materialize_supplier_provider(
+        &self,
+        app_id: &str,
+        supplier_id: &str,
+    ) -> Result<String, AppError> {
+        let app_type = app(app_id)?;
+        let catalog = self.gateway_catalog()?;
+        let supplier = catalog
+            .suppliers
+            .iter()
+            .find(|s| s.id == supplier_id)
+            .ok_or_else(|| invalid("gateway.invalidSupplier"))?;
+        let secret = self
+            .secret(supplier_id)?
+            .ok_or_else(|| invalid("gateway.missingSecret"))?;
+        let settings = supplier_direct_settings(&app_type, supplier, &secret)?;
+        let id = format!("gateway-supplier:{supplier_id}");
+        let provider = Provider::with_id(id.clone(), supplier.name.clone(), settings, None);
+        self.save_provider(app_id, &provider)?;
+        Ok(id)
     }
     /// 校验后的目录落盘；同事务内维护密钥表：写入/替换指定密钥，并清理
     /// 已不在目录中的供应商密钥，保证“目录即真相”。
@@ -1145,16 +1256,27 @@ impl Database {
         } else {
             routing::matched_policy(&catalog, app_id, model)?
         };
-        crate::proxy::ledger_observer::authorize_group(policy.as_ref().and_then(|p|p.group_id.as_deref()))?;
+        crate::proxy::ledger_observer::authorize_group(
+            policy.as_ref().and_then(|p| p.group_id.as_deref()),
+        )?;
         let Some(policy) = policy else {
             return Ok(None);
         };
-        let session = session.map(|s| routing::session_hash(app_id, &format!("{}:{s}",crate::proxy::ledger_observer::session_namespace().unwrap_or_default())));
+        let session = session.map(|s| {
+            routing::session_hash(
+                app_id,
+                &format!(
+                    "{}:{s}",
+                    crate::proxy::ledger_observer::session_namespace().unwrap_or_default()
+                ),
+            )
+        });
         let initial =
             self.gateway_runtime
                 .plan(&catalog, &policy, session.clone(), vec![], false)?;
         let trace = std::sync::Arc::new(std::sync::Mutex::new(RequestTrace {
-            id: crate::proxy::ledger_observer::request_id().unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            id: crate::proxy::ledger_observer::request_id()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             created_at: chrono::Utc::now().timestamp_millis(),
             app_id: app_id.into(),
             request_model: model.into(),
@@ -1345,7 +1467,8 @@ impl Database {
     }
     pub fn write_gateway_trace(&self, trace: &RequestTrace) -> Result<(), AppError> {
         self.ledger_route(trace).map_err(|error| {
-            self.ledger_available.store(false, std::sync::atomic::Ordering::Release);
+            self.ledger_available
+                .store(false, std::sync::atomic::Ordering::Release);
             error
         })?;
         self.gateway_runtime.observe(trace);
@@ -1829,10 +1952,7 @@ mod tests {
 
         let preview = db.preview_gateway_import(source.clone()).expect("preview");
         assert_eq!(preview.supplier.endpoint.protocol, "anthropic");
-        assert_eq!(
-            preview.supplier.endpoint.base_url,
-            "http://127.0.0.1:9"
-        );
+        assert_eq!(preview.supplier.endpoint.base_url, "http://127.0.0.1:9");
         assert!(preview
             .supplier
             .models
@@ -2456,5 +2576,119 @@ mod tests {
             .unwrap()
             .contains("upstream-only-key"));
         server.abort();
+    }
+
+    #[test]
+    fn materialize_supplier_provider_builds_app_specific_direct_rows() {
+        let db = memory_db();
+
+        // claude：anthropic 供应商 + API_KEY 鉴权 → env 直连行
+        let mut claude_supplier = test_supplier("sup-a");
+        claude_supplier.endpoint.protocol = "anthropic".into();
+        seed_legacy_catalog(&db, &catalog_with(vec![claude_supplier], vec![]));
+        seed_secret(&db, "sup-a", "sk-a", "ANTHROPIC_API_KEY");
+        let id = db
+            .materialize_supplier_provider("claude", "sup-a")
+            .expect("materialize claude");
+        assert_eq!(id, "gateway-supplier:sup-a");
+        let provider = db
+            .get_provider_by_id(&id, "claude")
+            .expect("fetch claude provider")
+            .expect("provider exists");
+        assert_eq!(provider.name, "supplier-sup-a");
+        assert_eq!(
+            provider.settings_config["env"]["ANTHROPIC_BASE_URL"],
+            "https://relay.example.com"
+        );
+        assert_eq!(provider.settings_config["env"]["ANTHROPIC_API_KEY"], "sk-a");
+
+        // 密钥刷新后再落行 → 同 id 覆盖更新
+        seed_secret(&db, "sup-a", "sk-a-2", "ANTHROPIC_API_KEY");
+        let id_again = db
+            .materialize_supplier_provider("claude", "sup-a")
+            .expect("materialize again");
+        assert_eq!(id_again, id);
+        let refreshed = db
+            .get_provider_by_id(&id, "claude")
+            .expect("fetch refreshed")
+            .expect("provider exists");
+        assert_eq!(
+            refreshed.settings_config["env"]["ANTHROPIC_API_KEY"],
+            "sk-a-2"
+        );
+
+        // codex：openai_responses 供应商 → auth + config TOML
+        let mut responses_supplier = test_supplier("sup-r");
+        responses_supplier.endpoint.protocol = "openai_responses".into();
+        responses_supplier.endpoint.base_url = "https://open.bigmodel.cn/coding/paas/v5".into();
+        responses_supplier.models = vec!["glm-4.8".into()];
+        seed_legacy_catalog(&db, &catalog_with(vec![responses_supplier.clone()], vec![]));
+        seed_secret(&db, "sup-r", "sk-r", "OPENAI_API_KEY");
+        let codex_id = db
+            .materialize_supplier_provider("codex", "sup-r")
+            .expect("materialize codex");
+        let codex_provider = db
+            .get_provider_by_id(&codex_id, "codex")
+            .expect("fetch codex provider")
+            .expect("provider exists");
+        assert_eq!(
+            codex_provider.settings_config["auth"]["OPENAI_API_KEY"],
+            "sk-r"
+        );
+        let config = codex_provider.settings_config["config"].as_str().unwrap();
+        assert!(config.contains("model = \"glm-4.8\""), "config: {config}");
+        assert!(config.contains("base_url = \"https://open.bigmodel.cn/coding/paas/v5\""));
+        assert!(config.contains("wire_api = \"responses\""));
+        assert!(!config.contains("gateway-supplier"));
+
+        // gemini：gemini_native 供应商 → env GOOGLE_GEMINI_BASE_URL
+        let mut gemini_supplier = test_supplier("sup-g");
+        gemini_supplier.endpoint.protocol = "gemini_native".into();
+        gemini_supplier.models = vec!["gemini-3.6-flash".into()];
+        seed_legacy_catalog(&db, &catalog_with(vec![gemini_supplier.clone()], vec![]));
+        seed_secret(&db, "sup-g", "sk-g", "GEMINI_API_KEY");
+        db.materialize_supplier_provider("gemini", "sup-g")
+            .expect("materialize gemini");
+        let gemini_provider = db
+            .get_provider_by_id("gateway-supplier:sup-g", "gemini")
+            .expect("fetch gemini provider")
+            .expect("provider exists");
+        assert_eq!(
+            gemini_provider.settings_config["env"]["GOOGLE_GEMINI_BASE_URL"],
+            "https://relay.example.com"
+        );
+        assert_eq!(
+            gemini_provider.settings_config["env"]["GEMINI_MODEL"],
+            "gemini-3.6-flash"
+        );
+    }
+
+    #[test]
+    fn materialize_supplier_provider_rejects_incompatible_or_missing() {
+        let db = memory_db();
+        // codex + anthropic 供应商：协议不兼容直连（目录自愈会移除无密钥
+        // 供应商，missingSecret 分支仅作后端防御，无法从内存库构造）
+        seed_legacy_catalog(&db, &catalog_with(vec![test_supplier("sup-a")], vec![]));
+        seed_secret(&db, "sup-a", "sk-a", "ANTHROPIC_API_KEY");
+        let err = db
+            .materialize_supplier_provider("codex", "sup-a")
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("directIncompatible"),
+            "unexpected: {err}"
+        );
+        assert!(db
+            .get_provider_by_id("gateway-supplier:sup-a", "codex")
+            .expect("fetch")
+            .is_none());
+
+        // 不存在的供应商
+        let err = db
+            .materialize_supplier_provider("claude", "sup-none")
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("invalidSupplier"),
+            "unexpected: {err}"
+        );
     }
 }

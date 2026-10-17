@@ -4,12 +4,16 @@
 
 @layer components {
   .phi-flow-stage {
+    position: relative;
     display: grid;
-    grid-template-columns:
-      minmax(128px, 0.9fr) 44px minmax(88px, 0.7fr) 52px minmax(150px, 1fr)
-      52px minmax(250px, 1.5fr);
+    /* 四列节点，列间留出画线空间；连线由 JS 实测位置后绝对定位绘制。 */
+    grid-template-columns: minmax(128px, 0.9fr) 104px minmax(150px, 1fr) minmax(
+        240px,
+        1.5fr
+      );
+    column-gap: 44px;
     align-items: center;
-    min-width: 760px;
+    min-width: 720px;
     padding-block: 12px;
   }
   .phi-flow-col {
@@ -29,6 +33,7 @@
   .phi-flow-node {
     display: flex;
     min-width: 0;
+    min-height: 64px;
     flex-direction: column;
     align-items: center;
     justify-content: center;
@@ -66,8 +71,9 @@
     opacity: 0.45;
   }
   .phi-flow-hub {
+    width: 100%;
+    min-height: 72px;
     border-color: var(--border-strong);
-    box-shadow: 0 0 0 4px var(--bg-subtle);
   }
   .phi-flow-hit {
     display: flex;
@@ -88,9 +94,10 @@
     outline-offset: 4px;
     border-radius: 10px;
   }
+  /* 连线覆盖层：绝对定位于画布内，用实测像素坐标画线，1:1 映射无缩放。 */
   .phi-flow-wires {
-    width: 100%;
-    height: 100%;
+    position: absolute;
+    inset: 0;
     overflow: visible;
     pointer-events: none;
   }
@@ -110,7 +117,7 @@
     stroke-dasharray: 2 5;
     opacity: 0.5;
   }
-  /* 已配置但未运行的连线：浅灰虚线，常驻作为底层拓扑。 */
+  /* 当前没有可见运行线的配置连接：浅灰虚线。 */
   .phi-flow-wires path[data-state="static"] {
     stroke: var(--text-3);
     stroke-width: 1.5;
