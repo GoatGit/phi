@@ -33,3 +33,4 @@ mainWindow.js
 /tmp/
 # 本地签名私钥等敏感凭据，绝不入库
 /.secrets/
+/phi.key
