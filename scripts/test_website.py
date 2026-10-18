@@ -95,7 +95,7 @@ class WebsiteTests(unittest.TestCase):
                 ids = [a["id"] for _, a in page.elements if "id" in a]
                 self.assertEqual(len(ids), len(set(ids)))
                 self.assertEqual(sum(tag == "h1" for tag, _ in page.elements), 1)
-                self.assertEqual(sum(tag == "summary" for tag, _ in page.elements), 5)
+                self.assertEqual(sum(tag == "summary" for tag, _ in page.elements), 6)
                 for tag, a in page.elements:
                     if tag == "img":
                         self.assertIn("alt", a)

@@ -42,14 +42,16 @@ npx wrangler pages deploy website --project-name phi-website --branch main
 
 ## 内容与样式维护
 
-- 页面结构：首屏工作台示意 → 功能目录 → 产品缘起 → 内嵌终端 → 本地网关 → 配置 → 用量 → 本地数据 → 兼容工具 → 上手步骤 → 常见问题 → 下载。
+- 页面结构：首屏工作台示意 → 四个统一（网关、路由、会话与记忆、CLI 终端）→ 产品缘起 → 统一网关 → 统一路由 → 统一会话与记忆（规划中）→ 统一 CLI 终端 → 配置 → 用量 → 本地数据 → 兼容工具 → 上手步骤 → 常见问题 → 下载。
 - 所有用户可见品牌文案统一为 PHI；域名、仓库地址、文件名与资源路径保持原值。
 - 内容以当前源码和实际配置为依据，README 作为补充。平台说明需同时检查 `src-tauri/tauri.conf.json`、`src-tauri/tauri.macos.conf.json` 和发布工作流；不凭文档承诺未核验的最低系统版本。
+- 网关协议只写当前实现的四种线协议（OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini 原生）；不要把未实现或仅规划中的协议写成已支持。
+- 路由策略以 `src-tauri/src/gateway/routing.rs` 的 `Strategy` 与 `classifier` 为准；会话与记忆章节必须保留“规划中”标记，现有会话浏览只描述本地记录读取。
 - 内嵌终端目前仅 macOS 13+ 可用，需要用户自行安装 CLI。支持列表见 `src-tauri/src/terminal/launch.rs`；分屏是同一工具的多个会话。
 - 不写“密钥绝不离开本机”等绝对承诺：模型请求及所需凭据会发送至用户选择的供应商。
 - 下载入口指向 <https://github.com/GoatGit/phi/releases/latest>；三个系统入口均前往同一发布页，不伪装成直接下载。版本、包格式与架构以实际 Release 为准。
 - `.workspace-preview`、`.terminal-shot`、`.flow`、`.heat` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。
 - 文案围绕用户的具体工作，少用术语堆叠；维持章节、列表、留白的阅读节奏。
 - 常见问题使用原生 `details` / `summary`，无 JavaScript 依赖，需检查鼠标和键盘展开。
-- 修改 CSS 后递增页面样式 URL 版本参数（当前 `languages-2`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
+- 修改 CSS 后递增页面样式 URL 版本参数（当前 `positioning-1`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
 - 检查窄屏、桌面端、键盘焦点、锚点定位及减少动态效果偏好。不要引入外部字体、脚本或统计服务。
