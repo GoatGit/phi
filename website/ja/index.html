@@ -20,7 +20,7 @@
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="zh_CN">
   <link rel="icon" type="image/svg+xml" href="../assets/phi-app.svg">
-  <link rel="stylesheet" href="../css/style.css?v=apps-2">
+  <link rel="stylesheet" href="../css/style.css?v=atelier-1">
   <script type="application/ld+json">
   {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI は Claude Code、Codex、Gemini CLI などのツールをひとつのローカルゲートウェイにつなぎます。OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini の間を変換し（System One は近日対応）、直接接続またはルートグループでモデルを選び、内蔵ターミナルで CLI を実行し、利用量を記録します。", "url": "https://phi.semibot.ai/ja/", "inLanguage": "ja", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
   </script>
@@ -59,7 +59,12 @@
   <main id="main">
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
-      <img class="hero-icon" src="../assets/phi-app.svg" width="84" height="84" alt="PHI アプリアイコン">
+      <p class="hero-eyebrow">
+        <img src="../assets/phi-app.svg" width="24" height="24" alt="">
+        <span class="eyebrow-name">PHI</span>
+        <span class="eyebrow-sep" aria-hidden="true"></span>
+        <span class="eyebrow-note">ゲートウェイ・ルーティング・ターミナル</span>
+      </p>
       <h1 id="hero-title">ゲートウェイひとつで、<br>AI 開発をまとめる。</h1>
       <p class="lede">
         Claude Code、Codex、Gemini CLI は、それぞれ違うプロトコルで話します。その間を PHI が変換するので、プロバイダーの設定は一度で済みます。直接接続かルートグループかは自分のルールで決められ、ターミナルも同じウィンドウにあります。
@@ -83,6 +88,19 @@
         <figcaption id="preview-caption">ワークスペースのレイアウト例です。CLI の表示はインストールしたバージョンにより異なります。</figcaption>
       </figure>
     </section>
+
+    <div class="protocol-strip" aria-hidden="true">
+      <div class="strip-track">
+        <div class="strip-group">
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+        </div>
+        <div class="strip-group">
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+        </div>
+      </div>
+    </div>
 
     <nav class="pillars wrap" aria-label="4つの統合">
       <p class="pillars-lead">4つの統合</p>
@@ -433,6 +451,7 @@
 
     <section class="download wrap" id="download" aria-labelledby="download-title">
       <div class="download-heading">
+        <p class="download-kicker">ダウンロード</p>
         <h2 id="download-title">プラットフォームを選んで、インストール。</h2>
         <p>バージョン、アーキテクチャ、配布ファイルは GitHub Releases で確認できます。</p>
       </div>

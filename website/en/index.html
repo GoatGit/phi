@@ -20,7 +20,7 @@
   <meta property="og:locale:alternate" content="zh_CN">
   <meta property="og:locale:alternate" content="ja_JP">
   <link rel="icon" type="image/svg+xml" href="../assets/phi-app.svg">
-  <link rel="stylesheet" href="../css/style.css?v=apps-2">
+  <link rel="stylesheet" href="../css/style.css?v=atelier-1">
   <script type="application/ld+json">
   {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI connects Claude Code, Codex, Gemini CLI and other tools to one local gateway. It translates between OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini (System One coming soon), picks models through direct connections or route groups, runs CLIs in a built-in terminal, and records usage.", "url": "https://phi.semibot.ai/en/", "inLanguage": "en", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
   </script>
@@ -59,7 +59,12 @@
   <main id="main">
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
-      <img class="hero-icon" src="../assets/phi-app.svg" width="84" height="84" alt="PHI app icon">
+      <p class="hero-eyebrow">
+        <img src="../assets/phi-app.svg" width="24" height="24" alt="">
+        <span class="eyebrow-name">PHI</span>
+        <span class="eyebrow-sep" aria-hidden="true"></span>
+        <span class="eyebrow-note">Gateway · Routing · Terminal</span>
+      </p>
       <h1 id="hero-title">One gateway.<br>Your whole AI stack, unified.</h1>
       <p class="lede">
         Claude Code, Codex and Gemini CLI each speak their own protocol. PHI translates in between, so a provider is set up once. Go direct or through a route group on rules you set, with the terminal in the same window.
@@ -83,6 +88,19 @@
         <figcaption id="preview-caption">Workspace illustration. CLI appearance depends on the version you install.</figcaption>
       </figure>
     </section>
+
+    <div class="protocol-strip" aria-hidden="true">
+      <div class="strip-track">
+        <div class="strip-group">
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+        </div>
+        <div class="strip-group">
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+        </div>
+      </div>
+    </div>
 
     <nav class="pillars wrap" aria-label="What PHI unifies">
       <p class="pillars-lead">What PHI unifies</p>
@@ -433,6 +451,7 @@
 
     <section class="download wrap" id="download" aria-labelledby="download-title">
       <div class="download-heading">
+        <p class="download-kicker">Download</p>
         <h2 id="download-title">Pick a platform and install.</h2>
         <p>Versions, architectures and downloadable files are listed on GitHub Releases.</p>
       </div>

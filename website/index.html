@@ -20,7 +20,7 @@
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="ja_JP">
   <link rel="icon" type="image/svg+xml" href="assets/phi-app.svg">
-  <link rel="stylesheet" href="css/style.css?v=apps-2">
+  <link rel="stylesheet" href="css/style.css?v=atelier-1">
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"SoftwareApplication","name":"PHI","operatingSystem":"macOS, Windows, Linux","applicationCategory":"DeveloperApplication","description":"PHI 把 Claude Code、Codex、Gemini CLI 等工具接到同一套本地网关：在 OpenAI Chat、OpenAI Responses、Anthropic Messages 与 Gemini 之间转换（System One 即将支持），用直连或路由组选择模型，内嵌终端运行 CLI，并记录用量。","url":"https://phi.semibot.ai/","inLanguage":"zh-CN","downloadUrl":"https://github.com/GoatGit/phi/releases/latest","codeRepository":"https://github.com/GoatGit/phi","license":"https://opensource.org/licenses/MIT"}
   </script>
@@ -59,7 +59,12 @@
   <main id="main">
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
-      <img class="hero-icon" src="assets/phi-app.svg" width="84" height="84" alt="PHI 应用图标">
+      <p class="hero-eyebrow">
+        <img src="assets/phi-app.svg" width="24" height="24" alt="">
+        <span class="eyebrow-name">PHI</span>
+        <span class="eyebrow-sep" aria-hidden="true"></span>
+        <span class="eyebrow-note">统一网关 · 统一路由 · 统一终端</span>
+      </p>
       <h1 id="hero-title">一个网关，<br>统一你的 AI 开发栈。</h1>
       <p class="lede">
         Claude Code、Codex、Gemini CLI 各说各的协议。PHI 在中间转换，供应商只配一次；直连还是走路由组，规则由你定，终端就开在同一个窗口。
@@ -83,6 +88,19 @@
         <figcaption id="preview-caption">工作台布局示意，CLI 界面以实际安装版本为准。</figcaption>
       </figure>
     </section>
+
+    <div class="protocol-strip" aria-hidden="true">
+      <div class="strip-track">
+        <div class="strip-group">
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+        </div>
+        <div class="strip-group">
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
+        </div>
+      </div>
+    </div>
 
     <nav class="pillars wrap" aria-label="四个统一">
       <p class="pillars-lead">四个统一</p>
@@ -433,6 +451,7 @@
 
     <section class="download wrap" id="download" aria-labelledby="download-title">
       <div class="download-heading">
+        <p class="download-kicker">下载</p>
         <h2 id="download-title">选一个平台，装上就能用。</h2>
         <p>版本、架构和可下载文件以 GitHub Releases 为准。</p>
       </div>
