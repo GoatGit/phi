@@ -1,50 +1,55 @@
-# phi 官网
+# PHI 官网
 
-phi 的产品官网，浅色单页静态站点，零构建、无外部字体或运行时依赖。
+PHI 的产品官网，暖白与深绿色的章节式页面，支持简体中文、英文和日文。发布物为纯 HTML / CSS，无外部字体、JavaScript 或运行时依赖。
 
 - 线上地址：<https://phi.semibot.ai>
-- 页面结构：`index.html`（全部内容） + `css/style.css`（全部样式）。
-- `assets/phi-app.svg` 内嵌 App 的原始 PNG（`src/assets/icons/phi/256x256.png`），未重绘图标。
+- 中文：`index.html`（`/`）；英文：`en/index.html`（`/en/`）；日文：`ja/index.html`（`/ja/`）。
+- 共用样式：`css/style.css`；语言切换为原生链接，无 JavaScript 依赖，也不强制按浏览器语言跳转。
+- `assets/phi-app.svg` 内嵌应用原始 PNG，保留现有资源路径。
 
 ## 本地预览
 
 ```sh
-cd website
-python3 -m http.server 4173
-# 打开 http://localhost:4173
+python3 -m http.server 4173 --bind 127.0.0.1 --directory website
+# 打开 http://127.0.0.1:4173
 ```
 
-## 部署到 phi.semibot.ai（Cloudflare Pages）
+## 多语言维护与验证
 
-官网是零构建静态站点，发布目录固定为 `website/`。仓库根目录的 `wrangler.toml` 已声明 Cloudflare Pages 输出目录，可直接使用 Wrangler 部署：
+中文 `website/index.html` 为结构和文案源文件，英日译文集中在 `scripts/website-translations.json`，每项依次为「规范化的中文原文、英文、日文」。命令、产品名称、资源与仓库路径不翻译。
+
+修改中文内容或共用页面结构后，更新对应译文并生成英日页面：
 
 ```sh
-npx wrangler login
-npx wrangler pages project create phi-website
-npx wrangler pages deploy website --project-name phi-website
+python3 scripts/build_website.py
+python3 scripts/build_website.py --check
+python3 scripts/test_website.py
 ```
 
-也可以在 Cloudflare Dashboard → Workers & Pages → Create application → Pages → Connect to Git 中连接 `GoatGit/phi`：
+生成器会在缺少译文或存在过期原文时失败。生成的英日 HTML 需一同纳入版本管理；不要直接编辑生成页。也可以用 `--stdout en` / `--stdout ja` 仅查看生成结果。
 
-- Framework preset：`None`
-- Build command：留空
-- Build output directory：`website`
-- Root directory：`/`
+三种语言都有独立的标题、描述、`lang`、canonical、Open Graph、JSON-LD，以及互相指向的 `hreflang` 链接。默认入口为中文。测试覆盖翻译完整性、生成结果一致性、三语互切、资源与锚点、元数据及英文页面的中文漏译。浏览器验收还需检查长标题、日文换行、移动端语言入口和键盘焦点。
 
-部署完成后，在 Pages 项目的 Custom domains 中添加 `phi.semibot.ai`。如果 `semibot.ai` 已托管在同一个 Cloudflare 账户，直接添加该子域即可由 Cloudflare 自动创建 DNS 记录并签发 HTTPS。Cloudflare Pages 通过 Custom domains 管理域名，不需要额外的 `CNAME` 文件。
+## 部署
 
-### 本地预览
+Cloudflare Pages 项目为 `phi-website`，发布目录为 `website/`。使用已授权的 Cloudflare 登录态执行生产部署：
 
 ```sh
-cd website
-python3 -m http.server 4173
-# 打开 http://localhost:4173
+npx wrangler pages deploy website --project-name phi-website --branch main
 ```
 
-## 维护要点
+生产域名为 <https://phi.semibot.ai>。发布前执行上述生成与验证命令。发布后核验 `/`、`/en/`、`/ja/` 的语言切换、CSS、图标、页面标题、重点文案与 `_headers` 中的安全响应头。仅修改本地文件不会更新线上页面。
 
-- 下载入口统一指向 GitHub Releases：<https://github.com/GoatGit/phi/releases/latest>。
-- 不硬编码版本号，平台与版本以 Releases 页面为准。
-- 新增受管 Agent 应用时，同步更新 `.apps` 中的应用列表。
-- 更新样式后递增 `index.html` 中 CSS URL 的版本参数，避免长期缓存沿用旧样式。
-- 页面文案、JSON-LD 结构化数据均以仓库根 `README.md` 的产品描述为准，修改产品定位时两处同步。
+## 内容与样式维护
+
+- 页面结构：首屏工作台示意 → 功能目录 → 产品缘起 → 内嵌终端 → 本地网关 → 配置 → 用量 → 本地数据 → 兼容工具 → 上手步骤 → 常见问题 → 下载。
+- 所有用户可见品牌文案统一为 PHI；域名、仓库地址、文件名与资源路径保持原值。
+- 内容以当前源码和实际配置为依据，README 作为补充。平台说明需同时检查 `src-tauri/tauri.conf.json`、`src-tauri/tauri.macos.conf.json` 和发布工作流；不凭文档承诺未核验的最低系统版本。
+- 内嵌终端目前仅 macOS 13+ 可用，需要用户自行安装 CLI。支持列表见 `src-tauri/src/terminal/launch.rs`；分屏是同一工具的多个会话。
+- 不写“密钥绝不离开本机”等绝对承诺：模型请求及所需凭据会发送至用户选择的供应商。
+- 下载入口指向 <https://github.com/GoatGit/phi/releases/latest>；三个系统入口均前往同一发布页，不伪装成直接下载。版本、包格式与架构以实际 Release 为准。
+- `.workspace-preview`、`.terminal-shot`、`.flow`、`.heat` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。
+- 文案围绕用户的具体工作，少用术语堆叠；维持章节、列表、留白的阅读节奏。
+- 常见问题使用原生 `details` / `summary`，无 JavaScript 依赖，需检查鼠标和键盘展开。
+- 修改 CSS 后递增页面样式 URL 版本参数（当前 `languages-1`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
+- 检查窄屏、桌面端、键盘焦点、锚点定位及减少动态效果偏好。不要引入外部字体、脚本或统计服务。
