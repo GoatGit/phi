@@ -1,10 +1,10 @@
 # PHI 官网
 
-PHI 的产品官网，暖白与深绿色的章节式页面，支持简体中文、英文和日文。发布物为纯 HTML / CSS，无外部字体、JavaScript 或运行时依赖。
+PHI 的产品官网，暖白与深绿色的章节式页面，支持简体中文、英文和日文。发布物为纯静态 HTML / CSS，无外部字体、外部脚本或运行时依赖。
 
 - 线上地址：<https://phi.semibot.ai>
 - 中文：`index.html`（`/`）；英文：`en/index.html`（`/en/`）；日文：`ja/index.html`（`/ja/`）。
-- 共用样式：`css/style.css`；语言切换为原生链接，无 JavaScript 依赖，也不强制按浏览器语言跳转。
+- 共用样式：`css/style.css`；语言切换收在原生下拉选择框中，使用内联 `onchange` 跳转，并提供 `noscript` 链接兜底；不强制按浏览器语言跳转。
 - `assets/phi-app.svg` 内嵌应用原始 PNG，保留现有资源路径。
 
 ## 本地预览
@@ -28,7 +28,7 @@ python3 scripts/test_website.py
 
 生成器会在缺少译文或存在过期原文时失败。生成的英日 HTML 需一同纳入版本管理；不要直接编辑生成页。也可以用 `--stdout en` / `--stdout ja` 仅查看生成结果。
 
-三种语言都有独立的标题、描述、`lang`、canonical、Open Graph、JSON-LD，以及互相指向的 `hreflang` 链接。默认入口为中文。测试覆盖翻译完整性、生成结果一致性、三语互切、资源与锚点、元数据及英文页面的中文漏译。浏览器验收还需检查长标题、日文换行、移动端语言入口和键盘焦点。
+三种语言都有独立的标题、描述、`lang`、canonical、Open Graph、JSON-LD，以及互相指向的 `hreflang` 链接。默认入口为中文。测试覆盖翻译完整性、生成结果一致性、三语下拉切换与 `noscript` 兜底、资源与锚点、元数据及英文页面的中文漏译。浏览器验收还需检查长标题、日文换行、移动端语言入口和键盘焦点。
 
 ## 部署
 
@@ -51,5 +51,5 @@ npx wrangler pages deploy website --project-name phi-website --branch main
 - `.workspace-preview`、`.terminal-shot`、`.flow`、`.heat` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。
 - 文案围绕用户的具体工作，少用术语堆叠；维持章节、列表、留白的阅读节奏。
 - 常见问题使用原生 `details` / `summary`，无 JavaScript 依赖，需检查鼠标和键盘展开。
-- 修改 CSS 后递增页面样式 URL 版本参数（当前 `languages-1`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
+- 修改 CSS 后递增页面样式 URL 版本参数（当前 `languages-2`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
 - 检查窄屏、桌面端、键盘焦点、锚点定位及减少动态效果偏好。不要引入外部字体、脚本或统计服务。

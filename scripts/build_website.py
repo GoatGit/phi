@@ -93,6 +93,13 @@ class LocalizedPage(HTMLParser):
             attributes.pop("aria-current", None)
             if target == self.locale:
                 attributes["aria-current"] = "page"
+        if tag == "option" and self.in_languages:
+            target = attributes.get("lang")
+            if target:
+                attributes["value"] = "../" if target == "zh-CN" else f"../{target}/"
+            attributes.pop("selected", None)
+            if target == self.locale:
+                attributes["selected"] = None
         for key in ("src", "href"):
             if attributes.get(key, "").startswith(("assets/", "css/")):
                 attributes[key] = "../" + attributes[key]

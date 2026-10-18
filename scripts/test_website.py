@@ -22,6 +22,7 @@ class Page(HTMLParser):
         self.text = []
         self.stack = []
         self.language_links = []
+        self.language_options = []
         self.in_languages = False
         self.schema_text = ""
         self.in_script = False
@@ -37,6 +38,8 @@ class Page(HTMLParser):
             self.in_languages = True
         if self.in_languages and tag == "a":
             self.language_links.append(a)
+        if self.in_languages and tag == "option":
+            self.language_options.append(a)
         if tag == "script":
             if a.get("type") != "application/ld+json":
                 raise AssertionError("Unexpected executable script")
@@ -110,6 +113,15 @@ class WebsiteTests(unittest.TestCase):
         targets = {locale: path.resolve() for locale, (path, _) in self.pages.items()}
         for locale, (path, page) in self.pages.items():
             with self.subTest(locale=locale):
+                selects = [a for tag, a in page.elements if tag == "select"]
+                self.assertEqual(len(selects), 1)
+                self.assertTrue(selects[0].get("aria-label"))
+                self.assertIn("onchange", selects[0])
+                self.assertEqual(len(page.language_options), 3)
+                selected = [o for o in page.language_options if "selected" in o]
+                self.assertEqual([o["lang"] for o in selected], [locale])
+                for option in page.language_options:
+                    self.assertEqual((path.parent / option["value"] / "index.html").resolve(), targets[option["lang"]])
                 self.assertEqual(len(page.language_links), 3)
                 self.assertEqual([a["hreflang"] for a in page.language_links if a.get("aria-current") == "page"], [locale])
                 for a in page.language_links:
