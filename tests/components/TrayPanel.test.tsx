@@ -187,6 +187,24 @@ describe("menu-bar panel", () => {
       expect(trayPanelApi.action).toHaveBeenCalledWith("group:claude:two"),
     );
   });
+  it("offers route groups alongside direct models before connecting PHI", async () => {
+    const current = structuredClone(snapshot);
+    current.agents[0].modelOptions.push({
+      id: "group:claude:pool-route",
+      label: "资源池路由组",
+      enabled: true,
+      selected: false,
+    });
+    vi.mocked(trayPanelApi.snapshot).mockResolvedValue(current);
+    mount();
+    fireEvent.keyDown(await screen.findByRole("combobox", {
+      name: "选择 Claude Code 的模型",
+    }), { key: "Enter" });
+    expect(await screen.findByRole("group", { name: "路由组" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "sonnet" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "资源池路由组" }));
+    await waitFor(() => expect(trayPanelApi.action).toHaveBeenCalledWith("group:claude:pool-route"));
+  });
   it("disables an empty model list", async () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: /Codex/ }));

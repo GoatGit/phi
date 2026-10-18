@@ -205,6 +205,8 @@
       "direct": "直连",
       "proxy": "代理",
       "unconfigured": "未配置",
+      "intro": "选择每个应用怎么连：直连供应商，或走网关路由组。改动立即生效。",
+      "openApp": "打开 {{app}}",
       "nativeTarget": "原生配置",
       "needsReconnect": "尚未接入，请在配置中重新连接。",
       "appManaged": "应用内选择",

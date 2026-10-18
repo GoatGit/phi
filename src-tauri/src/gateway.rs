@@ -185,7 +185,7 @@ fn app(id: &str) -> Result<AppType, AppError> {
 
 /// 每个应用可直接消费的本地协议。转换类协议（如 chat/anthropic 进 codex）
 /// 只能走本地路由，直连一律拒绝；前端路由页按同一规则禁用对应选项。
-fn direct_protocol_for(app: &AppType) -> Option<&'static str> {
+pub(crate) fn direct_protocol_for(app: &AppType) -> Option<&'static str> {
     match app {
         AppType::Claude => Some("anthropic"),
         AppType::Codex | AppType::GrokBuild => Some("openai_responses"),

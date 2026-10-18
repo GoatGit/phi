@@ -20,19 +20,11 @@ import { useProxyStack, useProxyStatusQuery } from "@/lib/query/proxy";
 import { useAutoFailoverEnabled, useFailoverQueue } from "@/lib/query/failover";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
-import { AppGlyph } from "@/components/shell/AppGlyph";
 import { Button } from "@/components/ui/button";
 import { PageTabs } from "@/components/ui/page-tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { ResourcePoolSection } from "@/components/gateway/ResourcePoolSection";
 import { NativeAppConnectionRow } from "@/components/gateway/NativeAppConnectionRow";
+import { AppRouteRow } from "@/components/gateway/AppRouteRow";
 import { RoutingStatus } from "@/components/gateway/RoutingStatus";
 import { appConnectionId, appRouteGroup } from "@/lib/api/gateway";
 import { GroupSection } from "@/components/gateway/GroupSection";
@@ -237,12 +229,33 @@ function RouteRow({
                         ?.name ?? m.groupId),
                 ),
             ),
-          ].join(" · ") || "—"
+          ].join(" · ") || t("gateway.connections.unconfigured")
         : t("gateway.connections.poolTarget")
       : (catalog.data?.[targetId]?.name ?? targetId)
     : hasDirectConfig && !isProxy
       ? t("gateway.connections.nativeTarget")
-      : "—";
+      : t("gateway.connections.unconfigured");
+  const legacyNote = isLegacy
+    ? [
+        queueCount > 0
+          ? t("gateway.connections.legacyQueue", { count: queueCount })
+          : null,
+        stackModels > 0
+          ? t("gateway.connections.legacyStack", { count: stackModels })
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+  // 已接管但客户端还没接上：说明不算错误，但要让人知道还差一步。
+  const reconnectHint =
+    isProxy && running === true && !state?.attached
+      ? t(
+          detachedGroup
+            ? "gateway.connections.reconnectGroup"
+            : "gateway.connections.needsReconnect",
+        )
+      : "";
   const connectionMutation = useMutation({
     mutationFn: async (connection: string) => {
       if (connection.startsWith("supplier/")) {
@@ -282,55 +295,10 @@ function RouteRow({
     },
   });
   return (
-    <TableRow>
-      <TableCell className="whitespace-nowrap">
-        <span className="flex items-center gap-2">
-          <AppGlyph app={app} size={16} badgeClassName="bg-surface" />
-          {getAppLabel(app)}
-        </span>
-      </TableCell>
-      {failed || pending ? (
-        <TableCell>
-          {failed ? (
-            <div role="alert" className="flex items-center gap-2">
-              {t("gateway.loadError")}
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={mode.isFetching || catalog.isFetching}
-                onClick={() => {
-                  void mode.refetch();
-                  void catalog.refetch();
-                }}
-              >
-                {t("gateway.retry")}
-              </Button>
-            </div>
-          ) : (
-            <span role="status">{t("gateway.loading")}</span>
-          )}
-        </TableCell>
-      ) : (
-        <TableCell className="max-w-64 break-words">
-          {target}
-          {isLegacy && (queueCount > 0 || stackModels > 0) && (
-            <div className="mt-0.5 text-caption text-fg-2">
-              {[
-                queueCount > 0
-                  ? t("gateway.connections.legacyQueue", { count: queueCount })
-                  : null,
-                stackModels > 0
-                  ? t("gateway.connections.legacyStack", { count: stackModels })
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </div>
-          )}
-        </TableCell>
-      )}
-      <TableCell className="w-64">
-        {!failed && !pending && (
+    <AppRouteRow
+      app={app}
+      control={
+        !failed && !pending ? (
           <Select
             value={connection}
             disabled={connectionMutation.isPending}
@@ -340,7 +308,7 @@ function RouteRow({
               aria-label={t("gateway.connections.methodForApp", {
                 app: getAppLabel(app),
               })}
-              className="min-w-0"
+              className="w-full"
             >
               <SelectValue />
             </SelectTrigger>
@@ -437,27 +405,49 @@ function RouteRow({
               </SelectGroup>
             </SelectContent>
           </Select>
-        )}
-        {!failed &&
-          !pending &&
-          isProxy &&
-          running === true &&
-          !state?.attached && (
-            <p role="status" className="mt-2 text-xs text-fg-2">
-              {t(
-                detachedGroup
-                  ? "gateway.connections.reconnectGroup"
-                  : "gateway.connections.needsReconnect",
-              )}
-            </p>
+        ) : null
+      }
+    >
+      {failed ? (
+        <span role="alert" className="flex flex-wrap items-center gap-2">
+          {t("gateway.loadError")}
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={mode.isFetching || catalog.isFetching}
+            onClick={() => {
+              void mode.refetch();
+              void catalog.refetch();
+            }}
+          >
+            {t("gateway.retry")}
+          </Button>
+        </span>
+      ) : pending ? (
+        <span role="status">{t("gateway.loading")}</span>
+      ) : (
+        <>
+          <span className="block truncate" title={target}>
+            {target}
+          </span>
+          {legacyNote && (
+            <span className="mt-0.5 block text-caption text-fg-3">
+              {legacyNote}
+            </span>
           )}
-        {connectionMutation.isError && (
-          <p role="alert" className="mt-2 text-sm text-destructive">
-            {describeError(connectionMutation.error)}
-          </p>
-        )}
-      </TableCell>
-    </TableRow>
+          {reconnectHint && (
+            <span role="status" className="mt-0.5 block text-warning-text">
+              {reconnectHint}
+            </span>
+          )}
+          {connectionMutation.isError && (
+            <span role="alert" className="mt-0.5 block text-destructive">
+              {describeError(connectionMutation.error)}
+            </span>
+          )}
+        </>
+      )}
+    </AppRouteRow>
   );
 }
 
@@ -516,16 +506,19 @@ export function RoutingOverviewPage({
         <div
           className={
             tab === "connections"
-              ? "mx-auto flex max-w-5xl flex-col gap-6"
+              ? "mx-auto flex max-w-5xl flex-col gap-3"
               : "hidden"
           }
         >
+          <p className="text-caption text-fg-3">
+            {t("gateway.connections.intro")}
+          </p>
           {status.isError && (
-            <div role="alert" className="flex items-center gap-3 text-sm">
+            <div role="alert" className="flex items-center gap-3 text-body">
               {t("gateway.statusError")}
               <Button
-                variant="outline"
-                size="sm"
+                variant="neutral"
+                size="compact"
                 disabled={status.isFetching}
                 onClick={() => void status.refetch()}
               >
@@ -535,33 +528,24 @@ export function RoutingOverviewPage({
           )}
           <GatewayCatalogGate>
             {(gatewayCatalog) => (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("gateway.agent")}</TableHead>
-                    <TableHead>{t("gateway.target")}</TableHead>
-                    <TableHead>{t("gateway.connections.method")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {APP_IDS.map((app) =>
-                    isProxyAppId(app) ? (
-                      <RouteRow
-                        key={app}
-                        app={app}
-                        running={running}
-                        gatewayCatalog={gatewayCatalog}
-                      />
-                    ) : (
-                      <NativeAppConnectionRow
-                        key={app}
-                        app={app}
-                        onOpenApp={onOpenApp}
-                      />
-                    ),
-                  )}
-                </TableBody>
-              </Table>
+              <ul className="divide-y divide-border overflow-hidden rounded-panel border border-border bg-surface">
+                {APP_IDS.map((app) =>
+                  isProxyAppId(app) ? (
+                    <RouteRow
+                      key={app}
+                      app={app}
+                      running={running}
+                      gatewayCatalog={gatewayCatalog}
+                    />
+                  ) : (
+                    <NativeAppConnectionRow
+                      key={app}
+                      app={app}
+                      onOpenApp={onOpenApp}
+                    />
+                  ),
+                )}
+              </ul>
             )}
           </GatewayCatalogGate>
         </div>

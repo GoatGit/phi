@@ -29,6 +29,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -43,12 +44,26 @@ function Options({
   label,
   busy,
   onSelect,
+  groupLabel,
 }: {
   options: TrayOption[];
   label: string;
+  groupLabel?: string;
   busy: boolean;
   onSelect: (id: string) => void;
 }) {
+  const groups = groupLabel
+    ? [
+        {
+          label: undefined,
+          options: options.filter((o) => !o.id.startsWith("group:")),
+        },
+        {
+          label: groupLabel,
+          options: options.filter((o) => o.id.startsWith("group:")),
+        },
+      ]
+    : [{ label: undefined, options }];
   return (
     <Select
       value={options.find((o) => o.selected)?.id ?? ""}
@@ -59,13 +74,18 @@ function Options({
         <SelectValue placeholder={label} />
       </SelectTrigger>
       <SelectContent>
-        <SelectGroup>
-          {options.map((o) => (
-            <SelectItem key={o.id} value={o.id} disabled={!o.enabled}>
-              {o.label}
-            </SelectItem>
+        {groups
+          .filter((group) => group.options.length > 0)
+          .map((group, index) => (
+            <SelectGroup key={index}>
+              {group.label && <SelectLabel>{group.label}</SelectLabel>}
+              {group.options.map((o) => (
+                <SelectItem key={o.id} value={o.id} disabled={!o.enabled}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           ))}
-        </SelectGroup>
       </SelectContent>
     </Select>
   );
@@ -164,6 +184,7 @@ function AgentCard({
             <Options
               options={agent.modelOptions}
               label={selectionLabel}
+              groupLabel={!agent.gateway ? t("trayPanel.groups") : undefined}
               busy={busy}
               onSelect={onAction}
             />

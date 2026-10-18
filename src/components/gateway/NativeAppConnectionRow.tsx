@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getAppLabel, type ProxyAppId } from "@/config/appConfig";
-import { AppGlyph } from "@/components/shell/AppGlyph";
+import { AppRouteRow } from "@/components/gateway/AppRouteRow";
+import { Button } from "@/components/ui/button";
 import { providersApi, type AppId } from "@/lib/api";
 import { piApi } from "@/lib/api/pi";
-import { Button } from "@/components/ui/button";
-import { badgeVariants } from "@/components/ui/badge";
-import { TableCell, TableRow } from "@/components/ui/table";
 
 type NativeAppId = Exclude<AppId, ProxyAppId>;
 interface Connection {
@@ -84,51 +83,65 @@ export function NativeAppConnectionRow({
     queryFn: () => readConnection(app),
   });
   const connection = query.data;
+  const label = getAppLabel(app);
+  const targets = connection?.targets ?? [];
+  const openLabel = t("gateway.connections.openApp", { app: label });
   return (
-    <TableRow>
-      <TableCell className="whitespace-nowrap">
-        <span className="flex items-center gap-2">
-          <AppGlyph app={app} size={16} badgeClassName="bg-surface" />
-          {getAppLabel(app)}
-        </span>
-      </TableCell>
-      <TableCell className="max-w-64 break-words">
-        {query.isError ? (
-          <div role="alert" className="flex items-center gap-2">
-            {t("gateway.loadError")}
+    <AppRouteRow
+      app={app}
+      control={
+        query.isSuccess && connection ? (
+          connection.method === "unsupported" ? (
+            <span className="pe-1 text-caption text-fg-3">
+              {t("gateway.connections.unsupported")}
+            </span>
+          ) : (
             <Button
               variant="ghost"
-              size="sm"
-              disabled={query.isFetching}
-              onClick={() => void query.refetch()}
+              size="compact"
+              className="-me-2 text-fg-2"
+              title={openLabel}
+              aria-label={openLabel}
+              onClick={() => onOpenApp(app)}
             >
-              {t("gateway.retry")}
+              {t(`gateway.connections.${connection.method}`)}
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
             </Button>
-          </div>
-        ) : query.isPending ? (
-          <span role="status">{t("gateway.loading")}</span>
-        ) : connection?.targets.length ? (
-          connection.targets.join("、")
-        ) : (
-          "—"
-        )}
-      </TableCell>
-      <TableCell className="w-64">
-        {query.isSuccess && connection && (
-          <button
-            type="button"
-            className={badgeVariants({ variant: "secondary" })}
-            onClick={() => onOpenApp(app)}
+          )
+        ) : null
+      }
+    >
+      {query.isError ? (
+        <span role="alert" className="flex flex-wrap items-center gap-2">
+          {t("gateway.loadError")}
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
           >
-            {t(`gateway.connections.${connection.method}`)}
-          </button>
-        )}
-        {query.isSuccess && connection?.needsRepair && (
-          <p role="status" className="mt-2 text-xs text-fg-2">
-            {t("gateway.connections.needsReconnect")}
-          </p>
-        )}
-      </TableCell>
-    </TableRow>
+            {t("gateway.retry")}
+          </Button>
+        </span>
+      ) : query.isPending ? (
+        <span role="status">{t("gateway.loading")}</span>
+      ) : (
+        <>
+          <span
+            className="block truncate"
+            title={targets.length ? targets.join("、") : undefined}
+          >
+            {targets.length
+              ? targets.join("、")
+              : t("gateway.connections.unconfigured")}
+          </span>
+          {connection?.needsRepair && (
+            <span role="status" className="mt-0.5 block text-warning-text">
+              {t("gateway.connections.needsReconnect")}
+            </span>
+          )}
+        </>
+      )}
+    </AppRouteRow>
   );
 }

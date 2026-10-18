@@ -205,6 +205,8 @@
       "direct": "直連",
       "proxy": "代理",
       "unconfigured": "未設定",
+      "intro": "選擇每個應用怎麼連：直連供應商，或走閘道路由組。變更立即生效。",
+      "openApp": "開啟 {{app}}",
       "nativeTarget": "原生設定",
       "needsReconnect": "尚未接入，請在設定中重新連線。",
       "appManaged": "應用內選擇",

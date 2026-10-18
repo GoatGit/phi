@@ -205,6 +205,8 @@
       "direct": "直接接続",
       "proxy": "プロキシ",
       "unconfigured": "未設定",
+      "intro": "アプリごとに、プロバイダーへ直接つなぐか、ルートグループ経由にするかを選べます。変更はすぐに反映されます。",
+      "openApp": "{{app}} を開く",
       "nativeTarget": "ネイティブ設定",
       "needsReconnect": "未接続です。設定から再接続してください。",
       "appManaged": "アプリ内で選択",

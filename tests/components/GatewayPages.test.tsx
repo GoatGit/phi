@@ -403,7 +403,7 @@ describe("routing overview", () => {
           }),
       );
       mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-      const row = (await screen.findByText("Claude")).closest("tr")!;
+      const row = (await screen.findByText("Claude")).closest("li")!;
       const select = await within(row).findByRole("combobox");
       await user.click(select);
       const groups = within(screen.getByRole("listbox")).getAllByRole("group");
@@ -476,7 +476,7 @@ describe("routing overview", () => {
       routeProviderId: null,
     });
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("tr")!;
+    const row = (await screen.findByText("Claude")).closest("li")!;
     const select = await within(row).findByRole("combobox");
     expect(select).toHaveTextContent("Shared provider");
     await user.click(select);
@@ -494,7 +494,7 @@ describe("routing overview", () => {
       new Error("exit failed"),
     );
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("tr")!;
+    const row = (await screen.findByText("Claude")).closest("li")!;
     const select = await within(row).findByRole("combobox");
     await user.click(select);
     await user.click(screen.getByRole("option", { name: "Shared provider" }));
@@ -527,7 +527,7 @@ describe("routing overview", () => {
       new Error("switch failed"),
     );
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("tr")!;
+    const row = (await screen.findByText("Claude")).closest("li")!;
     const select = await within(row).findByRole("combobox");
     await user.click(select);
     await user.click(screen.getByRole("option", { name: "Shared provider" }));
@@ -586,7 +586,7 @@ describe("routing overview", () => {
         defaultProviderId: "live",
       });
       mount(<RoutingOverviewPage onOpenApp={open} />);
-      const row = (await screen.findByText(getAppLabel(app))).closest("tr")!;
+      const row = (await screen.findByText(getAppLabel(app))).closest("li")!;
       expect(
         await within(row).findByText("Configured supplier、external"),
       ).toBeInTheDocument();
@@ -597,7 +597,7 @@ describe("routing overview", () => {
       expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
       fireEvent.click(
         within(row).getByRole("button", {
-          name: "gateway.connections.appManaged",
+          name: "gateway.connections.openApp",
         }),
       );
       expect(open).toHaveBeenCalledWith(app);
@@ -626,7 +626,7 @@ describe("routing overview", () => {
     });
     const open = vi.fn();
     mount(<RoutingOverviewPage onOpenApp={open} />);
-    const row = (await screen.findByText("Claude Desktop")).closest("tr")!;
+    const row = (await screen.findByText("Claude Desktop")).closest("li")!;
     expect(await within(row).findByText("Desktop route")).toBeInTheDocument();
     expect(
       within(row).getByText("gateway.connections.proxy"),
@@ -636,7 +636,7 @@ describe("routing overview", () => {
     ).toBeInTheDocument();
     expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
     fireEvent.click(
-      within(row).getByRole("button", { name: "gateway.connections.proxy" }),
+      within(row).getByRole("button", { name: "gateway.connections.openApp" }),
     );
     expect(open).toHaveBeenCalledWith("claude-desktop");
     expect(proxyApi.getAppMode).not.toHaveBeenCalledWith("claude-desktop");
@@ -647,7 +647,7 @@ describe("routing overview", () => {
       .mockRejectedValueOnce(new Error("invalid config"))
       .mockResolvedValue(["recovered"]);
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("OpenCode")).closest("tr")!;
+    const row = (await screen.findByText("OpenCode")).closest("li")!;
     expect(await within(row).findByRole("alert")).toHaveTextContent(
       "gateway.loadError",
     );
@@ -668,10 +668,13 @@ describe("routing overview", () => {
     } as Awaited<ReturnType<typeof proxyApi.getProxyStatus>>);
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
     await screen.findByText("OpenClaw");
-    const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
-    expect(
-      rows.map((row) => within(row).getAllByRole("cell")[0].textContent),
-    ).toEqual(APP_IDS.map(getAppLabel));
+    const rows = screen.getAllByRole("listitem");
+    expect(rows).toHaveLength(APP_IDS.length);
+    APP_IDS.forEach((app, index) => {
+      expect(
+        within(rows[index]).getByText(getAppLabel(app)),
+      ).toBeInTheDocument();
+    });
     expect(screen.queryByText("127.0.0.1:15821")).not.toBeInTheDocument();
     expect(
       screen.queryByText("gateway.routingDescription"),
@@ -694,26 +697,22 @@ describe("routing overview", () => {
     expect(proxyApi.stopProxyWithRestore).not.toHaveBeenCalled();
   });
 
-  it("uses one connection column and shows gateway availability once", async () => {
+  it("uses one connection control per app without column headers", async () => {
     const open = vi.fn();
     mount(<RoutingOverviewPage onOpenApp={open} />);
     await waitFor(() =>
       expect(screen.getAllByRole("combobox")).toHaveLength(4),
     );
-    expect(
-      screen.getAllByRole("columnheader").map((cell) => cell.textContent),
-    ).toEqual([
-      "gateway.agent",
-      "gateway.target",
-      "gateway.connections.method",
-    ]);
+    // 路由页不再画三列表格：没有列标题，连接方式只在右侧出现一次
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader")).not.toBeInTheDocument();
     // 网关可用性横幅已随启停控件一起移除
     expect(screen.queryByText("gateway.stopped")).not.toBeInTheDocument();
     expect(
       screen.queryByText("gateway.connection.stopped"),
     ).not.toBeInTheDocument();
     expect(screen.getByText("OpenClaw")).toBeInTheDocument();
-    const row = screen.getByText("Codex").closest("tr")!;
+    const row = screen.getByText("Codex").closest("li")!;
     expect(within(row).getByRole("combobox")).toHaveTextContent(
       "gateway.connections.legacy",
     );
@@ -739,7 +738,7 @@ describe("routing overview", () => {
     }));
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
     await screen.findAllByText("direct-id");
-    const row = screen.getByText("Codex").closest("tr")!;
+    const row = screen.getByText("Codex").closest("li")!;
     expect(within(row).getByRole("combobox")).toHaveTextContent("direct-id");
     expect(screen.getByRole("alert")).toHaveTextContent("gateway.statusError");
     expect(screen.queryByText("gateway.stopped")).not.toBeInTheDocument();
@@ -755,11 +754,11 @@ describe("routing overview", () => {
       directConfigured: app === "claude",
     }));
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const claude = (await screen.findByText("Claude")).closest("tr")!;
+    const claude = (await screen.findByText("Claude")).closest("li")!;
     expect(await within(claude).findByRole("combobox")).toHaveTextContent(
       "gateway.connections.nativeTarget",
     );
-    const codex = screen.getByText("Codex").closest("tr")!;
+    const codex = screen.getByText("Codex").closest("li")!;
     expect(within(codex).getByRole("combobox")).toHaveTextContent(
       "gateway.connections.unconfigured",
     );
@@ -790,7 +789,9 @@ describe("routing overview", () => {
       expect(screen.getAllByText("gateway.loadError")).toHaveLength(4),
     );
     expect(
-      screen.queryByText("gateway.connections.unconfigured"),
+      within(screen.getByText("Claude").closest("li")!).queryByText(
+        "gateway.connections.unconfigured",
+      ),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     vi.mocked(proxyApi.getAppMode).mockResolvedValue({
@@ -799,7 +800,7 @@ describe("routing overview", () => {
       directProviderId: null,
       routeProviderId: null,
     });
-    const row = screen.getByText("Claude").closest("tr")!;
+    const row = screen.getByText("Claude").closest("li")!;
     fireEvent.click(within(row).getByRole("button", { name: "gateway.retry" }));
     expect(await within(row).findByRole("combobox")).toHaveTextContent(
       "gateway.connections.unconfigured",
@@ -822,7 +823,7 @@ describe("routing overview", () => {
       new Error("switch failed"),
     );
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("tr")!;
+    const row = (await screen.findByText("Claude")).closest("li")!;
     const select = await within(row).findByRole("combobox");
     await user.click(select);
     await user.click(screen.getByRole("option", { name: "Production" }));
@@ -861,7 +862,7 @@ describe("routing overview", () => {
       ],
     });
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Codex")).closest("tr")!;
+    const row = (await screen.findByText("Codex")).closest("li")!;
     await user.click(await within(row).findByRole("combobox"));
     expect(screen.getByRole("option", { name: "Production" })).toBeEnabled();
     expect(
@@ -908,7 +909,7 @@ describe("routing overview", () => {
       });
     });
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("tr")!;
+    const row = (await screen.findByText("Claude")).closest("li")!;
     const select = await within(row).findByRole("combobox");
     expect(select).toHaveTextContent("Production");
     await user.click(select);
@@ -955,7 +956,7 @@ describe("routing overview", () => {
       });
     });
     mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("tr")!;
+    const row = (await screen.findByText("Claude")).closest("li")!;
     const select = await within(row).findByRole("combobox");
     expect(select).toHaveTextContent("gateway.connections.detachedGroup");
     await user.click(select);
@@ -999,7 +1000,7 @@ describe("routing overview", () => {
         routeProviderId: "gateway-entry:claude",
       });
       mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-      const row = (await screen.findByText("Claude")).closest("tr")!;
+      const row = (await screen.findByText("Claude")).closest("li")!;
       const select = await within(row).findByRole("combobox");
       expect(select).toHaveTextContent(
         kind === "deleted"
@@ -1025,7 +1026,7 @@ describe("routing overview", () => {
         directConfigured: true,
       }));
       mount(<RoutingOverviewPage onOpenApp={open} />);
-      const row = (await screen.findByText(getAppLabel(app))).closest("tr")!;
+      const row = (await screen.findByText(getAppLabel(app))).closest("li")!;
       await within(row).findByRole("combobox");
       expect(
         within(row).queryByRole("button", { name: "gateway.configure" }),
@@ -1284,7 +1285,7 @@ describe("gateway resource to request workflow", () => {
         },
       );
       mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-      const row = (await screen.findByText("Claude")).closest("tr")!;
+      const row = (await screen.findByText("Claude")).closest("li")!;
       const select = await within(row).findByRole("combobox");
       expect(select).toHaveTextContent(
         configured

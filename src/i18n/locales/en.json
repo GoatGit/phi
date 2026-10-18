@@ -205,6 +205,8 @@
       "direct": "Direct",
       "proxy": "Proxy",
       "unconfigured": "Not configured",
+      "intro": "Choose how each app connects: directly to a supplier, or through a route group. Changes apply right away.",
+      "openApp": "Open {{app}}",
       "nativeTarget": "Native configuration",
       "needsReconnect": "Not connected. Reconnect in configuration.",
       "appManaged": "Selected in app",
