@@ -4,7 +4,9 @@ release/
 .DS_Store
 *.log
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
 *.tsbuildinfo
 .npmrc
 CLAUDE.md
@@ -34,3 +36,10 @@ mainWindow.js
 # 本地签名私钥等敏感凭据，绝不入库
 /.secrets/
 /phi.key
+
+# Local Python caches and platform signing material
+__pycache__/
+*.py[cod]
+*.p12
+*.pfx
+*.p8

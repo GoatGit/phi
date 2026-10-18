@@ -10,8 +10,8 @@ body:
       label: Self Checks / 自检
       options:
         - label: |
-            I have read the [FAQ](https://github.com/GoatGit/phi#常见问题) section in README.
-            我已阅读 README 中的[常见问题](https://github.com/GoatGit/phi#常见问题)。
+            I have read the [FAQ](https://github.com/GoatGit/phi#faq) section in README.
+            我已阅读 README 中的[常见问题](https://github.com/GoatGit/phi#faq)。
           required: true
         - label: |
             I have searched for [existing issues](https://github.com/GoatGit/phi/issues), including closed ones.
@@ -62,8 +62,8 @@ body:
     attributes:
       label: Environment / 环境信息
       description: |
-        OS, CC Switch version, and any relevant details.
-        操作系统、CC Switch 版本及其他相关信息。
-      placeholder: "e.g. macOS 15.4, CC Switch 4.0.4"
+        OS, CPU architecture, PHI and CLI versions. Redact credentials and personal information.
+        操作系统、CPU 架构、PHI 与 CLI 版本；请先移除凭据和个人信息。
+      placeholder: "e.g. macOS 15, arm64, PHI 1.0.0, Codex CLI version"
     validations:
       required: false

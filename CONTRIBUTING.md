@@ -35,8 +35,9 @@ There are many ways to contribute:
 ### Quick Start
 
 ```bash
-# Install dependencies
-pnpm install
+# Install the pinned dependency versions
+corepack enable
+pnpm install --frozen-lockfile
 
 # macOS only: build the pinned embedded terminal SDK (Python 3.12+, macOS 13+)
 python3 scripts/build_ghostty.py
@@ -59,6 +60,7 @@ pnpm dev
 | `pnpm format:check` | Check code formatting in `src/` |
 | `pnpm test:unit` | Run frontend unit tests |
 | `pnpm test:unit:watch` | Run frontend unit tests in watch mode |
+| `python3 scripts/check_repository.py` | Check maintained documentation links, metadata, and accidentally tracked local data (Python 3.12+) |
 
 Rust backend commands (run inside `src-tauri/`):
 
@@ -83,6 +85,8 @@ pnpm tauri build -c '{"bundle":{"createUpdaterArtifacts":false}}'
 For a debug build, append `--debug` to the command above. This single-quote form works on macOS and Linux; on Windows, save `{"bundle":{"createUpdaterArtifacts":false}}` to a JSON file and pass it with `-c <file path>`.
 
 ## Testing
+
+**Repository quality**: run `python3 scripts/check_repository.py` (Python 3.12+). This validates maintained entry-point links and package versions and rejects common local data files tracked by Git. It does not scan Git history or prove the absence of secrets. See the [open-source checklist](docs/OPEN_SOURCE_CHECKLIST.md) for publication checks.
 
 **Frontend**: vitest runs `*.test.ts(x)` under `tests/` and `src/`; Tauri calls are mocked with MSW (see `tests/msw/`); component tests use @testing-library/react.
 
@@ -213,17 +217,14 @@ chore(deps): update dependencies
 
 ## AI-Assisted Contributions
 
-We welcome AI-assisted contributions, but **the responsibility stays with you**. AI tools lower the cost of writing code — they do not lower the cost of reviewing it. Maintainers are not obligated to clean up AI-generated output.
+AI-assisted contributions follow the same review standard as other contributions. You remain responsible for the result.
 
-By submitting a PR, you agree to the following:
+1. **Understand the diff.** Review generated changes and be ready to explain their purpose.
+2. **Provide evidence.** Run relevant checks, include results, and identify platforms you could not test. Do not present untested behavior as verified.
+3. **Keep the scope clear.** Discuss new features in an issue first. Small bug fixes, documentation corrections, and translations can be submitted directly.
+4. **Protect private data.** Never include live credentials, private prompts, or unredacted logs.
 
-1. **You have read and understood your code.** You must be able to explain any line in your PR. If you cannot, it is not ready for review.
-2. **You have tested it yourself.** Every change must be verified locally — not just "it looks right." Do not submit code for platforms or features you cannot test.
-3. **PRs must be small and focused.** One issue, one PR. Large, sprawling, multi-topic PRs will be closed.
-4. **Open an issue first.** Drive-by PRs with no prior discussion — especially AI-generated ones — may be closed without review.
-5. **Maintainers may close without explanation.** PRs that appear to be unreviewed AI output — hallucinated fixes, unnecessary refactors, bulk changes with no context — may be closed at the maintainer's discretion.
-
-**In short**: AI is a tool, not a substitute for understanding. Use it to help you contribute better, not to shift work onto maintainers.
+A focused PR with a clear explanation and honest validation is easier for maintainers to review.
 
 ## Provider Presets
 
@@ -293,8 +294,9 @@ The PHI UI supports four languages: Simplified Chinese, Traditional Chinese, Eng
 ### 快速开始
 
 ```bash
-# 安装依赖
-pnpm install
+# 安装锁定版本的依赖
+corepack enable
+pnpm install --frozen-lockfile
 
 # macOS 首次构建：嵌入终端 SDK（Python 3.12+、macOS 13+）
 python3 scripts/build_ghostty.py
@@ -341,6 +343,8 @@ pnpm tauri build -c '{"bundle":{"createUpdaterArtifacts":false}}'
 需要调试版本时，在上面的命令后加 `--debug`。这种单引号写法适用于 macOS 和 Linux；在 Windows 上，可以把 `{"bundle":{"createUpdaterArtifacts":false}}` 存成一个 JSON 文件，再用 `-c <文件路径>` 传入。
 
 ## 测试
+
+**仓库质量**：运行 `python3 scripts/check_repository.py`（Python 3.12+），检查维护中的入口文档链接、包版本与 Git 跟踪的常见本地数据文件。它不扫描 Git 历史，也不能证明不存在密钥。发布准备见[开源清单](docs/OPEN_SOURCE_CHECKLIST.md)。
 
 **前端**：使用 vitest 运行 `tests/` 和 `src/` 下的 `*.test.ts(x)`；Tauri 调用由 MSW 模拟（见 `tests/msw/`）；组件测试使用 @testing-library/react。
 
@@ -471,17 +475,14 @@ chore(deps): update dependencies
 
 ## AI 辅助贡献
 
-我们欢迎 AI 辅助的贡献，但**责任始终在你身上**。AI 工具降低了写代码的成本，但并没有降低 review 的成本。维护者没有义务替你清理 AI 的产出。
+AI 辅助贡献与其他贡献采用相同的审查标准，提交者对最终结果负责。
 
-提交 PR 即表示你同意以下规则：
+1. **理解差异。** 检查生成的改动，并能解释其目的。
+2. **提供验证依据。** 运行相关检查，附上结果，并说明没有验证的平台。不要把未测试的行为写成已验证。
+3. **保持范围清楚。** 新功能先通过 Issue 讨论；小型 Bug 修复、文档纠错和翻译可以直接提交 PR。
+4. **保护私人数据。** 不要提交真实凭据、私人提示词或未脱敏日志。
 
-1. **你已阅读并理解了你的代码。** 你必须能解释 PR 中的每一行。如果做不到，说明还没准备好提交 review。
-2. **你已亲自测试过。** 每个改动都必须在本地验证——而不是"看起来对"。不要提交你自己无法测试的平台或功能的代码。
-3. **PR 必须小而聚焦。** 一个 Issue 对应一个 PR。大而散、跨多个主题的 PR 会被直接关闭。
-4. **先开 Issue 讨论。** 没有事先讨论的"路过式 PR"——尤其是 AI 生成的——可能会被直接关闭。
-5. **维护者可以直接关闭。** 看起来是未经审阅的 AI 产出的 PR——虚构的修复、不必要的重构、缺乏上下文的批量改动——维护者可自行决定关闭。
-
-**一句话总结**：AI 是工具，不是理解力的替代品。用它来帮助你更好地贡献，而不是把工作转移给维护者。
+聚焦的改动、清晰的说明和如实的验证记录，能帮助维护者更快完成审查。
 
 ## 供应商预设
 

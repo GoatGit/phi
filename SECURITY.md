@@ -11,6 +11,16 @@ Only the latest release of PHI receives security updates.
 | Latest 1.x     | ✅ Yes / 是          |
 | < 1.0          | ❌ No / 否           |
 
+## Credentials and outbound traffic / 凭据与对外连接
+
+Local-first does not mean offline or encrypted at rest. PHI sends model requests to your configured providers; update checks, skill downloads, pricing data and optional remote sync contact their respective services. Treat the application data directory, CLI configurations, exports, logs and backups as sensitive.
+
+本地优先不等于离线，也不等于静态加密。模型请求会发送到你配置的供应商；更新检查、Skills 下载、定价数据和可选远程同步会连接相应服务。请将应用数据目录、CLI 配置、导出文件、日志与备份视为敏感数据。
+
+Credential storage varies by integration. Some integrations can read system Keychain credentials, while provider configuration and managed OAuth accounts can persist credentials in SQLite or local JSON files (for example, `codex_oauth_auth.json`). PHI does not promise that all credentials are held in a system vault or encrypted. Back up CLI configurations before enabling management, and redact all credentials before sharing diagnostic material.
+
+凭据存储方式因集成而异：部分集成可以读取系统 Keychain；供应商配置和托管 OAuth 账号也可能将凭据保存在 SQLite 或本地 JSON 文件中（例如 `codex_oauth_auth.json`）。PHI 不承诺所有凭据都在系统保险库中或经过加密。启用管理前请备份 CLI 配置，分享诊断材料前请移除全部凭据。
+
 ## Threat Model / 威胁模型
 
 PHI is a local desktop application. It manages configuration files for AI coding CLIs on the user's own machine. There is no project-operated cloud backend, no multi-user model, and no privilege separation from the user who runs it.
@@ -108,6 +118,10 @@ Instead, please report them through [GitHub Security Advisories](https://github.
 
 请通过 [GitHub 安全公告](https://github.com/GoatGit/phi/security/advisories/new) 进行报告。
 
+If private reporting is unavailable, email [admin@semibot.ai](mailto:admin@semibot.ai) with the subject `PHI security report`. Send a description and a synthetic reproduction, never live credentials.
+
+如私密报告入口不可用，请发送邮件到 [admin@semibot.ai](mailto:admin@semibot.ai)，主题注明 `PHI security report`。请提供问题描述与合成复现材料，不要发送真实凭据。
+
 When reporting, please include:
 
 报告时请包含以下信息：
@@ -123,6 +137,10 @@ The data path matters more than the sink. We assess severity by **who controls t
 数据路径比 sink 更重要。我们按**谁能控制输入**来评估严重度，而非按该值最终抵达哪个 API——同一处调用是严重还是无害，完全取决于其参数的来源。
 
 ## Response Timeline / 响应时间
+
+These are response targets, not guaranteed service levels. Fix timing depends on severity and complexity; maintainers will coordinate updates privately.
+
+以下为响应目标，不是服务等级承诺。修复时间取决于严重度与复杂性，维护者会通过私密渠道沟通进展。
 
 - **Acknowledgment / 确认**: within 48 hours / 48 小时内
 - **Initial assessment / 初步评估**: within 7 days / 7 天内

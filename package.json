@@ -26,7 +26,15 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest watch"
   },
-  "keywords": [],
+  "private": true,
+  "homepage": "https://phi.semibot.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GoatGit/phi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/GoatGit/phi/issues"
+  },
   "author": "GoatGit",
   "license": "MIT",
   "packageManager": "pnpm@10.12.3",

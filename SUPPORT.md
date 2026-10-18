@@ -8,13 +8,15 @@ PHI is an open-source project maintained by its maintainers. We're happy to help
 
 ### Before Asking
 
-1. **Read the [FAQ](https://github.com/GoatGit/phi/blob/main/README.en.md#faq)** — most common questions are answered there.
+1. **Read the [FAQ](README.en.md#faq)** — most common questions are answered there.
 2. **Search [existing issues](https://github.com/GoatGit/phi/issues)** (including closed ones) — someone may have had the same question.
 
 ### Asking a Question
 
 - **Usage or configuration questions**: [Open a Question issue](https://github.com/GoatGit/phi/issues/new?template=question.yml)
-- **General discussion**: [GitHub Discussions](https://github.com/GoatGit/phi/discussions)
+- **General discussion**: use the Question issue template; if Discussions is enabled, you may also use the [discussion area](https://github.com/GoatGit/phi/discussions).
+
+Include your PHI version, OS and architecture, CLI version, and a minimal reproduction. Redact credentials and personal paths from logs and screenshots. Never attach an entire database, OAuth file, or configuration backup.
 
 ### Reporting Problems
 
@@ -39,13 +41,15 @@ PHI 是一个开源项目。我们很乐意提供帮助，但请使用合适的�
 
 ### 提问之前
 
-1. **阅读 [常见问题](https://github.com/GoatGit/phi#常见问题)** — 大多数常见问题都已在其中解答。
+1. **阅读 [常见问题](README.md#faq)** — 大多数常见问题都已在其中解答。
 2. **搜索 [已有的 Issue](https://github.com/GoatGit/phi/issues)**（包括已关闭的） — 可能已经有人问过相同的问题。
 
 ### 提问
 
 - **使用或配置问题**：[提交问题 Issue](https://github.com/GoatGit/phi/issues/new?template=question.yml)
-- **一般讨论**：[GitHub 讨论区](https://github.com/GoatGit/phi/discussions)
+- **一般讨论**：使用提问 Issue 模板；如已启用 Discussions，也可使用[讨论区](https://github.com/GoatGit/phi/discussions)。
+
+请提供 PHI 版本、系统与架构、CLI 版本和最小复现步骤。日志与截图请先移除凭据和个人路径，不要上传完整数据库、OAuth 文件或配置备份。
 
 ### 报告问题
 

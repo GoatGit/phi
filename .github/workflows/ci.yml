@@ -16,6 +16,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  repository-quality:
+    name: Repository quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Check documentation, metadata and tracked local-data paths
+        run: python scripts/check_repository.py
+
   security-audit-fixtures:
     name: Secret audit synthetic fixtures
     runs-on: ubuntu-latest
@@ -187,7 +200,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Build embedded Ghostty SDK
         if: runner.os == 'macOS'

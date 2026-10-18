@@ -10,8 +10,8 @@ body:
       label: Self Checks / 自检
       options:
         - label: |
-            I have read the [FAQ](https://github.com/GoatGit/phi#常见问题) section in README.
-            我已阅读 README 中的[常见问题](https://github.com/GoatGit/phi#常见问题)。
+            I have read the [FAQ](https://github.com/GoatGit/phi#faq) section in README.
+            我已阅读 README 中的[常见问题](https://github.com/GoatGit/phi#faq)。
           required: true
         - label: |
             I have searched for [existing issues](https://github.com/GoatGit/phi/issues), including closed ones.
@@ -20,11 +20,11 @@ body:
 
   - type: input
     attributes:
-      label: CC Switch Version / 版本号
+      label: PHI Version / PHI 版本号
       description: |
         See Settings → About in the app.
         在应用的「设置 → 关于」中查看版本号。
-      placeholder: "e.g. 4.0.4"
+      placeholder: "e.g. 1.0.0"
     validations:
       required: true
 
@@ -65,8 +65,8 @@ body:
     attributes:
       label: Steps to Reproduce / 重现步骤
       description: |
-        Please describe the steps to reproduce the bug. Screenshots and logs are helpful.
-        请描述重现步骤。截图和日志会很有帮助。
+        Please describe a minimal reproduction. Redact credentials and private paths from screenshots and logs.
+        请描述最小复现步骤，截图与日志请先移除凭据和私人路径。
       placeholder: |
         1. Go to ...
         2. Click on ...
@@ -96,7 +96,7 @@ body:
     attributes:
       label: Additional Context / 补充信息
       description: |
-        Any other information, screenshots, or logs.
-        其他信息、截图或日志。
+        Include CLI version, OS version and CPU architecture. Never attach API keys, OAuth files or complete databases.
+        请补充 CLI 版本、系统版本与 CPU 架构。不要上传 API Key、OAuth 文件或完整数据库。
     validations:
       required: false
