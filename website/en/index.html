@@ -5,24 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#faf8f3">
-  <title>PHI — One gateway for AI agent protocols, routing and CLI</title>
-  <meta name="description" content="PHI is a local-first workspace for AI agents. Its local gateway translates OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini according to each app and upstream; direct connections or route groups pick the model; a built-in terminal runs Claude Code, Codex and other CLIs; and every request is recorded for usage.">
+  <title>PHI — A gateway, routing and terminal for AI coding tools</title>
+  <meta name="description" content="PHI connects Claude Code, Codex and Gemini CLI to one local gateway: protocols are translated as needed, models come from direct connections or route groups, and terminals, sessions and usage all live in one window.">
   <link rel="canonical" href="https://phi.semibot.ai/en/">
   <link rel="alternate" hreflang="zh-CN" href="https://phi.semibot.ai/">
   <link rel="alternate" hreflang="en" href="https://phi.semibot.ai/en/">
   <link rel="alternate" hreflang="ja" href="https://phi.semibot.ai/ja/">
   <link rel="alternate" hreflang="x-default" href="https://phi.semibot.ai/">
-  <meta property="og:title" content="PHI — One gateway for AI agent protocols, routing and CLI">
-  <meta property="og:description" content="Protocol translation, direct and grouped routing, sessions in one place, and a built-in CLI terminal — all in one local workspace.">
+  <meta property="og:title" content="PHI — A gateway, routing and terminal for AI coding tools">
+  <meta property="og:description" content="Protocol translation, direct and grouped routing, a built-in CLI terminal and usage records — all in one desktop window.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://phi.semibot.ai/en/">
   <meta property="og:locale" content="en_US">
   <meta property="og:locale:alternate" content="zh_CN">
   <meta property="og:locale:alternate" content="ja_JP">
   <link rel="icon" type="image/svg+xml" href="../assets/phi-app.svg">
-  <link rel="stylesheet" href="../css/style.css?v=positioning-1">
+  <link rel="stylesheet" href="../css/style.css?v=apps-1">
   <script type="application/ld+json">
-  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "A local-first gateway and workspace for AI agents: translate between OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini, choose models through direct connections or route groups, run Claude Code, Codex and other CLIs in a built-in terminal, and keep usage records.", "url": "https://phi.semibot.ai/en/", "inLanguage": "en", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
+  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI connects Claude Code, Codex, Gemini CLI and other tools to one local gateway. It translates between OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini (System One coming soon), picks models through direct connections or route groups, runs CLIs in a built-in terminal, and records usage.", "url": "https://phi.semibot.ai/en/", "inLanguage": "en", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
   </script>
 </head>
 <body>
@@ -33,6 +33,7 @@
       <a class="brand" href="#top" aria-label="PHI home"><img src="../assets/phi-app.svg" width="34" height="34" alt=""><span>PHI</span></a>
       <nav class="primary-nav" aria-label="Main navigation">
         <a href="#gateway">Gateway</a>
+        <a href="#apps">Apps</a>
         <a href="#routing">Routing</a>
         <a href="#memory">Sessions</a>
         <a href="#cli">Terminal</a>
@@ -59,17 +60,15 @@
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
       <img class="hero-icon" src="../assets/phi-app.svg" width="84" height="84" alt="PHI app icon">
-      <p class="kicker">A local-first control plane for AI agents</p>
       <h1 id="hero-title">One gateway.<br>Your whole AI stack, unified.</h1>
       <p class="lede">
-        PHI translates OpenAI, Anthropic and Gemini protocols according to the entry point and upstream. Go direct or through a route group, on rules you set. Claude Code, Codex and Gemini CLI share one set of models and one terminal window. Sessions and long-term memory are converging here too.
+        Claude Code, Codex and Gemini CLI each speak their own protocol. PHI translates in between, so a provider is set up once. Go direct or through a route group on rules you set, with the terminal in the same window.
       </p>
       <div class="actions">
         <a class="button" href="#download">Download PHI <span aria-hidden="true">↓</span></a>
         <a class="text-link" href="https://github.com/GoatGit/phi">View on GitHub <span aria-hidden="true">↗</span></a>
       </div>
       <p class="platforms">macOS · Windows · Linux<span class="sep">/</span>Open source · MIT license</p>
-      <p class="hero-note">The built-in terminal currently requires macOS 13+. Install your CLIs separately.</p>
       </div>
       <figure class="workspace-preview" aria-labelledby="preview-caption">
         <div class="preview-bar" aria-hidden="true"><span class="preview-lights">● ● ●</span><span>PHI / Workspace</span></div>
@@ -85,19 +84,19 @@
       </figure>
     </section>
 
-    <nav class="pillars wrap" aria-label="Four things, unified">
-      <p class="pillars-lead">Four things, unified</p>
+    <nav class="pillars wrap" aria-label="What PHI unifies">
+      <p class="pillars-lead">What PHI unifies</p>
       <a href="#gateway">
         <span class="pillar-index">01</span><strong>Unified gateway</strong>
-        <span class="pillar-text">Four protocols, one entry point. Pass through when they match, translate when they don't.</span><span class="pillar-arrow" aria-hidden="true">↗</span>
+        <span class="pillar-text">Four protocols work today. System One is on the way.</span><span class="pillar-arrow" aria-hidden="true">↗</span>
       </a>
       <a href="#routing">
         <span class="pillar-index">02</span><strong>Unified routing</strong>
-        <span class="pillar-text">Direct or through a group. Ordered, round robin, least used — or let a decision model choose.</span><span class="pillar-arrow" aria-hidden="true">↗</span>
+        <span class="pillar-text">Direct or through a group. Ordered, round robin, least used — or let a decision model pick.</span><span class="pillar-arrow" aria-hidden="true">↗</span>
       </a>
       <a href="#memory">
         <span class="pillar-index">03</span><strong>Unified sessions and memory</strong>
-        <span class="pillar-text">Session records already live in one list; cross-tool context and long-term memory are in planning.</span><span class="pillar-arrow" aria-hidden="true">↗</span>
+        <span class="pillar-text">Session records already sit in one list. Cross-tool context and long-term memory are in planning.</span><span class="pillar-arrow" aria-hidden="true">↗</span>
       </a>
       <a href="#cli">
         <span class="pillar-index">04</span><strong>Unified CLI terminal</strong>
@@ -108,12 +107,12 @@
     <section class="story wrap" aria-labelledby="story-title">
       <p class="rail-label">Why PHI exists</p>
       <div class="story-body">
-        <h2 id="story-title">The more tools you use, the more you need one entry point.</h2>
+        <h2 id="story-title">The more tools you add, the more your setup scatters.</h2>
         <p>
-          You probably use Claude Code, Codex and Gemini CLI at the same time. Each speaks a different protocol and keeps its own configuration; switching providers means editing three or four places. Changing a route means remembering which file you edited last time.
+          You probably use Claude Code, Codex and Gemini CLI at the same time. Each speaks its own protocol and keeps its own configuration. Changing providers means editing three or four places; changing a route means remembering which file you touched last time.
         </p>
         <p>
-          PHI brings them into one local control plane: protocols are translated in the gateway, traffic is assigned by route groups, session records meet in one list, and the terminal sits in the same window. Set up a provider once and use it across tools. There is no PHI account; configuration and stats stay on your machine, and model access still uses your own accounts or API keys.
+          PHI puts all of this in one window: the gateway translates protocols, route groups assign the line, and the terminal lives in the same app. Set up a provider once and use it across tools. No PHI account; settings and stats stay on your machine, and model access still uses your own account or API key.
         </p>
         <p class="aside">
           An independent fork of <a href="https://github.com/farion1231/cc-switch">CC Switch</a>, built with Tauri 2, Rust and React.
@@ -125,15 +124,15 @@
       <div class="chapter-head">
         <p class="rail-label"><span class="index">01</span>Unified gateway</p>
         <div>
-          <h2 id="gateway-title">Four protocols, one entry point.</h2>
+          <h2 id="gateway-title">Four work today. The fifth is on the way.</h2>
           <p class="chapter-lede">
-            Claude Code speaks Anthropic Messages, Codex speaks OpenAI Responses, and Gemini CLI speaks native Gemini; the provider may speak a different one. PHI identifies the protocol in between and passes it through or translates it, so each tool doesn't need a separate connection for every provider.
+            Claude Code speaks Anthropic Messages, Codex speaks OpenAI Responses, Gemini CLI speaks native Gemini; your provider may speak something else. PHI detects the protocol and passes it through or translates it, so each tool doesn't need a separate connection per provider. The fifth is System One, a decision protocol built around questions and answers. It's on the way.
           </p>
         </div>
       </div>
 
       <div class="gateway-layout">
-        <div class="flow protocol-flow" role="img" aria-label="Diagram: four protocols at the tool entry pass through the PHI gateway to a provider upstream">
+        <div class="flow protocol-flow" role="img" aria-label="Diagram: five protocols at the tool entry pass through the PHI gateway to a provider upstream">
           <div class="flow-col-wrap">
             <p class="flow-caption">Tool entry</p>
             <ul class="flow-col">
@@ -141,6 +140,7 @@
               <li>OpenAI Responses</li>
               <li>OpenAI Chat</li>
               <li>Native Gemini</li>
+              <li class="soon">System One<small>Coming soon</small></li>
             </ul>
           </div>
           <div class="flow-node">
@@ -154,18 +154,43 @@
               <li>OpenAI Responses</li>
               <li>OpenAI Chat</li>
               <li>Native Gemini</li>
+              <li class="soon">System One<small>Coming soon</small></li>
             </ul>
           </div>
         </div>
 
         <dl class="defs">
-          <div><dt>Four wire protocols</dt><dd>OpenAI Chat Completions, OpenAI Responses, Anthropic Messages and native Gemini. Pick one for the entry point and one for the upstream; they don't have to match.</dd></div>
+          <div><dt>Four chat protocols</dt><dd>OpenAI Chat Completions, OpenAI Responses, Anthropic Messages and native Gemini. Pick one for the entry point and one for the upstream; they don't have to match.</dd></div>
+          <div><dt>System One (coming soon)</dt><dd>A decision protocol: the request carries a state and a set of questions, and the reply is structured answers with probabilities. It keeps its own path through the gateway and is never rewritten into a chat request.</dd></div>
           <div><dt>Same-protocol passthrough</dt><dd>When both sides speak the same protocol, requests pass through as they are; streaming, tool calls and usage fields are not rewritten.</dd></div>
           <div><dt>Cross-protocol translation</dt><dd>Requests, responses and streaming events are translated to the target protocol; tool calls, reasoning content and token usage are preserved wherever possible.</dd></div>
-          <div><dt>One entry point, many tools</dt><dd>Claude Code, Claude Desktop, Codex, Gemini CLI, OpenCode and five more — ten apps share one set of providers and routes.</dd></div>
         </dl>
       </div>
-      <p class="footnote">Available conversions depend on the app's entry point and the upstream protocol. Gemini CLI currently accepts only a native Gemini upstream; after a cross-protocol setup, try a simple task first to confirm tool calls and streaming.</p>
+      <p class="footnote">System One isn't available yet. Once it ships, it will appear in the provider protocol list. Before a cross-protocol setup, try a simple task to confirm tool calls and streaming. Gemini CLI currently accepts only a native Gemini upstream.</p>
+    </section>
+
+    <section class="chapter wrap" id="apps" aria-labelledby="apps-title">
+      <div class="chapter-head">
+        <p class="rail-label">Supported apps</p>
+        <div>
+          <h2 id="apps-title">Ten tools, one setup.</h2>
+          <p class="chapter-lede">
+            Two ways in: PHI can take over the app's configuration, or sit alongside the config file it already has. Either way, they share one set of providers and routes.
+          </p>
+        </div>
+      </div>
+      <ul class="app-grid">
+        <li class="app-card"><img src="../assets/apps/claude.svg" width="28" height="28" alt=""><strong>Claude Code</strong><small>Managed</small></li>
+        <li class="app-card"><img src="../assets/apps/claude.svg" width="28" height="28" alt=""><strong>Claude Desktop</strong><small>Alongside</small></li>
+        <li class="app-card"><img src="../assets/apps/openai.svg" width="28" height="28" alt=""><strong>Codex</strong><small>Managed</small></li>
+        <li class="app-card"><img src="../assets/apps/gemini.svg" width="28" height="28" alt=""><strong>Gemini CLI</strong><small>Managed</small></li>
+        <li class="app-card"><img src="../assets/apps/grok.svg" width="28" height="28" alt=""><strong>Grok Build</strong><small>Managed</small></li>
+        <li class="app-card"><img src="../assets/apps/opencode.svg" width="28" height="28" alt=""><strong>OpenCode</strong><small>Alongside</small></li>
+        <li class="app-card"><img src="../assets/apps/claw.svg" width="28" height="28" alt=""><strong>OpenClaw</strong><small>Alongside</small></li>
+        <li class="app-card"><img src="../assets/apps/hermes.png" width="28" height="28" alt=""><strong>Hermes</strong><small>Alongside</small></li>
+        <li class="app-card"><img src="../assets/apps/pi.svg" width="28" height="28" alt=""><strong>Pi</strong><small>Alongside</small></li>
+        <li class="app-card"><img src="../assets/apps/minimax.svg" width="28" height="28" alt=""><strong>MiniMax Code</strong><small>Alongside</small></li>
+      </ul>
     </section>
 
     <section class="chapter wrap" id="routing" aria-labelledby="routing-title">
@@ -174,7 +199,7 @@
         <div>
           <h2 id="routing-title">Direct, or hand it to a group.</h2>
           <p class="chapter-lede">
-            Each app can connect straight to one provider and keep its original connection. Or put several providers and models into a route group and let PHI pick by strategy. Members don't have to share a protocol or model; the gateway translates as it forwards.
+            Each app can pin one provider, or put providers and models into a route group and let PHI pick by strategy. Members don't have to share a protocol or a model; the gateway translates as it forwards.
           </p>
         </div>
       </div>
@@ -202,21 +227,21 @@
         </div>
 
         <dl class="strategies">
-          <div><dt>Ordered</dt><dd>Try members in your order and use the first one available.</dd></div>
-          <div><dt>Round robin</dt><dd>Requests go to members in turn, so several routes share the traffic.</dd></div>
-          <div><dt>Least used first</dt><dd>Members with lower current concurrency and recent usage come first.</dd></div>
-          <div><dt>Weighted</dt><dd>Distribute by weight so the primary route takes more requests.</dd></div>
+          <div><dt>Ordered</dt><dd>Try members in your order; use the first one that works.</dd></div>
+          <div><dt>Round robin</dt><dd>Requests go to members in turn, so several lines share the load.</dd></div>
+          <div><dt>Least used first</dt><dd>Members with lower concurrency and recent usage come first.</dd></div>
+          <div><dt>Weighted</dt><dd>Distribute by weight so the primary line takes more.</dd></div>
           <div><dt>Manual</dt><dd>Pin one member until you change it.</dd></div>
-          <div><dt>Decision model</dt><dd>A model reads the latest user message, picks one of your configured rules, and hands the request to that rule's member. The model can only choose a rule; it cannot name a provider or read credentials.</dd></div>
+          <div><dt>Decision model</dt><dd>A model reads the latest user message, picks one of your rules, and hands the request to that member. The model chooses a rule only; it cannot name a provider or read credentials.</dd></div>
         </dl>
       </div>
 
       <ul class="points compact route-points">
-        <li><h3>Session affinity</h3><p>When enabled, a conversation stays with the same member as much as possible, so context doesn't move back and forth.</p></li>
-        <li><h3>Failover</h3><p>Matching errors trigger the next route; a member that keeps failing cools down and returns when it recovers.</p></li>
-        <li><h3>Timeouts and retries</h3><p>Set limits for streaming first byte, streaming idle time and total non-streaming time, so a slow route can't hang forever.</p></li>
+        <li><h3>Session affinity</h3><p>A conversation stays on the same member where possible, so context doesn't move back and forth.</p></li>
+        <li><h3>Failover</h3><p>Matching errors move to the next line; a member that keeps failing cools down and returns when it recovers.</p></li>
+        <li><h3>Timeouts and retries</h3><p>Set limits for first byte, streaming idle time and total time, so a slow line can't hang.</p></li>
       </ul>
-      <p class="footnote">Route groups can nest: a member can be a provider, a model or another group. Direct mode bypasses the PHI gateway and keeps the app's original connection.</p>
+      <p class="footnote">Route groups can nest: a member can be a provider, a model or another group. Direct mode skips the PHI gateway and keeps the app's original connection.</p>
     </section>
 
     <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
@@ -225,7 +250,7 @@
         <div>
           <h2 id="memory-title">Sessions shouldn't move when you switch tools.</h2>
           <p class="chapter-lede">
-            Today PHI already gathers session records several tools keep on this machine into one list: group by project, search, open the source, or copy a resume command. Next, cross-tool context and long-term memory connect too — what you said in a project shouldn't have to be repeated from scratch.
+            PHI already gathers the session records each tool keeps on this machine into one list: group by project, search, open the source, or copy a resume command. Next come cross-tool context and long-term memory: what you said in a project shouldn't need repeating from scratch.
           </p>
         </div>
       </div>
@@ -241,12 +266,12 @@
         <div class="roadmap-col roadmap-next">
           <p class="roadmap-label">In planning</p>
           <ul class="points compact">
-            <li><h3>Continuous sessions across tools</h3><p>Start in Claude Code, continue in Codex without moving the context by hand.</p></li>
+            <li><h3>Continuous sessions across tools</h3><p>Start in Claude Code, carry on in Codex.</p></li>
             <li><h3>Long-term memory that follows the project</h3><p>Keep preferences, decisions and project facts where you can review, edit or delete them, then carry them into the next session.</p></li>
           </ul>
         </div>
       </div>
-      <p class="footnote">This chapter is a direction, not a shipped feature. Cross-tool context and long-term memory are still in planning; today's session browser only reads the records each tool keeps on this machine.</p>
+      <p class="footnote">Cross-tool context and long-term memory are still in planning; today's session browser only reads the records each tool keeps on this machine.</p>
     </section>
 
     <section class="chapter wrap" id="cli" aria-labelledby="cli-title">
@@ -255,7 +280,7 @@
         <div>
           <h2 id="cli-title">Models are ready. Use them in the terminal.</h2>
           <p class="chapter-lede">
-            Click “+” at the top right of an app page, or press <kbd>⌘T</kbd>, pick a folder and go. PHI checks whether the CLI is installed, then starts it in the folder you chose. Nine tools, including Claude Code, Codex and Gemini CLI, open this way. The providers and route groups you configured carry into the CLI in that terminal.
+            Click “+” at the top right of an app page, or press <kbd>⌘T</kbd>, pick a folder and go. PHI checks that the CLI is installed first. Nine tools open this way, including Claude Code, Codex and Gemini CLI, with your providers and route groups applied.
             <span class="inline-note">Currently available on macOS 13+ only. If a CLI is missing, PHI shows installation guidance.</span>
           </p>
         </div>
@@ -265,23 +290,23 @@
         <ul class="points">
           <li>
             <h3>Settings and terminals, in tabs</h3>
-            <p>Switch between them in the same app. Change a provider, then run a command without opening another window.</p>
+            <p>Switch within the same app; change a provider, then run a command without opening another window.</p>
           </li>
           <li>
             <h3>Put sessions side by side</h3>
-            <p>Open two sessions of the same tool side by side: edit in one, check results in the other. Vertical splits work too.</p>
+            <p>Two sessions of the same tool side by side: edit in one, check results in the other. Split top and bottom too.</p>
           </li>
           <li>
             <h3>Keep your preferred colors</h3>
-            <p>Follow PHI's light or dark theme, or pick a built-in palette. Your choice stays with you across app pages.</p>
+            <p>Follow PHI's light or dark theme, or pick one of the built-in palettes.</p>
           </li>
           <li>
             <h3>Leave the tab. Keep it running.</h3>
-            <p>Check usage or change settings on another page without interrupting the process. Come back and carry on typing.</p>
+            <p>Check usage or change settings on another page; the process keeps running.</p>
           </li>
           <li>
             <h3>A shell after your CLI exits</h3>
-            <p>Return to the same shell, with your working directory and previous output still there.</p>
+            <p>You come back to the same shell, with your working directory and output intact.</p>
           </li>
         </ul>
 
@@ -297,7 +322,7 @@
             <p><span class="prompt">&gt;</span> Look through the project, then help me add this feature</p>
             <p class="caret" aria-hidden="true"></p>
           </div>
-          <figcaption>Interface illustration. The terminal uses native Ghostty rendering and currently requires macOS 13 or later.</figcaption>
+          <figcaption>Interface illustration. The terminal is rendered by Ghostty.</figcaption>
         </figure>
       </div>
     </section>
@@ -308,7 +333,7 @@
         <div>
           <h2 id="config-title">Write configuration once; the gateway, routes and terminal all read it.</h2>
           <p class="chapter-lede">
-            Manage providers, MCP, Skills and prompts in one place, then apply them in the way each tool supports. The gateway and route groups read the same provider records, and CLIs launched in the terminal inherit that configuration.
+            Manage providers, MCP, Skills and prompts in one place, then write them into configuration the way each tool expects. The gateway, route groups and CLIs in the terminal all read the same copy.
           </p>
         </div>
       </div>
@@ -316,7 +341,7 @@
       <dl class="rows">
         <div>
           <dt>Providers and keys</dt>
-          <dd>Keep providers and models together and switch with a click. Subscription sign-in credentials are stored in the system keychain.</dd>
+          <dd>Providers and models in one place, one click to switch. Subscription credentials go to the system keychain.</dd>
         </div>
         <div>
           <dt>MCP and Skills</dt>
@@ -324,11 +349,11 @@
         </div>
         <div>
           <dt>Prompts</dt>
-          <dd>Save your regular prompts in a library. Copy them when needed or write them into project configuration.</dd>
+          <dd>Keep regular prompts in a library: copy them any time, or write them into project settings.</dd>
         </div>
         <div>
           <dt>Project snapshots</dt>
-          <dd>Save providers, MCP, Skills and memory files as a project, then switch between work and personal setups with a click.</dd>
+          <dd>Save the current providers, MCP, Skills and memory files as a project, then switch between work and personal setups with one click.</dd>
         </div>
         <div>
           <dt>Accounts and sign-in</dt>
@@ -343,15 +368,15 @@
         <div>
           <h2 id="usage-title">Know where this month's budget went.</h2>
           <p class="chapter-lede">
-            Requests pass through the local gateway, and sessions, tokens, cost, cache hits and active time are recorded in a local ledger. View daily trends, or a weekday × hour heatmap to see when you usually use the most.
+            Requests pass through the local gateway, and sessions, tokens, cost, cache hits and active time go into a local ledger. Follow daily trends, or use a weekday × hour heatmap to find your busiest hours.
           </p>
         </div>
       </div>
 
       <div class="usage-layout">
         <ul class="points compact">
-          <li><h3>Break it down by app, provider or model</h3><p>See which tools and models account for your spending, beyond a single total.</p></li>
-          <li><h3>Inspect individual requests</h3><p>Every request records its model, latency, tokens and cost; you can also trace which route the decision picked.</p></li>
+          <li><h3>Break it down by app, provider or model</h3><p>See which tools and models your money went to, not just a total.</p></li>
+          <li><h3>Inspect individual requests</h3><p>Each request records its model, latency, tokens and cost; you can also trace which line the route picked.</p></li>
           <li><h3>Keep an eye on long sessions</h3><p>Context usage charts and automatic compaction thresholds help you decide when to start a fresh session.</p></li>
         </ul>
         <div class="heat" role="img" aria-label="Illustration: a day-by-hour heatmap showing peaks in weekly usage">
@@ -375,22 +400,10 @@
         <div>
           <h2 id="local-title">Know where your data lives.</h2>
           <p class="chapter-lede">
-            PHI has no project-operated cloud backend. Configuration, session statistics and usage records are stored locally in
-            <code>~/.phi/</code>. Subscription OAuth tokens use the system keychain. Viewing local settings and existing statistics does not require a PHI cloud service. Online model requests go from the CLI or local gateway to your chosen provider.
+            PHI has no project-run cloud backend: configuration, session statistics and the usage ledger live on this machine in
+            <code>~/.phi/</code>. Subscription OAuth tokens go to the system keychain. Only when you use an online model does the CLI or local gateway connect to your chosen provider.
           </p>
         </div>
-      </div>
-    </section>
-
-    <section class="tools wrap" id="tools" aria-labelledby="tools-title">
-      <div class="tools-body">
-        <h2 id="tools-title">Works with the tools you already use.</h2>
-        <p>
-          PHI can manage configuration for Claude Code, Claude Desktop, Codex, Gemini CLI and Grok Build; OpenCode, OpenClaw, Hermes, Pi and MiniMax Code connect alongside it without touching their existing config files. All ten apps can join unified routing and reach the local gateway in their own protocol.
-        </p>
-        <ul class="chips" aria-label="Supported apps">
-          <li>Claude Code</li><li>Claude Desktop</li><li>Codex</li><li>Gemini CLI</li><li>Grok Build</li><li>OpenCode</li><li>OpenClaw</li><li>Hermes Agent</li><li>Pi</li><li>MiniMax Code</li>
-        </ul>
       </div>
     </section>
 
@@ -400,29 +413,28 @@
         <div><h2 id="start-title">Start with a tool you know.</h2><p class="chapter-lede">You don't need to configure everything at once. Connect one tool, then build out your workspace at your own pace.</p></div>
       </div>
       <ol class="start-steps">
-        <li><span class="step-number" aria-hidden="true">1</span><div><h3>Install PHI and your CLI</h3><p>PHI manages and launches tools. Install each CLI using its official instructions, or keep using an existing installation.</p></div></li>
+        <li><span class="step-number" aria-hidden="true">1</span><div><h3>Install PHI and your CLI</h3><p>PHI manages and launches tools; install each CLI as its own docs say, or keep using the copy you already have.</p></div></li>
         <li><span class="step-number" aria-hidden="true">2</span><div><h3>Add a provider and choose a connection</h3><p>Fill in a model service, then choose direct or a route group on the Routing page; pick a strategy for the group if you need one.</p></div></li>
-        <li><span class="step-number" aria-hidden="true">3</span><div><h3>Open a project and get to work</h3><p>On macOS 13+, click “+” on an app page and choose a directory to launch a CLI. On other platforms, use your external terminal.</p></div></li>
+        <li><span class="step-number" aria-hidden="true">3</span><div><h3>Open a project and get to work</h3><p>Click “+” on an app page and pick a folder — on macOS 13+ the terminal opens right there — or open the project in your usual terminal.</p></div></li>
       </ol>
     </section>
 
     <section class="chapter wrap" id="faq" aria-labelledby="faq-title">
       <div class="chapter-head"><p class="rail-label">Common questions</p><div><h2 id="faq-title">A few things before you download.</h2></div></div>
       <div class="faq-list">
-        <details><summary>Does PHI include models or free credits?</summary><p>PHI is an open-source desktop tool and does not include model credits. Bring your own provider API key or a subscription account supported by your tool. Your chosen service provider charges for model usage.</p></details>
-        <details><summary>What's the difference between direct and a route group?</summary><p>Direct mode lets an app connect to one provider the way it always did, without going through the PHI gateway. A route group puts several providers or models together, and PHI picks by ordered, round robin, least used or another strategy, moving to the next on failure. Members can use different protocols; the gateway translates.</p></details>
+        <details><summary>Does PHI include models or free credits?</summary><p>PHI is an open-source desktop tool and does not include model credits. Bring a provider API key or a subscription account your tool supports; the provider bills for model usage.</p></details>
+        <details><summary>What's the difference between direct and a route group?</summary><p>Direct mode skips the gateway and keeps the app's existing connection to one provider. A route group puts several providers or models together, PHI picks one by strategy, and moves on when one fails. Members can use different protocols.</p></details>
         <details><summary>Where do my keys and requests go?</summary><p>Main configuration and usage data stay on this machine; subscription OAuth tokens go to the system keychain. Through the local gateway, requests reach PHI first and are then forwarded to the provider you configured; in direct mode the app connects to the provider itself. Either way, request content and the credentials it needs go to the provider you chose.</p></details>
-        <details><summary>Are unified sessions and long-term memory available now?</summary><p>Session browsing is available now: PHI gathers session records several tools keep on this machine into one list, where you can view them by project or time, search them, and copy a resume command. Continuous sessions across tools and long-term memory are still in planning, with no usable release yet.</p></details>
-        <details><summary>Can I run CLIs inside PHI on Windows or Linux?</summary><p>The built-in terminal currently requires macOS 13 or later. On Windows and Linux, use PHI to manage settings, connect models and track usage, and run your CLIs in an external terminal.</p></details>
+        <details><summary>Are unified sessions and long-term memory available now?</summary><p>Session browsing works: records the tools keep on this machine land in one list, where you can view them by project or time, search, and copy a resume command. Continuous sessions across tools and long-term memory are still in planning.</p></details>
+        <details><summary>Can I run CLIs inside PHI on Windows or Linux?</summary><p>The built-in terminal currently requires macOS 13 or later. On Windows and Linux, use PHI to manage settings, connect models and track usage, and run CLIs in an external terminal.</p></details>
         <details><summary>How do I update or report a problem?</summary><p>Choose “Check for updates” in the app, or visit <a href="https://github.com/GoatGit/phi/releases/latest">GitHub Releases</a> for the latest version. Report problems on <a href="https://github.com/GoatGit/phi/issues">GitHub Issues</a> with your OS version, tool name and steps to reproduce. Remember to remove any keys.</p></details>
       </div>
     </section>
 
     <section class="download wrap" id="download" aria-labelledby="download-title">
       <div class="download-heading">
-        <p class="kicker">Your AI development stack, in one window</p>
-        <h2 id="download-title">Ready to unify your workspace.</h2>
-        <p>Choose a package for your operating system. Check GitHub Releases for available versions, architectures and files.</p>
+        <h2 id="download-title">Pick a platform and install.</h2>
+        <p>Versions, architectures and downloadable files are listed on GitHub Releases.</p>
       </div>
       <div class="download-platforms">
         <a href="https://github.com/GoatGit/phi/releases/latest"><strong>macOS <span aria-hidden="true">↗</span></strong><span>Apple Silicon / Intel</span><small>Built-in terminal: macOS 13+</small></a>
