@@ -24,6 +24,7 @@ Some guides and images retain upstream terminology. Use your installed PHI versi
 - [Ghostty 终端 / Embedded terminal](../scripts/ghostty/README.md)：macOS SDK、原生测试与第三方许可。
 - [Fork 基线 / Fork provenance](../FORK-BASELINE.md)：上游来源与快照核验边界。
 - [安全策略 / Security policy](../SECURITY.md)：信任边界、敏感数据与私密报告渠道。
+- [已知限制 / Known limitations](known-limitations.md)：安装包签名现状、真机验证范围与更新方式。
 - [开源准备清单 / Open-source readiness](OPEN_SOURCE_CHECKLIST.md)：公开前需要核验的仓库设置、历史扫描与发布材料。
 - [更新日志 / Changelog](../CHANGELOG.md)。
 

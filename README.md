@@ -51,6 +51,8 @@ PHI 的配置和统计数据默认保存在本机 `~/.phi/`，不需要 PHI 云�
 | Windows 10 / 11 | x64 / ARM64 | `.msi` 安装器，或 `Portable.zip` 便携版 |
 | Linux | x64 / ARM64 | `.AppImage`、`.deb` 或 `.rpm` |
 
+Windows 安装包目前没有 Authenticode 签名，SmartScreen 可能提示「未知发布者」；签名状态与各平台真机验证范围见[已知限制](docs/known-limitations.md)。
+
 应用内「检查更新」会打开 GitHub Releases；当前未启用应用内自动安装更新。macOS 如提示签名或来源异常，请先核对下载来源与对应发布说明，再通过 Issue 反馈。
 
 ## 第一次使用

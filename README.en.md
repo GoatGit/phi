@@ -51,6 +51,8 @@ Choose a package for your system and architecture from [GitHub Releases](https:/
 | Windows 10 / 11 | x64 / ARM64 | `.msi` installer or `Portable.zip` |
 | Linux | x64 / ARM64 | `.AppImage`, `.deb`, or `.rpm` |
 
+Windows packages are not Authenticode-signed yet, so SmartScreen may warn about an unknown publisher. See [known limitations](docs/known-limitations.en.md) for signing status and real-device verification scope.
+
 "Check for updates" opens GitHub Releases; in-app automatic installation is currently disabled. If macOS reports an unexpected signature or source warning, verify the download source and release notes, then report the issue.
 
 ## Your first request

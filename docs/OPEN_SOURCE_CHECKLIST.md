@@ -49,6 +49,9 @@
 - [ ] 前端类型检查、格式、单测与构建通过；后端 fmt、Clippy 与相关测试通过，并使用 `PHI_TEST_HOME` 隔离配置。
 - [ ] 手动执行 Release workflow 的 dry run，核验 Windows x64 / ARM64、Linux x64 / ARM64 和 macOS 通用包产物。
 - [ ] 在目标平台实际安装、启动、执行模型请求，检查卸载和数据目录行为；macOS 同时验证签名、公证与内嵌终端。CI 编译成功不等于已完成真机验证。
+
+> Windows 安装包当前没有 Authenticode 签名，Windows/Linux 真机安装验证尚未完成；这些限制已公开记录在[已知限制](known-limitations.md)。
+
 - [ ] 核对下载文件名、架构、校验值、第三方许可与 Release notes，再发布标签。当前应用内更新只打开 Releases，不承诺自动安装。
 
 ## 6. 开放后的维护
