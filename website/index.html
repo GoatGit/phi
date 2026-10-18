@@ -4,15 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
-  <meta name="theme-color" content="#faf8f3">
-  <title>PHI — AI 编程工具的网关、路由与终端</title>
+  <meta name="theme-color" content="#fffaf2">
+  <title>PHI — 一个网关，统一你的 AI 开发栈</title>
   <meta name="description" content="PHI 把 Claude Code、Codex、Gemini CLI 接到同一套本地网关：协议按需转换，模型按直连或路由组选择，终端、会话和用量都在这个窗口里。">
   <link rel="canonical" href="https://phi.semibot.ai/">
   <link rel="alternate" hreflang="zh-CN" href="https://phi.semibot.ai/">
   <link rel="alternate" hreflang="en" href="https://phi.semibot.ai/en/">
   <link rel="alternate" hreflang="ja" href="https://phi.semibot.ai/ja/">
   <link rel="alternate" hreflang="x-default" href="https://phi.semibot.ai/">
-  <meta property="og:title" content="PHI — AI 编程工具的网关、路由与终端">
+  <meta property="og:title" content="PHI — 一个网关，统一你的 AI 开发栈">
   <meta property="og:description" content="协议互转、直连与路由组、内嵌 CLI 终端和用量记录，都在同一个桌面窗口里。">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://phi.semibot.ai/">
@@ -20,7 +20,7 @@
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="ja_JP">
   <link rel="icon" type="image/svg+xml" href="assets/phi-app.svg">
-  <link rel="stylesheet" href="css/style.css?v=atelier-1">
+  <link rel="stylesheet" href="css/style.css?v=pop-1">
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"SoftwareApplication","name":"PHI","operatingSystem":"macOS, Windows, Linux","applicationCategory":"DeveloperApplication","description":"PHI 把 Claude Code、Codex、Gemini CLI 等工具接到同一套本地网关：在 OpenAI Chat、OpenAI Responses、Anthropic Messages 与 Gemini 之间转换（System One 即将支持），用直连或路由组选择模型，内嵌终端运行 CLI，并记录用量。","url":"https://phi.semibot.ai/","inLanguage":"zh-CN","downloadUrl":"https://github.com/GoatGit/phi/releases/latest","codeRepository":"https://github.com/GoatGit/phi","license":"https://opensource.org/licenses/MIT"}
   </script>
@@ -31,16 +31,6 @@
   <header class="site-header">
     <div class="wrap header-inner">
       <a class="brand" href="#top" aria-label="PHI 首页"><img src="assets/phi-app.svg" width="34" height="34" alt=""><span>PHI</span></a>
-      <nav class="primary-nav" aria-label="主导航">
-        <a href="#gateway">网关</a>
-        <a href="#apps">应用</a>
-        <a href="#routing">路由</a>
-        <a href="#memory">会话</a>
-        <a href="#cli">终端</a>
-        <a href="#start">上手</a>
-        <a href="https://github.com/GoatGit/phi">GitHub</a>
-        <a class="nav-download" href="#download">下载</a>
-      </nav>
       <nav class="language-switch" aria-label="切换语言">
         <select aria-label="切换语言" onchange="if (this.value) window.location.href = this.value;">
           <option value="./" lang="zh-CN" selected>中文</option>
@@ -59,73 +49,45 @@
   <main id="main">
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
-      <p class="hero-eyebrow">
-        <img src="assets/phi-app.svg" width="24" height="24" alt="">
-        <span class="eyebrow-name">PHI</span>
-        <span class="eyebrow-sep" aria-hidden="true"></span>
-        <span class="eyebrow-note">统一网关 · 统一路由 · 统一终端</span>
-      </p>
-      <h1 id="hero-title">一个网关，<br>统一你的 AI 开发栈。</h1>
-      <p class="lede">
-        Claude Code、Codex、Gemini CLI 各说各的协议。PHI 在中间转换，供应商只配一次；直连还是走路由组，规则由你定，终端就开在同一个窗口。
-      </p>
-      <div class="actions">
-        <a class="button" href="#download">下载 PHI <span aria-hidden="true">↓</span></a>
-        <a class="text-link" href="https://github.com/GoatGit/phi">到 GitHub 看看 <span aria-hidden="true">↗</span></a>
-      </div>
-      <p class="platforms">macOS · Windows · Linux<span class="sep">/</span>开源，MIT 许可</p>
-      </div>
-      <figure class="workspace-preview" aria-labelledby="preview-caption">
-        <div class="preview-bar" aria-hidden="true"><span class="preview-lights">● ● ●</span><span>PHI / 工作台</span></div>
-        <div class="preview-workspace" aria-hidden="true">
-          <div class="preview-sidebar"><b>PHI</b><span class="preview-selected">Codex</span><span>Claude Code</span><span>Gemini CLI</span><hr><span>供应商</span><span>路由组</span><span>会话</span><span>用量</span></div>
-          <div class="preview-main">
-            <div class="preview-tabs"><span>配置</span><strong>终端 · 项目</strong><span>＋</span></div>
-            <div class="preview-terminal"><p class="dim">~/projects/my-app</p><p><span class="prompt">$</span> codex</p><p class="preview-task">把这个想法，<br>变成能运行的代码。</p><p class="dim">查看项目 · 修改代码 · 运行测试</p><p class="preview-input"><span class="prompt">›</span> 从哪里开始？<span class="caret"></span></p></div>
-            <div class="preview-status"><span>本地网关</span><span>同一套供应商与模型</span></div>
-          </div>
+        <div class="hero-mark" aria-hidden="true">
+          <span class="mark-ring"></span>
+          <img src="assets/phi-app.svg" width="84" height="84" alt="">
+          <svg class="spark spark-a" viewBox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"/></svg>
+          <svg class="spark spark-b" viewBox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"/></svg>
         </div>
-        <figcaption id="preview-caption">工作台布局示意，CLI 界面以实际安装版本为准。</figcaption>
-      </figure>
+        <p class="hero-kicker">统一网关 · 统一路由 · 统一终端</p>
+        <h1 id="hero-title">一个网关，<br><span class="h1-mark">统一你的 AI 开发栈。</span></h1>
+        <p class="lede">
+          Claude Code、Codex、Gemini CLI 各说各的协议。PHI 在中间转换，供应商只配一次；直连还是走路由组，规则由你定，终端就开在同一个窗口。
+        </p>
+        <div class="actions">
+          <a class="button" href="#download">下载 PHI <span aria-hidden="true">↓</span></a>
+          <a class="text-link" href="https://github.com/GoatGit/phi">到 GitHub 看看 <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="platforms">macOS · Windows · Linux<span class="sep">/</span>开源，MIT 许可</p>
+      </div>
+
+      <div class="hero-stage">
+        <div class="stage-glow" aria-hidden="true"><span class="stage-sun"></span></div>
+        <figure class="workspace-preview" aria-labelledby="preview-caption">
+          <div class="preview-bar" aria-hidden="true"><span class="preview-lights">● ● ●</span><span>PHI / 工作台</span></div>
+          <div class="preview-workspace" aria-hidden="true">
+            <div class="preview-sidebar"><b>PHI</b><span class="preview-selected">Codex</span><span>Claude Code</span><span>Gemini CLI</span><hr><span>供应商</span><span>路由组</span><span>会话</span><span>用量</span></div>
+            <div class="preview-main">
+              <div class="preview-tabs"><span>配置</span><strong>终端 · 项目</strong><span>＋</span></div>
+              <div class="preview-terminal"><p class="dim">~/projects/my-app</p><p><span class="prompt">$</span> codex</p><p class="preview-task">把这个想法，<br>变成能运行的代码。</p><p class="dim">查看项目 · 修改代码 · 运行测试</p><p class="preview-input"><span class="prompt">›</span> 从哪里开始？<span class="caret"></span></p></div>
+              <div class="preview-status"><span>本地网关</span><span>同一套供应商与模型</span></div>
+            </div>
+          </div>
+          <figcaption id="preview-caption">工作台布局示意，CLI 界面以实际安装版本为准。</figcaption>
+        </figure>
+        <span class="stage-chip" aria-hidden="true">⌘T</span>
+      </div>
     </section>
 
-    <div class="protocol-strip" aria-hidden="true">
-      <div class="strip-track">
-        <div class="strip-group">
-          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
-          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
-        </div>
-        <div class="strip-group">
-          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
-          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
-        </div>
-      </div>
-    </div>
-
-    <nav class="pillars wrap" aria-label="四个统一">
-      <p class="pillars-lead">四个统一</p>
-      <a href="#gateway">
-        <span class="pillar-index">01</span><strong>统一网关</strong>
-        <span class="pillar-text">四种协议已经能用，System One 正在接入。</span><span class="pillar-arrow" aria-hidden="true">↗</span>
-      </a>
-      <a href="#routing">
-        <span class="pillar-index">02</span><strong>统一路由</strong>
-        <span class="pillar-text">直连或路由组；顺序、轮询、低用量优先，也可以让决策模型挑。</span><span class="pillar-arrow" aria-hidden="true">↗</span>
-      </a>
-      <a href="#memory">
-        <span class="pillar-index">03</span><strong>统一会话与记忆</strong>
-        <span class="pillar-text">会话记录已经收进一个列表；跨工具上下文与长期记忆在规划中。</span><span class="pillar-arrow" aria-hidden="true">↗</span>
-      </a>
-      <a href="#cli">
-        <span class="pillar-index">04</span><strong>统一 CLI 终端</strong>
-        <span class="pillar-text">模型和路由配好，直接在 PHI 里开终端做事。</span><span class="pillar-arrow" aria-hidden="true">↗</span>
-      </a>
-    </nav>
-
     <section class="story wrap" aria-labelledby="story-title">
-      <p class="rail-label">为什么会有 PHI</p>
+      <h2 id="story-title">三个工具，三份配置。<br>你只想写代码。</h2>
       <div class="story-body">
-        <h2 id="story-title">工具一多，配置就散了。</h2>
         <p>
           你可能同时在用 Claude Code、Codex 和 Gemini CLI。它们各说各的协议，各记一份配置。换个供应商，要在三四个地方各改一遍；想换条线路，还得先想起上次改的是哪个文件。
         </p>
@@ -139,11 +101,10 @@
     </section>
 
     <section class="chapter wrap" id="gateway" aria-labelledby="gateway-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">01</span>统一网关</p>
-        <div>
-          <h2 id="gateway-title">四种已经能用，第五种在路上。</h2>
-          <p class="chapter-lede">
+      <div class="chapter-intro">
+        <h2 id="gateway-title">协议的事，交给中间那层。</h2>
+        <div class="chapter-copy">
+          <p>
             Claude Code 说 Anthropic Messages，Codex 说 OpenAI Responses，Gemini CLI 说 Gemini 原生；供应商那边可能是另一种。PHI 在中间识别、直通或转换，工具不必为每家供应商各接一次。第五种是 System One，按问题和答案组织的决策协议，正在接入。
           </p>
         </div>
@@ -151,72 +112,63 @@
 
       <div class="gateway-layout">
         <div class="flow protocol-flow" role="img" aria-label="示意图：工具入口的五种协议经过 PHI 网关，连接到供应商上游">
-          <div class="flow-col-wrap">
-            <p class="flow-caption">工具入口</p>
-            <ul class="flow-col">
-              <li>Anthropic Messages</li>
-              <li>OpenAI Responses</li>
-              <li>OpenAI Chat</li>
-              <li>Gemini 原生</li>
-              <li class="soon">System One<small>即将支持</small></li>
-            </ul>
-          </div>
+          <ul class="flow-col">
+            <li>Anthropic Messages</li>
+            <li>OpenAI Responses</li>
+            <li>OpenAI Chat</li>
+            <li>Gemini 原生</li>
+            <li class="soon">System One<small>即将支持</small></li>
+          </ul>
           <div class="flow-node">
             <strong>PHI 网关</strong>
             <span>识别协议<br>直通或互转<br>流式输出</span>
           </div>
-          <div class="flow-col-wrap">
-            <p class="flow-caption">供应商上游</p>
-            <ul class="flow-col">
-              <li>Anthropic Messages</li>
-              <li>OpenAI Responses</li>
-              <li>OpenAI Chat</li>
-              <li>Gemini 原生</li>
-              <li class="soon">System One<small>即将支持</small></li>
-            </ul>
-          </div>
+          <ul class="flow-col flow-col-up">
+            <li>Anthropic Messages</li>
+            <li>OpenAI Responses</li>
+            <li>OpenAI Chat</li>
+            <li>Gemini 原生</li>
+            <li class="soon">System One<small>即将支持</small></li>
+          </ul>
         </div>
 
-        <dl class="defs">
-          <div><dt>四种聊天协议</dt><dd>OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini 原生。入口和上游各选一种，不必相同。</dd></div>
-          <div><dt>System One（即将支持）</dt><dd>决策协议：请求里带状态和一组问题，回复是结构化的答案与概率。它只走自己的中转，不会被当成聊天请求改写。</dd></div>
-          <div><dt>同协议直通</dt><dd>两边说同一种协议时按原样转发，流式、工具调用和用量字段不被重写。</dd></div>
-          <div><dt>跨协议转换</dt><dd>请求、响应和流式事件按目标协议转换；工具调用、思考内容和 Token 用量尽量保留。</dd></div>
-        </dl>
+        <div class="facts">
+          <div><h3>同协议直通</h3><p>两边说同一种协议时按原样转发，流式、工具调用和用量字段不被重写。</p></div>
+          <div><h3>跨协议转换</h3><p>请求、响应和流式事件按目标协议转换；工具调用、思考内容和 Token 用量尽量保留。</p></div>
+          <div><h3>四种聊天协议</h3><p>OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini 原生。入口和上游各选一种，不必相同。</p></div>
+          <div><h3>System One（即将支持）</h3><p>决策协议：请求里带状态和一组问题，回复是结构化的答案与概率。它只走自己的中转，不会被当成聊天请求改写。</p></div>
+        </div>
       </div>
       <p class="footnote">System One 还在接入，发布后会出现在供应商的协议列表里。跨协议接入前，建议先用一个简单任务确认工具调用和流式输出；Gemini CLI 目前只接受 Gemini 原生上游。</p>
     </section>
 
     <section class="chapter wrap" id="apps" aria-labelledby="apps-title">
-      <div class="chapter-head">
-        <p class="rail-label">支持的应用</p>
-        <div>
-          <h2 id="apps-title">十个工具，一份配置。</h2>
-          <p class="chapter-lede">
-            两种接法：一种由 PHI 接管配置，一种与原有配置文件共存。接进来以后，都走同一套供应商和路由。
-          </p>
+      <div class="chapter-intro">
+        <h2 id="apps-title">你常用的工具，已经在里面。</h2>
+        <div class="chapter-copy">
+          <p>十个工具，一份配置。</p>
+          <p>两种接法：一种由 PHI 接管配置，一种与原有配置文件共存。接进来以后，都走同一套供应商和路由。</p>
         </div>
       </div>
       <ul class="app-grid">
-        <li class="app-card"><img src="assets/apps/claude.svg" width="28" height="28" alt=""><strong>Claude Code</strong><small>接管</small></li>
-        <li class="app-card"><img src="assets/apps/claude.svg" width="28" height="28" alt=""><strong>Claude Desktop</strong><small>共存</small></li>
-        <li class="app-card"><img src="assets/apps/openai.svg" width="28" height="28" alt=""><strong>Codex</strong><small>接管</small></li>
-        <li class="app-card"><img src="assets/apps/gemini.svg" width="28" height="28" alt=""><strong>Gemini CLI</strong><small>接管</small></li>
-        <li class="app-card"><img src="assets/apps/grok.svg" width="28" height="28" alt=""><strong>Grok Build</strong><small>接管</small></li>
-        <li class="app-card"><img src="assets/apps/opencode.svg" width="28" height="28" alt=""><strong>OpenCode</strong><small>共存</small></li>
-        <li class="app-card"><img src="assets/apps/claw.svg" width="28" height="28" alt=""><strong>OpenClaw</strong><small>共存</small></li>
-        <li class="app-card"><img src="assets/apps/hermes.png" width="28" height="28" alt=""><strong>Hermes</strong><small>共存</small></li>
-        <li class="app-card"><img src="assets/apps/pi.svg" width="28" height="28" alt=""><strong>Pi</strong><small>共存</small></li>
-        <li class="app-card"><img src="assets/apps/minimax.svg" width="28" height="28" alt=""><strong>MiniMax Code</strong><small>共存</small></li>
+        <li class="app-card"><img src="assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Code</strong></li>
+        <li class="app-card"><img src="assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Desktop</strong></li>
+        <li class="app-card"><img src="assets/apps/openai.svg" width="30" height="30" alt=""><strong>Codex</strong></li>
+        <li class="app-card"><img src="assets/apps/gemini.svg" width="30" height="30" alt=""><strong>Gemini CLI</strong></li>
+        <li class="app-card"><img src="assets/apps/grok.svg" width="30" height="30" alt=""><strong>Grok Build</strong></li>
+        <li class="app-card"><img src="assets/apps/opencode.svg" width="30" height="30" alt=""><strong>OpenCode</strong></li>
+        <li class="app-card"><img src="assets/apps/claw.svg" width="30" height="30" alt=""><strong>OpenClaw</strong></li>
+        <li class="app-card"><img src="assets/apps/hermes.png" width="30" height="30" alt=""><strong>Hermes</strong></li>
+        <li class="app-card"><img src="assets/apps/pi.svg" width="30" height="30" alt=""><strong>Pi</strong></li>
+        <li class="app-card"><img src="assets/apps/minimax.svg" width="30" height="30" alt=""><strong>MiniMax Code</strong></li>
       </ul>
     </section>
 
     <section class="chapter wrap" id="routing" aria-labelledby="routing-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">02</span>统一路由</p>
-        <div>
-          <h2 id="routing-title">直连，或者交给一个组。</h2>
-          <p class="chapter-lede">
+      <div class="chapter-intro">
+        <h2 id="routing-title">直连很干脆，路由组更扛事。</h2>
+        <div class="chapter-copy">
+          <p>
             每个应用可以固定连一个供应商，也可以把供应商、模型放进路由组，让 PHI 按策略挑。组内成员不必同协议、同模型，网关会在转发时转换。
           </p>
         </div>
@@ -225,17 +177,14 @@
       <div class="route-layout">
         <div class="route-map" role="img" aria-label="示意图：应用经过路由组，按策略把请求分给不同的供应商成员">
           <div class="route-layer">
-            <p class="route-layer-label">应用</p>
             <div class="route-chips"><span>Claude Code</span><span>Codex</span><span>Gemini CLI</span><span>OpenCode</span></div>
           </div>
           <p class="route-join" aria-hidden="true">↓</p>
           <div class="route-layer">
-            <p class="route-layer-label">路由组</p>
             <div class="route-group-line"><strong>主力线路</strong><span>低用量优先 · 失败自动换下一条</span></div>
           </div>
           <p class="route-join" aria-hidden="true">↓</p>
           <div class="route-layer">
-            <p class="route-layer-label">成员</p>
             <div class="route-members">
               <span><b>供应商 A</b>Anthropic</span>
               <span><b>供应商 B</b>OpenAI Chat</span>
@@ -254,7 +203,7 @@
         </dl>
       </div>
 
-      <ul class="points compact route-points">
+      <ul class="route-notes">
         <li><h3>会话粘性</h3><p>同一段对话尽量落在同一个成员上，上下文不用来回搬。</p></li>
         <li><h3>故障转移</h3><p>符合条件的错误会换下一条线路；持续失败的成员先冷却，恢复后再接。</p></li>
         <li><h3>超时与重试</h3><p>首字节、流式静默、总时长分别设上限，慢线路不会一直挂着。</p></li>
@@ -263,41 +212,32 @@
     </section>
 
     <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">03</span>统一会话与记忆<span class="status-pill">规划中</span></p>
-        <div>
-          <h2 id="memory-title">会话不该跟着工具换地方。</h2>
-          <p class="chapter-lede">
+      <div class="chapter-intro">
+        <h2 id="memory-title">换工具可以，会话不用搬家。</h2>
+        <div class="chapter-copy">
+          <p>
             PHI 已经把各工具留在本机的会话记录收进一个列表：按项目分组、搜索、打开原文，或复制恢复命令。接下来要把跨工具的上下文和长期记忆接起来：你在这个项目里说过的事，不必每次从头再说。
           </p>
         </div>
       </div>
 
-      <div class="roadmap">
-        <div class="roadmap-col">
-          <p class="roadmap-label">现在</p>
-          <ul class="points compact">
-            <li><h3>一个列表，翻遍各工具的会话</h3><p>PHI 会读 Claude Code、Codex、Gemini CLI 等工具留在本机的记录，按项目或时间归在一起。</p></li>
-            <li><h3>搜得到，也回得去</h3><p>搜索标题、目录、消息或会话 ID；打开原文，复制恢复命令，回到当时的工作目录。</p></li>
-          </ul>
-        </div>
-        <div class="roadmap-col roadmap-next">
-          <p class="roadmap-label">规划中</p>
-          <ul class="points compact">
-            <li><h3>跨工具的连续会话</h3><p>在 Claude Code 里开的头，换到 Codex 也能接着做。</p></li>
-            <li><h3>跟着项目的长期记忆</h3><p>把偏好、决定和项目事实存下来，由你查看、修改和删除，再带进下一次会话。</p></li>
-          </ul>
-        </div>
+      <div class="session-layout">
+        <p class="pull">在 Claude Code 里开的头，换到 Codex 也能接着做。</p>
+        <figure class="session-stack" role="img" aria-labelledby="session-caption">
+          <div class="session-card" aria-hidden="true"><img src="assets/apps/claude.svg" width="24" height="24" alt=""><span>auth-refactor</span><b>↗</b></div>
+          <div class="session-card" aria-hidden="true"><img src="assets/apps/openai.svg" width="24" height="24" alt=""><span>site-redesign</span><b>↗</b></div>
+          <div class="session-card" aria-hidden="true"><img src="assets/apps/gemini.svg" width="24" height="24" alt=""><span>usage-ledger</span><b>↗</b></div>
+          <figcaption id="session-caption">会话列表示意</figcaption>
+        </figure>
       </div>
       <p class="footnote">跨工具上下文与长期记忆仍在规划中；现有会话浏览只读取各工具自己保存在本机的记录。</p>
     </section>
 
     <section class="chapter wrap" id="cli" aria-labelledby="cli-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">04</span>统一 CLI 终端</p>
-        <div>
-          <h2 id="cli-title">模型配好了，就在终端里用。</h2>
-          <p class="chapter-lede">
+      <div class="chapter-intro">
+        <h2 id="cli-title">终端就开在这个窗口里。</h2>
+        <div class="chapter-copy">
+          <p>
             应用页右上角点「＋」，或者按一下 <kbd>⌘T</kbd>，选个目录就能启动。PHI 会先确认本机的 CLI 装好没有。Claude Code、Codex、Gemini CLI 等 9 种工具都能这样打开，配好的供应商和路由组一起生效。
             <span class="inline-note">目前仅 macOS 13+ 可用；未安装的 CLI 会显示安装提示。</span>
           </p>
@@ -329,6 +269,7 @@
         </ul>
 
         <figure class="terminal-shot">
+          <span class="terminal-chip" aria-hidden="true">⌘T</span>
           <div class="shot-chrome" aria-hidden="true">
             <span class="shot-dots"><i></i><i></i><i></i></span>
             <span class="shot-tabs"><b class="tab">配置</b><b class="tab tab-run">● 项目</b><b class="tab tab-run">● 测试</b><b class="tab-plus">＋</b></span>
@@ -345,12 +286,11 @@
       </div>
     </section>
 
-    <section class="chapter wrap" id="config" aria-labelledby="config-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">05</span>配置</p>
-        <div>
-          <h2 id="config-title">配置写一遍，网关、路由和终端一起认。</h2>
-          <p class="chapter-lede">
+    <section class="chapter wrap" id="workbench" aria-labelledby="workbench-title">
+      <div class="chapter-intro">
+        <h2 id="workbench-title">配置、用量、数据，<br>都收在同一处。</h2>
+        <div class="chapter-copy">
+          <p>
             供应商、MCP、Skills 和提示词放在一处管理，再按工具支持的方式写进配置。网关、路由组和终端里的 CLI 都读同一份。
           </p>
         </div>
@@ -370,75 +310,34 @@
           <dd>常用提示词存成一份库，随时复制，或写进项目配置。</dd>
         </div>
         <div>
-          <dt>项目快照</dt>
-          <dd>把当前的供应商、MCP、Skills 和记忆文件存成一个项目，工作和个人环境一键切换。</dd>
+          <dt>用量账本</dt>
+          <dd>请求经过本地网关，会话数、Token、费用、缓存命中和活跃时长都记进本地账本。按天看趋势，或者用星期 × 小时的热力图，找出自己用得最多的时段。</dd>
         </div>
         <div>
-          <dt>授权中心</dt>
-          <dd>哪个账号需要重新登录、哪些是默认账号，集中在一处处理。</dd>
+          <dt>本地数据</dt>
+          <dd>PHI 没有项目方的云端后端：配置、会话统计和用量账本都在本机的 <code>~/.phi/</code> 里，订阅类 OAuth Token 交给系统钥匙串。用在线模型时，CLI 或本地网关才会连接你选择的供应商。</dd>
         </div>
       </dl>
     </section>
 
-    <section class="chapter wrap" id="usage" aria-labelledby="usage-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">06</span>用量</p>
-        <div>
-          <h2 id="usage-title">这个月花在哪，心里有数。</h2>
-          <p class="chapter-lede">
-            请求经过本地网关，会话数、Token、费用、缓存命中和活跃时长都记进本地账本。按天看趋势，或者用星期 × 小时的热力图，找出自己用得最多的时段。
-          </p>
-        </div>
-      </div>
-
-      <div class="usage-layout">
-        <ul class="points compact">
-          <li><h3>按应用、供应商、模型拆开看</h3><p>钱花在哪个工具、哪个模型上，一眼看清，不只是一个总数。</p></li>
-          <li><h3>请求能点开</h3><p>每条请求的模型、耗时、Token 和费用都有记录；路由选了哪条线路，也能在决策跟踪里对上。</p></li>
-          <li><h3>长会话有底</h3><p>上下文水位曲线和自动压缩阈值，提醒你什么时候该开新会话。</p></li>
-        </ul>
-        <div class="heat" role="img" aria-label="示意图：星期与小时的热力图，显示一周内的使用高峰">
-          <p class="heat-label">一周里的活跃时段 <em>示意</em></p>
-          <div class="heat-grid" aria-hidden="true">
-            <i class="l0"></i><i class="l2"></i><i class="l3"></i><i class="l1"></i><i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><i class="l3"></i><i class="l2"></i>
-            <i class="l1"></i><i class="l3"></i><i class="l4"></i><i class="l3"></i><i class="l1"></i><i class="l0"></i><i class="l2"></i><i class="l4"></i><i class="l4"></i><i class="l3"></i><i class="l2"></i><i class="l1"></i>
-            <i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l4"></i><i class="l3"></i><i class="l1"></i><i class="l1"></i><i class="l3"></i><i class="l4"></i><i class="l4"></i><i class="l3"></i><i class="l2"></i>
-            <i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l2"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l3"></i><i class="l2"></i><i class="l1"></i>
-            <i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l1"></i><i class="l2"></i><i class="l1"></i><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l2"></i><i class="l1"></i><i class="l0"></i>
-            <i class="l0"></i><i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l1"></i><i class="l0"></i><i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l1"></i><i class="l0"></i><i class="l0"></i>
-          </div>
-          <p class="heat-foot"><span>少</span><span class="scale"><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i></span><span>多</span></p>
-        </div>
-      </div>
-    </section>
-
-    <section class="chapter wrap" id="local" aria-labelledby="local-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">07</span>本地</p>
-        <div>
-          <h2 id="local-title">数据在哪，说得清楚。</h2>
-          <p class="chapter-lede">
-            PHI 没有项目方的云端后端：配置、会话统计和用量账本都在本机的
-            <code>~/.phi/</code> 里，订阅类 OAuth Token 交给系统钥匙串。用在线模型时，CLI 或本地网关才会连接你选择的供应商。
-          </p>
-        </div>
-      </div>
-    </section>
-
     <section class="chapter wrap" id="start" aria-labelledby="start-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">08</span>开始使用</p>
-        <div><h2 id="start-title">从你熟悉的工具开始。</h2><p class="chapter-lede">不用一次配好所有东西。先连通一个工具，再慢慢整理自己的工作台。</p></div>
+      <div class="chapter-intro">
+        <h2 id="start-title">从你熟悉的工具开始。</h2>
+        <div class="chapter-copy">
+          <p>不用一次配好所有东西。先连通一个工具，再慢慢整理自己的工作台。</p>
+        </div>
       </div>
       <ol class="start-steps">
-        <li><span class="step-number" aria-hidden="true">1</span><div><h3>装好 PHI 和你要用的 CLI</h3><p>PHI 管理和启动工具，CLI 仍按各自的官方说明安装；已经装好的可以直接用。</p></div></li>
-        <li><span class="step-number" aria-hidden="true">2</span><div><h3>添加供应商，选好连接方式</h3><p>填好模型服务，在「路由」页决定直连还是加入路由组；需要时给组挑一个策略。</p></div></li>
-        <li><span class="step-number" aria-hidden="true">3</span><div><h3>打开项目，开始做事</h3><p>在应用页点「＋」选个目录，macOS 13+ 可以就地开终端；或者在你常用的终端里打开项目。</p></div></li>
+        <li><span class="step-glyph" aria-hidden="true">装</span><div><h3>装好 PHI 和你要用的 CLI</h3><p>PHI 管理和启动工具，CLI 仍按各自的官方说明安装；已经装好的可以直接用。</p></div></li>
+        <li><span class="step-glyph" aria-hidden="true">连</span><div><h3>添加供应商，选好连接方式</h3><p>填好模型服务，在「路由」页决定直连还是加入路由组；需要时给组挑一个策略。</p></div></li>
+        <li><span class="step-glyph" aria-hidden="true">开</span><div><h3>打开项目，开始做事</h3><p>在应用页点「＋」选个目录，macOS 13+ 可以就地开终端；或者在你常用的终端里打开项目。</p></div></li>
       </ol>
     </section>
 
     <section class="chapter wrap" id="faq" aria-labelledby="faq-title">
-      <div class="chapter-head"><p class="rail-label">你可能想问</p><div><h2 id="faq-title">下载前，再说清几件事。</h2></div></div>
+      <div class="chapter-intro">
+        <h2 id="faq-title">下载前，再说清几件事。</h2>
+      </div>
       <div class="faq-list">
         <details><summary>PHI 自带模型或免费额度吗？</summary><p>PHI 是开源桌面工具，不提供模型额度。你需要自行准备供应商的 API Key 或对应工具支持的订阅账号；模型费用由所选服务商收取。</p></details>
         <details><summary>直连和路由组有什么区别？</summary><p>直连不经过网关，应用按原来的方式连一个供应商。路由组把几个供应商或模型放在一起，由 PHI 按策略挑，失败时换下一条；组内可以是不同协议。</p></details>
@@ -451,7 +350,6 @@
 
     <section class="download wrap" id="download" aria-labelledby="download-title">
       <div class="download-heading">
-        <p class="download-kicker">下载</p>
         <h2 id="download-title">选一个平台，装上就能用。</h2>
         <p>版本、架构和可下载文件以 GitHub Releases 为准。</p>
       </div>

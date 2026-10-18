@@ -4,15 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
-  <meta name="theme-color" content="#faf8f3">
-  <title>PHI — AI コーディングツールのためのゲートウェイ、ルート、ターミナル</title>
+  <meta name="theme-color" content="#fffaf2">
+  <title>PHI — ひとつのゲートウェイで、AI 開発スタックをまとめる</title>
   <meta name="description" content="PHI は Claude Code、Codex、Gemini CLI をひとつのローカルゲートウェイにつなぎます。プロトコルは必要に応じて変換し、モデルは直接接続かルートグループから選び、ターミナル、セッション、利用状況を同じウィンドウにまとめます。">
   <link rel="canonical" href="https://phi.semibot.ai/ja/">
   <link rel="alternate" hreflang="zh-CN" href="https://phi.semibot.ai/">
   <link rel="alternate" hreflang="en" href="https://phi.semibot.ai/en/">
   <link rel="alternate" hreflang="ja" href="https://phi.semibot.ai/ja/">
   <link rel="alternate" hreflang="x-default" href="https://phi.semibot.ai/">
-  <meta property="og:title" content="PHI — AI コーディングツールのためのゲートウェイ、ルート、ターミナル">
+  <meta property="og:title" content="PHI — ひとつのゲートウェイで、AI 開発スタックをまとめる">
   <meta property="og:description" content="プロトコル変換、直接接続とルートグループ、内蔵 CLI ターミナル、利用記録。すべて同じデスクトップウィンドウに。">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://phi.semibot.ai/ja/">
@@ -20,7 +20,7 @@
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="zh_CN">
   <link rel="icon" type="image/svg+xml" href="../assets/phi-app.svg">
-  <link rel="stylesheet" href="../css/style.css?v=atelier-1">
+  <link rel="stylesheet" href="../css/style.css?v=pop-1">
   <script type="application/ld+json">
   {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI は Claude Code、Codex、Gemini CLI などのツールをひとつのローカルゲートウェイにつなぎます。OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini の間を変換し（System One は近日対応）、直接接続またはルートグループでモデルを選び、内蔵ターミナルで CLI を実行し、利用量を記録します。", "url": "https://phi.semibot.ai/ja/", "inLanguage": "ja", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
   </script>
@@ -31,16 +31,6 @@
   <header class="site-header">
     <div class="wrap header-inner">
       <a class="brand" href="#top" aria-label="PHI ホーム"><img src="../assets/phi-app.svg" width="34" height="34" alt=""><span>PHI</span></a>
-      <nav class="primary-nav" aria-label="メインナビゲーション">
-        <a href="#gateway">ゲートウェイ</a>
-        <a href="#apps">アプリ</a>
-        <a href="#routing">ルーティング</a>
-        <a href="#memory">セッション</a>
-        <a href="#cli">ターミナル</a>
-        <a href="#start">使い方</a>
-        <a href="https://github.com/GoatGit/phi">GitHub</a>
-        <a class="nav-download" href="#download">ダウンロード</a>
-      </nav>
       <nav class="language-switch" aria-label="言語を選択">
         <select aria-label="言語を選択" onchange="if (this.value) window.location.href = this.value;">
           <option value="../" lang="zh-CN">中文</option>
@@ -59,73 +49,45 @@
   <main id="main">
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
-      <p class="hero-eyebrow">
-        <img src="../assets/phi-app.svg" width="24" height="24" alt="">
-        <span class="eyebrow-name">PHI</span>
-        <span class="eyebrow-sep" aria-hidden="true"></span>
-        <span class="eyebrow-note">ゲートウェイ・ルーティング・ターミナル</span>
-      </p>
-      <h1 id="hero-title">ゲートウェイひとつで、<br>AI 開発をまとめる。</h1>
-      <p class="lede">
-        Claude Code、Codex、Gemini CLI は、それぞれ違うプロトコルで話します。その間を PHI が変換するので、プロバイダーの設定は一度で済みます。直接接続かルートグループかは自分のルールで決められ、ターミナルも同じウィンドウにあります。
-      </p>
-      <div class="actions">
-        <a class="button" href="#download">PHI をダウンロード <span aria-hidden="true">↓</span></a>
-        <a class="text-link" href="https://github.com/GoatGit/phi">GitHub を見る <span aria-hidden="true">↗</span></a>
-      </div>
-      <p class="platforms">macOS · Windows · Linux<span class="sep">/</span>オープンソース・MIT ライセンス</p>
-      </div>
-      <figure class="workspace-preview" aria-labelledby="preview-caption">
-        <div class="preview-bar" aria-hidden="true"><span class="preview-lights">● ● ●</span><span>PHI / ワークスペース</span></div>
-        <div class="preview-workspace" aria-hidden="true">
-          <div class="preview-sidebar"><b>PHI</b><span class="preview-selected">Codex</span><span>Claude Code</span><span>Gemini CLI</span><hr><span>プロバイダー</span><span>ルートグループ</span><span>セッション</span><span>利用状況</span></div>
-          <div class="preview-main">
-            <div class="preview-tabs"><span>設定</span><strong>ターミナル · プロジェクト</strong><span>＋</span></div>
-            <div class="preview-terminal"><p class="dim">~/projects/my-app</p><p><span class="prompt">$</span> codex</p><p class="preview-task">そのアイデアを、<br>動くコードに。</p><p class="dim">プロジェクトを確認 · 編集 · テスト</p><p class="preview-input"><span class="prompt">›</span> 何から始めましょう？<span class="caret"></span></p></div>
-            <div class="preview-status"><span>ローカルゲートウェイ</span><span>同じプロバイダー群とモデル</span></div>
-          </div>
+        <div class="hero-mark" aria-hidden="true">
+          <span class="mark-ring"></span>
+          <img src="../assets/phi-app.svg" width="84" height="84" alt="">
+          <svg class="spark spark-a" viewbox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"></path></svg>
+          <svg class="spark spark-b" viewbox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"></path></svg>
         </div>
-        <figcaption id="preview-caption">ワークスペースのレイアウト例です。CLI の表示はインストールしたバージョンにより異なります。</figcaption>
-      </figure>
+        <p class="hero-kicker">ゲートウェイ・ルーティング・ターミナル</p>
+        <h1 id="hero-title">ゲートウェイ 1 つで、<br><span class="h1-mark">AI 開発をまとめる。</span></h1>
+        <p class="lede">
+          Claude Code、Codex、Gemini CLI は、それぞれ違うプロトコルで話します。その間を PHI が変換するので、プロバイダーの設定は一度で済みます。直接接続かルートグループかは自分のルールで決められ、ターミナルも同じウィンドウにあります。
+        </p>
+        <div class="actions">
+          <a class="button" href="#download">PHI をダウンロード <span aria-hidden="true">↓</span></a>
+          <a class="text-link" href="https://github.com/GoatGit/phi">GitHub を見る <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="platforms">macOS · Windows · Linux<span class="sep">/</span>オープンソース・MIT ライセンス</p>
+      </div>
+
+      <div class="hero-stage">
+        <div class="stage-glow" aria-hidden="true"><span class="stage-sun"></span></div>
+        <figure class="workspace-preview" aria-labelledby="preview-caption">
+          <div class="preview-bar" aria-hidden="true"><span class="preview-lights">● ● ●</span><span>PHI / ワークスペース</span></div>
+          <div class="preview-workspace" aria-hidden="true">
+            <div class="preview-sidebar"><b>PHI</b><span class="preview-selected">Codex</span><span>Claude Code</span><span>Gemini CLI</span><hr><span>プロバイダー</span><span>ルートグループ</span><span>セッション</span><span>利用状況</span></div>
+            <div class="preview-main">
+              <div class="preview-tabs"><span>設定</span><strong>ターミナル · プロジェクト</strong><span>＋</span></div>
+              <div class="preview-terminal"><p class="dim">~/projects/my-app</p><p><span class="prompt">$</span> codex</p><p class="preview-task">そのアイデアを、<br>動くコードに。</p><p class="dim">プロジェクトを確認 · 編集 · テスト</p><p class="preview-input"><span class="prompt">›</span> 何から始めましょう？<span class="caret"></span></p></div>
+              <div class="preview-status"><span>ローカルゲートウェイ</span><span>同じプロバイダー群とモデル</span></div>
+            </div>
+          </div>
+          <figcaption id="preview-caption">ワークスペースのレイアウト例です。CLI の表示はインストールしたバージョンにより異なります。</figcaption>
+        </figure>
+        <span class="stage-chip" aria-hidden="true">⌘T</span>
+      </div>
     </section>
 
-    <div class="protocol-strip" aria-hidden="true">
-      <div class="strip-track">
-        <div class="strip-group">
-          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
-          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
-        </div>
-        <div class="strip-group">
-          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
-          <span>Anthropic Messages</span><i></i><span>OpenAI Responses</span><i></i><span>OpenAI Chat</span><i></i><span>Gemini</span><i></i>
-        </div>
-      </div>
-    </div>
-
-    <nav class="pillars wrap" aria-label="4つの統合">
-      <p class="pillars-lead">4つの統合</p>
-      <a href="#gateway">
-        <span class="pillar-index">01</span><strong>ゲートウェイの統合</strong>
-        <span class="pillar-text">4 つのプロトコルは利用できます。System One は近日対応です。</span><span class="pillar-arrow" aria-hidden="true">↗</span>
-      </a>
-      <a href="#routing">
-        <span class="pillar-index">02</span><strong>ルートの統合</strong>
-        <span class="pillar-text">直接接続かルートグループ。順序、ラウンドロビン、低使用量優先、判断モデルに任せることもできます。</span><span class="pillar-arrow" aria-hidden="true">↗</span>
-      </a>
-      <a href="#memory">
-        <span class="pillar-index">03</span><strong>セッションと記憶の統合</strong>
-        <span class="pillar-text">セッション記録はひとつの一覧に。ツールをまたぐ文脈と長期記憶は計画中です。</span><span class="pillar-arrow" aria-hidden="true">↗</span>
-      </a>
-      <a href="#cli">
-        <span class="pillar-index">04</span><strong>CLI ターミナルの統合</strong>
-        <span class="pillar-text">モデルとルートを整えたら、PHI の中でターミナルを開いて作業できます。</span><span class="pillar-arrow" aria-hidden="true">↗</span>
-      </a>
-    </nav>
-
     <section class="story wrap" aria-labelledby="story-title">
-      <p class="rail-label">PHI を作った理由</p>
+      <h2 id="story-title">ツール 3 つ、設定も 3 つ。<br>書きたいのはコードだけ。</h2>
       <div class="story-body">
-        <h2 id="story-title">ツールが増えるほど、設定は散らばっていく。</h2>
         <p>
           Claude Code、Codex、Gemini CLI を同時に使っているかもしれません。それぞれ違うプロトコルで話し、設定も別々に持っています。プロバイダーを変えるには三、四か所を直し、ルートを変えるには前回どのファイルを触ったかを思い出す必要があります。
         </p>
@@ -139,11 +101,10 @@
     </section>
 
     <section class="chapter wrap" id="gateway" aria-labelledby="gateway-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">01</span>ゲートウェイの統合</p>
-        <div>
-          <h2 id="gateway-title">4 つは利用可能。5 つ目は近日対応。</h2>
-          <p class="chapter-lede">
+      <div class="chapter-intro">
+        <h2 id="gateway-title">プロトコルのことは、真ん中の層に任せる。</h2>
+        <div class="chapter-copy">
+          <p>
             Claude Code は Anthropic Messages、Codex は OpenAI Responses、Gemini CLI は Gemini ネイティブで話します。接続先のプロバイダーは別のプロトコルでもかまいません。PHI が判別し、そのまま通すか変換するので、ツールごとにプロバイダーへ接続し直す必要はありません。5 つ目は System One。質問と回答で構成される判断プロトコルで、近日対応予定です。
           </p>
         </div>
@@ -151,72 +112,63 @@
 
       <div class="gateway-layout">
         <div class="flow protocol-flow" role="img" aria-label="図：ツール入口の 5 つのプロトコルが PHI ゲートウェイを通り、上流プロバイダーへ接続する">
-          <div class="flow-col-wrap">
-            <p class="flow-caption">ツール入口</p>
-            <ul class="flow-col">
-              <li>Anthropic Messages</li>
-              <li>OpenAI Responses</li>
-              <li>OpenAI Chat</li>
-              <li>Gemini ネイティブ</li>
-              <li class="soon">System One<small>近日対応</small></li>
-            </ul>
-          </div>
+          <ul class="flow-col">
+            <li>Anthropic Messages</li>
+            <li>OpenAI Responses</li>
+            <li>OpenAI Chat</li>
+            <li>Gemini ネイティブ</li>
+            <li class="soon">System One<small>近日対応</small></li>
+          </ul>
           <div class="flow-node">
             <strong>PHI ゲートウェイ</strong>
             <span>プロトコルを判別<br>透過または相互変換<br>ストリーミング出力</span>
           </div>
-          <div class="flow-col-wrap">
-            <p class="flow-caption">上流プロバイダー</p>
-            <ul class="flow-col">
-              <li>Anthropic Messages</li>
-              <li>OpenAI Responses</li>
-              <li>OpenAI Chat</li>
-              <li>Gemini ネイティブ</li>
-              <li class="soon">System One<small>近日対応</small></li>
-            </ul>
-          </div>
+          <ul class="flow-col flow-col-up">
+            <li>Anthropic Messages</li>
+            <li>OpenAI Responses</li>
+            <li>OpenAI Chat</li>
+            <li>Gemini ネイティブ</li>
+            <li class="soon">System One<small>近日対応</small></li>
+          </ul>
         </div>
 
-        <dl class="defs">
-          <div><dt>4 つのチャットプロトコル</dt><dd>OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini ネイティブ。入口側と上流側でそれぞれ選べ、同じである必要はありません。</dd></div>
-          <div><dt>System One（近日対応）</dt><dd>判断プロトコルです。リクエストには状態と複数の質問が含まれ、応答は確率付きの構造化された回答になります。ゲートウェイ内でも独自の経路を通り、チャットリクエストとして書き換えられることはありません。</dd></div>
-          <div><dt>同一プロトコルの透過転送</dt><dd>両側が同じプロトコルなら、そのまま転送します。ストリーミング、ツール呼び出し、使用量のフィールドは書き換えません。</dd></div>
-          <div><dt>プロトコル間の変換</dt><dd>リクエスト、レスポンス、ストリーミングイベントを対象プロトコルへ変換します。ツール呼び出し、思考内容、トークン使用量はできるだけ保持します。</dd></div>
-        </dl>
+        <div class="facts">
+          <div><h3>同一プロトコルの透過転送</h3><p>両側が同じプロトコルなら、そのまま転送します。ストリーミング、ツール呼び出し、使用量のフィールドは書き換えません。</p></div>
+          <div><h3>プロトコル間の変換</h3><p>リクエスト、レスポンス、ストリーミングイベントを対象プロトコルへ変換します。ツール呼び出し、思考内容、トークン使用量はできるだけ保持します。</p></div>
+          <div><h3>4 つのチャットプロトコル</h3><p>OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini ネイティブ。入口側と上流側でそれぞれ選べ、同じである必要はありません。</p></div>
+          <div><h3>System One（近日対応）</h3><p>判断プロトコルです。リクエストには状態と複数の質問が含まれ、応答は確率付きの構造化された回答になります。ゲートウェイ内でも独自の経路を通り、チャットリクエストとして書き換えられることはありません。</p></div>
+        </div>
       </div>
       <p class="footnote">System One はまだ利用できません。公開後はプロバイダーのプロトコル一覧に表示されます。プロトコルをまたぐ接続では、まず簡単なタスクでツール呼び出しとストリーミングを確認してください。Gemini CLI は現在、Gemini ネイティブの上流のみを受け付けます。</p>
     </section>
 
     <section class="chapter wrap" id="apps" aria-labelledby="apps-title">
-      <div class="chapter-head">
-        <p class="rail-label">対応アプリ</p>
-        <div>
-          <h2 id="apps-title">10 のツールを、ひとつの設定で。</h2>
-          <p class="chapter-lede">
-            接続方法は 2 つ。PHI が設定を管理するか、既存の設定ファイルと共存するかです。どちらも同じプロバイダー群と同じルートを使います。
-          </p>
+      <div class="chapter-intro">
+        <h2 id="apps-title">いつものツールは、もう中に。</h2>
+        <div class="chapter-copy">
+          <p>10 のツールを、ひとつの設定で。</p>
+          <p>接続方法は 2 つ。PHI が設定を管理するか、既存の設定ファイルと共存するかです。どちらも同じプロバイダー群と同じルートを使います。</p>
         </div>
       </div>
       <ul class="app-grid">
-        <li class="app-card"><img src="../assets/apps/claude.svg" width="28" height="28" alt=""><strong>Claude Code</strong><small>PHI 管理</small></li>
-        <li class="app-card"><img src="../assets/apps/claude.svg" width="28" height="28" alt=""><strong>Claude Desktop</strong><small>共存</small></li>
-        <li class="app-card"><img src="../assets/apps/openai.svg" width="28" height="28" alt=""><strong>Codex</strong><small>PHI 管理</small></li>
-        <li class="app-card"><img src="../assets/apps/gemini.svg" width="28" height="28" alt=""><strong>Gemini CLI</strong><small>PHI 管理</small></li>
-        <li class="app-card"><img src="../assets/apps/grok.svg" width="28" height="28" alt=""><strong>Grok Build</strong><small>PHI 管理</small></li>
-        <li class="app-card"><img src="../assets/apps/opencode.svg" width="28" height="28" alt=""><strong>OpenCode</strong><small>共存</small></li>
-        <li class="app-card"><img src="../assets/apps/claw.svg" width="28" height="28" alt=""><strong>OpenClaw</strong><small>共存</small></li>
-        <li class="app-card"><img src="../assets/apps/hermes.png" width="28" height="28" alt=""><strong>Hermes</strong><small>共存</small></li>
-        <li class="app-card"><img src="../assets/apps/pi.svg" width="28" height="28" alt=""><strong>Pi</strong><small>共存</small></li>
-        <li class="app-card"><img src="../assets/apps/minimax.svg" width="28" height="28" alt=""><strong>MiniMax Code</strong><small>共存</small></li>
+        <li class="app-card"><img src="../assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Code</strong></li>
+        <li class="app-card"><img src="../assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Desktop</strong></li>
+        <li class="app-card"><img src="../assets/apps/openai.svg" width="30" height="30" alt=""><strong>Codex</strong></li>
+        <li class="app-card"><img src="../assets/apps/gemini.svg" width="30" height="30" alt=""><strong>Gemini CLI</strong></li>
+        <li class="app-card"><img src="../assets/apps/grok.svg" width="30" height="30" alt=""><strong>Grok Build</strong></li>
+        <li class="app-card"><img src="../assets/apps/opencode.svg" width="30" height="30" alt=""><strong>OpenCode</strong></li>
+        <li class="app-card"><img src="../assets/apps/claw.svg" width="30" height="30" alt=""><strong>OpenClaw</strong></li>
+        <li class="app-card"><img src="../assets/apps/hermes.png" width="30" height="30" alt=""><strong>Hermes</strong></li>
+        <li class="app-card"><img src="../assets/apps/pi.svg" width="30" height="30" alt=""><strong>Pi</strong></li>
+        <li class="app-card"><img src="../assets/apps/minimax.svg" width="30" height="30" alt=""><strong>MiniMax Code</strong></li>
       </ul>
     </section>
 
     <section class="chapter wrap" id="routing" aria-labelledby="routing-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">02</span>ルートの統合</p>
-        <div>
-          <h2 id="routing-title">直接つなぐか、グループに任せる。</h2>
-          <p class="chapter-lede">
+      <div class="chapter-intro">
+        <h2 id="routing-title">直接接続はシンプル。ルートグループはもっと頼れる。</h2>
+        <div class="chapter-copy">
+          <p>
             各アプリはひとつのプロバイダーに固定することも、プロバイダーやモデルをルートグループに入れて PHI に戦略で選ばせることもできます。メンバーは同じプロトコルやモデルである必要はなく、転送時にゲートウェイが変換します。
           </p>
         </div>
@@ -225,17 +177,14 @@
       <div class="route-layout">
         <div class="route-map" role="img" aria-label="図：アプリがルートグループを通り、戦略に従って各プロバイダーメンバーへリクエストを振り分ける">
           <div class="route-layer">
-            <p class="route-layer-label">アプリ</p>
             <div class="route-chips"><span>Claude Code</span><span>Codex</span><span>Gemini CLI</span><span>OpenCode</span></div>
           </div>
           <p class="route-join" aria-hidden="true">↓</p>
           <div class="route-layer">
-            <p class="route-layer-label">ルートグループ</p>
             <div class="route-group-line"><strong>メインルート</strong><span>低使用量優先 · 失敗時は自動で次へ</span></div>
           </div>
           <p class="route-join" aria-hidden="true">↓</p>
           <div class="route-layer">
-            <p class="route-layer-label">メンバー</p>
             <div class="route-members">
               <span><b>プロバイダー A</b>Anthropic</span>
               <span><b>プロバイダー B</b>OpenAI Chat</span>
@@ -254,7 +203,7 @@
         </dl>
       </div>
 
-      <ul class="points compact route-points">
+      <ul class="route-notes">
         <li><h3>セッション親和性</h3><p>同じ会話はできるだけ同じメンバーに留まり、文脈を往復させずに済みます。</p></li>
         <li><h3>フェイルオーバー</h3><p>条件に合うエラーでは次の回線へ切り替えます。失敗が続くメンバーは一時的に冷却し、回復後に戻ります。</p></li>
         <li><h3>タイムアウトと再試行</h3><p>初回バイト、ストリーミングの無通信時間、総時間に上限を設け、遅い回線がぶら下がり続けないようにします。</p></li>
@@ -263,41 +212,32 @@
     </section>
 
     <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">03</span>セッションと記憶の統合<span class="status-pill">計画中</span></p>
-        <div>
-          <h2 id="memory-title">セッションは、ツールを変えても引っ越さない。</h2>
-          <p class="chapter-lede">
+      <div class="chapter-intro">
+        <h2 id="memory-title">ツールは変えても、セッションは引っ越さない。</h2>
+        <div class="chapter-copy">
+          <p>
             PHI は各ツールがこのマシンに残したセッション記録を、ひとつの一覧にまとめています。プロジェクト別にまとめ、検索し、元の記録を開き、再開コマンドをコピーできます。次はツールをまたぐ文脈と長期記憶です。このプロジェクトで話したことを、毎回ゼロから言い直さずに済むようにします。
           </p>
         </div>
       </div>
 
-      <div class="roadmap">
-        <div class="roadmap-col">
-          <p class="roadmap-label">現在</p>
-          <ul class="points compact">
-            <li><h3>各ツールのセッションを、ひとつの一覧で</h3><p>PHI は Claude Code、Codex、Gemini CLI などがこのマシンに残した記録を読み、プロジェクト別または時系列でまとめます。</p></li>
-            <li><h3>探せて、戻れる</h3><p>タイトル、ディレクトリ、メッセージ、セッション ID を検索。元の記録を開き、再開コマンドをコピーして、そのときの作業ディレクトリに戻れます。</p></li>
-          </ul>
-        </div>
-        <div class="roadmap-col roadmap-next">
-          <p class="roadmap-label">計画中</p>
-          <ul class="points compact">
-            <li><h3>ツールをまたぐ継続セッション</h3><p>Claude Code で始めた作業を、Codex でそのまま続けられます。</p></li>
-            <li><h3>プロジェクトに沿う長期記憶</h3><p>好み、決定、プロジェクトの事実を保存し、確認・編集・削除できるようにしたうえで、次のセッションに引き継ぎます。</p></li>
-          </ul>
-        </div>
+      <div class="session-layout">
+        <p class="pull">Claude Code で始めた作業を、Codex でそのまま続けられます。</p>
+        <figure class="session-stack" role="img" aria-labelledby="session-caption">
+          <div class="session-card" aria-hidden="true"><img src="../assets/apps/claude.svg" width="24" height="24" alt=""><span>auth-refactor</span><b>↗</b></div>
+          <div class="session-card" aria-hidden="true"><img src="../assets/apps/openai.svg" width="24" height="24" alt=""><span>site-redesign</span><b>↗</b></div>
+          <div class="session-card" aria-hidden="true"><img src="../assets/apps/gemini.svg" width="24" height="24" alt=""><span>usage-ledger</span><b>↗</b></div>
+          <figcaption id="session-caption">セッション一覧の表示例</figcaption>
+        </figure>
       </div>
       <p class="footnote">ツールをまたぐ文脈と長期記憶は計画中です。現在のセッション閲覧は、各ツールがこのマシンに保存した記録を読むだけです。</p>
     </section>
 
     <section class="chapter wrap" id="cli" aria-labelledby="cli-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">04</span>CLI ターミナルの統合</p>
-        <div>
-          <h2 id="cli-title">モデルを整えたら、あとはターミナルで使うだけ。</h2>
-          <p class="chapter-lede">
+      <div class="chapter-intro">
+        <h2 id="cli-title">ターミナルは、このウィンドウの中で。</h2>
+        <div class="chapter-copy">
+          <p>
             アプリページ右上の「＋」をクリックするか、 <kbd>⌘T</kbd>を押してディレクトリを選べば起動します。まず CLI がインストールされているか確認します。Claude Code、Codex、Gemini CLI など 9 つのツールをこの方法で開け、設定済みのプロバイダーとルートグループも反映されます。
             <span class="inline-note">現在は macOS 13 以降のみ対応。CLI が見つからない場合は、インストール案内を表示します。</span>
           </p>
@@ -329,6 +269,7 @@
         </ul>
 
         <figure class="terminal-shot">
+          <span class="terminal-chip" aria-hidden="true">⌘T</span>
           <div class="shot-chrome" aria-hidden="true">
             <span class="shot-dots"><i></i><i></i><i></i></span>
             <span class="shot-tabs"><b class="tab">設定</b><b class="tab tab-run">● プロジェクト</b><b class="tab tab-run">● テスト</b><b class="tab-plus">＋</b></span>
@@ -345,12 +286,11 @@
       </div>
     </section>
 
-    <section class="chapter wrap" id="config" aria-labelledby="config-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">05</span>設定</p>
-        <div>
-          <h2 id="config-title">設定は一度書けば、ゲートウェイ、ルート、ターミナルが同じ設定を読みます。</h2>
-          <p class="chapter-lede">
+    <section class="chapter wrap" id="workbench" aria-labelledby="workbench-title">
+      <div class="chapter-intro">
+        <h2 id="workbench-title">設定、利用状況、データ、<br>すべて同じ場所に。</h2>
+        <div class="chapter-copy">
+          <p>
             プロバイダー、MCP、Skills、プロンプトをひとつの場所で管理し、各ツールが対応する形で設定に反映します。ゲートウェイ、ルートグループ、ターミナルの CLI は同じ内容を読みます。
           </p>
         </div>
@@ -370,75 +310,34 @@
           <dd>よく使うプロンプトをライブラリに保存し、いつでもコピーしたり、プロジェクト設定に書き込んだりできます。</dd>
         </div>
         <div>
-          <dt>プロジェクトのスナップショット</dt>
-          <dd>現在のプロバイダー、MCP、Skills、メモリーファイルをプロジェクトとして保存し、仕事用と個人用の環境をワンクリックで切り替えられます。</dd>
+          <dt>利用台帳</dt>
+          <dd>リクエストはローカルゲートウェイを通り、セッション数、トークン、費用、キャッシュヒット、稼働時間がローカルの台帳に記録されます。日ごとの推移や、曜日 × 時間のヒートマップで、よく使う時間帯を見つけられます。</dd>
         </div>
         <div>
-          <dt>アカウントと認証</dt>
-          <dd>再ログインが必要なアカウントやデフォルトアカウントを、ひとつの場所で管理します。</dd>
+          <dt>ローカルデータ</dt>
+          <dd>PHI は開発元のクラウドバックエンドを持ちません。設定、セッション統計、利用台帳はローカルの <code>~/.phi/</code> に保存し、サブスクリプションの OAuth トークンはシステムのキーチェーンに預けます。オンラインモデルを使うときだけ、CLI またはローカルゲートウェイが選択したプロバイダーへ接続します。</dd>
         </div>
       </dl>
     </section>
 
-    <section class="chapter wrap" id="usage" aria-labelledby="usage-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">06</span>利用状況</p>
-        <div>
-          <h2 id="usage-title">今月、何にどれだけ使ったか。</h2>
-          <p class="chapter-lede">
-            リクエストはローカルゲートウェイを通り、セッション数、トークン、費用、キャッシュヒット、稼働時間がローカルの台帳に記録されます。日ごとの推移や、曜日 × 時間のヒートマップで、よく使う時間帯を見つけられます。
-          </p>
-        </div>
-      </div>
-
-      <div class="usage-layout">
-        <ul class="points compact">
-          <li><h3>アプリ、プロバイダー、モデル別に確認</h3><p>合計額だけでなく、どのツールやモデルに費用がかかったかを確認できます。</p></li>
-          <li><h3>リクエストごとに確認</h3><p>各リクエストのモデル、所要時間、トークン、費用を記録します。どの回線が選ばれたかも判断トレースで確認できます。</p></li>
-          <li><h3>長いセッションも、状況を把握</h3><p>コンテキスト使用量のグラフと自動圧縮のしきい値を見ながら、新しいセッションに移るタイミングを判断できます。</p></li>
-        </ul>
-        <div class="heat" role="img" aria-label="曜日と時間帯ごとの利用ピークを示すヒートマップの表示例">
-          <p class="heat-label">1 週間のアクティブな時間帯 <em>表示例</em></p>
-          <div class="heat-grid" aria-hidden="true">
-            <i class="l0"></i><i class="l2"></i><i class="l3"></i><i class="l1"></i><i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><i class="l3"></i><i class="l2"></i>
-            <i class="l1"></i><i class="l3"></i><i class="l4"></i><i class="l3"></i><i class="l1"></i><i class="l0"></i><i class="l2"></i><i class="l4"></i><i class="l4"></i><i class="l3"></i><i class="l2"></i><i class="l1"></i>
-            <i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l4"></i><i class="l3"></i><i class="l1"></i><i class="l1"></i><i class="l3"></i><i class="l4"></i><i class="l4"></i><i class="l3"></i><i class="l2"></i>
-            <i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l2"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l3"></i><i class="l2"></i><i class="l1"></i>
-            <i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l1"></i><i class="l2"></i><i class="l1"></i><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l2"></i><i class="l1"></i><i class="l0"></i>
-            <i class="l0"></i><i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l1"></i><i class="l0"></i><i class="l0"></i><i class="l0"></i><i class="l1"></i><i class="l1"></i><i class="l0"></i><i class="l0"></i>
-          </div>
-          <p class="heat-foot"><span>少</span><span class="scale"><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i></span><span>多</span></p>
-        </div>
-      </div>
-    </section>
-
-    <section class="chapter wrap" id="local" aria-labelledby="local-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">07</span>ローカルデータ</p>
-        <div>
-          <h2 id="local-title">データの保存先を、わかりやすく。</h2>
-          <p class="chapter-lede">
-            PHI は開発元のクラウドバックエンドを持ちません。設定、セッション統計、利用台帳はローカルの
-            <code>~/.phi/</code> に保存し、サブスクリプションの OAuth トークンはシステムのキーチェーンに預けます。オンラインモデルを使うときだけ、CLI またはローカルゲートウェイが選択したプロバイダーへ接続します。
-          </p>
-        </div>
-      </div>
-    </section>
-
     <section class="chapter wrap" id="start" aria-labelledby="start-title">
-      <div class="chapter-head">
-        <p class="rail-label"><span class="index">08</span>はじめに</p>
-        <div><h2 id="start-title">使い慣れたツールから、始めよう。</h2><p class="chapter-lede">最初からすべて設定する必要はありません。まずひとつのツールを接続して、少しずつ自分の作業環境を整えていきましょう。</p></div>
+      <div class="chapter-intro">
+        <h2 id="start-title">使い慣れたツールから、始めよう。</h2>
+        <div class="chapter-copy">
+          <p>最初からすべて設定する必要はありません。まずひとつのツールを接続して、少しずつ自分の作業環境を整えていきましょう。</p>
+        </div>
       </div>
       <ol class="start-steps">
-        <li><span class="step-number" aria-hidden="true">1</span><div><h3>PHI と使いたい CLI をインストール</h3><p>PHI はツールの管理と起動を担当します。CLI は各ツールの公式手順でインストールしてください。すでに入っているものはそのまま使えます。</p></div></li>
-        <li><span class="step-number" aria-hidden="true">2</span><div><h3>プロバイダーと接続方法を設定</h3><p>モデルサービスを入力し、「ルート」ページで直接接続かルートグループかを選びます。必要ならグループの戦略も選びます。</p></div></li>
-        <li><span class="step-number" aria-hidden="true">3</span><div><h3>プロジェクトを開いて、作業開始</h3><p>アプリページの「＋」からディレクトリを選ぶと、macOS 13 以降ではその場でターミナルが開きます。いつものターミナルでプロジェクトを開いてもかまいません。</p></div></li>
+        <li><span class="step-glyph" aria-hidden="true">入</span><div><h3>PHI と使いたい CLI をインストール</h3><p>PHI はツールの管理と起動を担当します。CLI は各ツールの公式手順でインストールしてください。すでに入っているものはそのまま使えます。</p></div></li>
+        <li><span class="step-glyph" aria-hidden="true">接</span><div><h3>プロバイダーと接続方法を設定</h3><p>モデルサービスを入力し、「ルート」ページで直接接続かルートグループかを選びます。必要ならグループの戦略も選びます。</p></div></li>
+        <li><span class="step-glyph" aria-hidden="true">開</span><div><h3>プロジェクトを開いて、作業開始</h3><p>アプリページの「＋」からディレクトリを選ぶと、macOS 13 以降ではその場でターミナルが開きます。いつものターミナルでプロジェクトを開いてもかまいません。</p></div></li>
       </ol>
     </section>
 
     <section class="chapter wrap" id="faq" aria-labelledby="faq-title">
-      <div class="chapter-head"><p class="rail-label">よくある質問</p><div><h2 id="faq-title">ダウンロードの前に。</h2></div></div>
+      <div class="chapter-intro">
+        <h2 id="faq-title">ダウンロードの前に。</h2>
+      </div>
       <div class="faq-list">
         <details><summary>モデルや無料利用枠は付いていますか？</summary><p>PHI はオープンソースのデスクトップツールで、モデルの利用枠は提供しません。プロバイダーの API キー、または使うツールが対応するサブスクリプションアカウントを用意してください。モデルの利用料は選択したサービスから請求されます。</p></details>
         <details><summary>直接接続とルートグループは何が違いますか？</summary><p>直接接続はゲートウェイを通らず、アプリ従来の方法でひとつのプロバイダーにつなぎます。ルートグループは複数のプロバイダーやモデルをまとめ、PHI が戦略に従って選び、失敗時は次へ切り替えます。メンバーは別プロトコルでもかまいません。</p></details>
@@ -451,7 +350,6 @@
 
     <section class="download wrap" id="download" aria-labelledby="download-title">
       <div class="download-heading">
-        <p class="download-kicker">ダウンロード</p>
         <h2 id="download-title">プラットフォームを選んで、インストール。</h2>
         <p>バージョン、アーキテクチャ、配布ファイルは GitHub Releases で確認できます。</p>
       </div>

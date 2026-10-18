@@ -1,6 +1,6 @@
 # PHI 官网
 
-PHI 的产品官网，暖白与深绿色的章节式页面，支持简体中文、英文和日文。发布物为纯静态 HTML / CSS，无外部字体、外部脚本或运行时依赖。
+PHI 的产品官网，暖白纸色、墨线描边与珊瑚色的轻快贴纸式页面，支持简体中文、英文和日文。发布物为纯静态 HTML / CSS，无外部字体、外部脚本或运行时依赖。
 
 - 线上地址：<https://phi.semibot.ai>
 - 中文：`index.html`（`/`）；英文：`en/index.html`（`/en/`）；日文：`ja/index.html`（`/ja/`）。
@@ -43,7 +43,7 @@ npx wrangler pages deploy website --project-name phi-website --branch main
 
 ## 内容与样式维护
 
-- 页面结构：首屏工作台示意 → 协议流动带 → 四个统一（网关、路由、会话与记忆、CLI 终端）→ 产品缘起 → 统一网关 → 支持的应用 → 统一路由 → 统一会话与记忆（规划中）→ 统一 CLI 终端 → 配置 → 用量 → 本地数据 → 上手步骤 → 常见问题 → 下载。
+- 页面结构：悬浮图标与工作台示意 → 三个工具的故事 → 网关 → 支持的应用 → 路由 → 会话 → CLI 终端 → 配置、用量与本地数据 → 上手步骤 → 常见问题 → 下载。顶部只保留品牌标志与语言切换，不用分节编号。
 - 所有用户可见品牌文案统一为 PHI；域名、仓库地址、文件名与资源路径保持原值。
 - 内容以当前源码和实际配置为依据，README 作为补充。平台说明需同时检查 `src-tauri/tauri.conf.json`、`src-tauri/tauri.macos.conf.json` 和发布工作流；不凭文档承诺未核验的最低系统版本。
 - 网关协议以 `src-tauri/src/proxy/protocol/mod.rs` 为准：四种聊天协议（OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini 原生）已经可用；System One 只能写成「即将支持」，并说明它是按问题和答案组织的决策协议，不走聊天中转。实现接入后再改为已支持。
@@ -51,8 +51,8 @@ npx wrangler pages deploy website --project-name phi-website --branch main
 - 内嵌终端目前仅 macOS 13+ 可用，需要用户自行安装 CLI。支持列表见 `src-tauri/src/terminal/launch.rs`；分屏是同一工具的多个会话。
 - 不写“密钥绝不离开本机”等绝对承诺：模型请求及所需凭据会发送至用户选择的供应商。
 - 下载入口指向 <https://github.com/GoatGit/phi/releases/latest>；三个系统入口均前往同一发布页，不伪装成直接下载。版本、包格式与架构以实际 Release 为准。
-- `.workspace-preview`、`.terminal-shot`、`.flow`、`.heat` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。
+- `.workspace-preview`、`.terminal-shot`、`.flow`、`.route-map`、`.session-stack` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。
 - 文案围绕用户的具体工作，少用术语堆叠；维持章节、列表、留白的阅读节奏。
 - 常见问题使用原生 `details` / `summary`，无 JavaScript 依赖，需检查鼠标和键盘展开。
-- 修改 CSS 后递增页面样式 URL 版本参数（当前 `atelier-1`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
+- 修改 CSS 后递增页面样式 URL 版本参数（当前 `pop-1`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
 - 检查窄屏、桌面端、键盘焦点、锚点定位及减少动态效果偏好。不要引入外部字体、脚本或统计服务。
