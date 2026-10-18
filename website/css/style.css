@@ -304,7 +304,7 @@ footer { padding: 46px 0 40px; }
   .wrap { width: calc(100% - 36px); }
   .header-inner { column-gap: 12px; }
   .primary-nav { flex-wrap: wrap; gap: 6px 18px; font-size: 12px; }
-  .primary-nav a:nth-child(-n+2), .primary-nav a:nth-child(6), .primary-nav a:nth-child(7) { display: none; }
+  .primary-nav a:nth-child(1), .primary-nav a:nth-child(6), .primary-nav a:nth-child(7) { display: none; }
   .language-switch { font-size: 11px; }
   .language-switch select { padding: 5px 22px 5px 8px; }
   .language-switch noscript a { padding: 8px 6px; }
