@@ -21,6 +21,7 @@ Some guides and images retain upstream terminology. Use your installed PHI versi
 ## 开发与维护 / Development and maintenance
 
 - [贡献指南 / Contributing](../CONTRIBUTING.md)：环境、架构、测试与 PR 约定。
+- [官网 / Website](website.md)：三语页面生成、更新日志与 Cloudflare Pages 部署。
 - [Ghostty 终端 / Embedded terminal](../scripts/ghostty/README.md)：macOS SDK、原生测试与第三方许可。
 - [Fork 基线 / Fork provenance](../FORK-BASELINE.md)：上游来源与快照核验边界。
 - [安全策略 / Security policy](../SECURITY.md)：信任边界、敏感数据与私密报告渠道。

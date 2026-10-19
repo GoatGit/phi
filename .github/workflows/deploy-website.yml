@@ -50,7 +50,7 @@ jobs:
           node-version: "22"
 
       # 固定版本：新的 wrangler 发布不应悄悄改变上传内容。升级时与
-      # website/README.md 里验证过的命令一起改。
+      # docs/website.md 里验证过的命令一起改。
       # CLOUDFLARE_ACCOUNT_ID 是公开的账号标识，放在仓库变量里；只有令牌是机密。
       - name: Deploy to Cloudflare Pages
         env:
