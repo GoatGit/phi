@@ -852,6 +852,7 @@ footer { padding: 46px 0 40px; }
 .footer-links a:hover { color: var(--accent-deep); }
 .credits { margin-top: 20px; font-size: 11.5px; line-height: 1.8; color: var(--muted-soft); }
 .credits a { text-decoration: underline; text-underline-offset: 3px; }
+.credits + .credits { margin-top: 6px; }
 
 /* ---------- motion ---------- */
 @media (prefers-reduced-motion: no-preference) {

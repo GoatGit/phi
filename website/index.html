@@ -20,7 +20,7 @@
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="ja_JP">
   <link rel="icon" type="image/svg+xml" href="assets/phi-app.svg">
-  <link rel="stylesheet" href="css/style.css?v=flow-3">
+  <link rel="stylesheet" href="css/style.css?v=flow-4">
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"SoftwareApplication","name":"PHI","operatingSystem":"macOS, Windows, Linux","applicationCategory":"DeveloperApplication","description":"PHI 把 Claude Code、Codex、Gemini CLI 等应用接到同一套本地网关：在 OpenAI Chat、OpenAI Responses、Anthropic Messages 与 Gemini 之间转换（System One 即将支持），用直连或路由组选择模型，内嵌终端运行 CLI，并记录用量。","url":"https://phi.semibot.ai/","inLanguage":"zh-CN","downloadUrl":"https://github.com/GoatGit/phi/releases/latest","codeRepository":"https://github.com/GoatGit/phi","license":"https://opensource.org/licenses/MIT"}
   </script>
@@ -258,28 +258,6 @@
       </ul>
     </section>
 
-    <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
-      <div class="chapter-intro">
-        <h2 id="memory-title">换工具可以，会话不用搬家。</h2>
-        <div class="chapter-copy">
-          <p>
-            PHI 已经把各工具留在本机的会话记录收进一个列表：按项目分组、搜索、打开原文，或复制恢复命令。接下来要把跨工具的上下文和长期记忆接起来：你在这个项目里说过的事，不必每次从头再说。
-          </p>
-        </div>
-      </div>
-
-      <div class="session-layout">
-        <p class="pull">在 Claude Code 里开的头，换到 Codex 也能接着做。</p>
-        <figure class="session-stack" role="img" aria-labelledby="session-caption">
-          <div class="session-card" aria-hidden="true"><img src="assets/apps/claude.svg" width="24" height="24" alt=""><span>auth-refactor</span><b>↗</b></div>
-          <div class="session-card" aria-hidden="true"><img src="assets/apps/openai.svg" width="24" height="24" alt=""><span>site-redesign</span><b>↗</b></div>
-          <div class="session-card" aria-hidden="true"><img src="assets/apps/gemini.svg" width="24" height="24" alt=""><span>usage-ledger</span><b>↗</b></div>
-          <figcaption id="session-caption">会话列表示意</figcaption>
-        </figure>
-      </div>
-      <p class="footnote">跨工具上下文与长期记忆仍在规划中；现有会话浏览只读取各工具自己保存在本机的记录。</p>
-    </section>
-
     <section class="chapter wrap" id="cli" aria-labelledby="cli-title">
       <div class="chapter-intro">
         <h2 id="cli-title">终端就开在这个窗口里。</h2>
@@ -331,6 +309,28 @@
           <figcaption>界面示意。终端由 Ghostty 渲染。</figcaption>
         </figure>
       </div>
+    </section>
+
+    <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
+      <div class="chapter-intro">
+        <h2 id="memory-title">换工具可以，会话不用搬家。</h2>
+        <div class="chapter-copy">
+          <p>
+            PHI 已经把各工具留在本机的会话记录收进一个列表：按项目分组、搜索、打开原文，或复制恢复命令。接下来要把跨工具的上下文和长期记忆接起来：你在这个项目里说过的事，不必每次从头再说。
+          </p>
+        </div>
+      </div>
+
+      <div class="session-layout">
+        <p class="pull">在 Claude Code 里开的头，换到 Codex 也能接着做。</p>
+        <figure class="session-stack" role="img" aria-labelledby="session-caption">
+          <div class="session-card" aria-hidden="true"><img src="assets/apps/claude.svg" width="24" height="24" alt=""><span>auth-refactor</span><b>↗</b></div>
+          <div class="session-card" aria-hidden="true"><img src="assets/apps/openai.svg" width="24" height="24" alt=""><span>site-redesign</span><b>↗</b></div>
+          <div class="session-card" aria-hidden="true"><img src="assets/apps/gemini.svg" width="24" height="24" alt=""><span>usage-ledger</span><b>↗</b></div>
+          <figcaption id="session-caption">会话列表示意</figcaption>
+        </figure>
+      </div>
+      <p class="footnote">跨工具上下文与长期记忆仍在规划中；现有会话浏览只读取各工具自己保存在本机的记录。</p>
     </section>
 
     <section class="chapter wrap" id="workbench" aria-labelledby="workbench-title">
@@ -415,6 +415,7 @@
       <div class="footer-links"><a href="https://github.com/GoatGit/phi">GitHub</a><a href="https://github.com/GoatGit/phi/issues">反馈</a><a href="https://github.com/GoatGit/phi/blob/main/LICENSE">MIT License</a></div>
     </div>
     <p class="credits">基于 <a href="https://github.com/farion1231/cc-switch">CC Switch</a> 独立开发，保留原作者版权声明。</p>
+    <p class="credits">Claude、OpenAI、Gemini 等应用名与图标是各自所有者的商标，这里只用来标明兼容了哪些应用。</p>
   </footer>
 </body>
 </html>

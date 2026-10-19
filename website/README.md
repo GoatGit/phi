@@ -6,7 +6,7 @@ PHI 的产品官网，暖白纸色、墨线描边与墨绿强调的轻快贴纸�
 - 中文：`index.html`（`/`）；英文：`en/index.html`（`/en/`）；日文：`ja/index.html`（`/ja/`）。
 - 共用样式：`css/style.css`；语言切换收在原生下拉选择框中，使用内联 `onchange` 跳转，并提供 `noscript` 链接兜底；不强制按浏览器语言跳转。
 - `assets/phi-app.svg` 内嵌应用原始 PNG，保留现有资源路径。
-- `assets/apps/*` 为「支持的应用」板块使用的应用标志，取自桌面端 `src/icons/extracted`（Hermes 导出为 128px PNG；System One 使用站点自绘的决策节点图标）。图标是装饰性的，名称由相邻文本提供，`alt` 留空。
+- `assets/apps/*` 为「支持的应用」板块使用的应用标志，取自桌面端 `src/icons/extracted`（Hermes 导出为 128px PNG；System One 使用站点自绘的决策节点图标）。图标是装饰性的，名称由相邻文本提供，`alt` 留空。这些应用名称与标志是各自所有者的商标，仅用于说明兼容了哪些应用；页脚有对应声明，新增第三方标志时保持同一口径。
 
 ## 本地预览
 
@@ -43,7 +43,7 @@ npx wrangler pages deploy website --project-name phi-website --branch main
 
 ## 内容与样式维护
 
-- 页面结构：悬浮图标与工作台示意 → 网关 → 支持的应用 → 路由流转图 → 会话 → CLI 终端 → 配置、用量与本地数据 → 上手步骤 → 常见问题 → 下载。顶部只保留品牌标志与语言切换，不用分节编号。
+- 页面结构：悬浮图标与工作台示意 → 网关 → 支持的应用 → 路由流转图 → CLI 终端 → 会话 → 配置、用量与本地数据 → 上手步骤 → 常见问题 → 下载。顶部只保留品牌标志与语言切换，不用分节编号。
 - 所有用户可见品牌文案统一为 PHI；域名、仓库地址、文件名与资源路径保持原值。
 - 内容以当前源码和实际配置为依据，README 作为补充。平台说明需同时检查 `src-tauri/tauri.conf.json`、`src-tauri/tauri.macos.conf.json` 和发布工作流；不凭文档承诺未核验的最低系统版本。
 - 网关协议以 `src-tauri/src/proxy/protocol/mod.rs` 为准：四种聊天协议（OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini 原生）已经可用；System One 只能写成「即将支持」，并说明它是按问题和答案组织的决策协议，不走聊天中转。实现接入后再改为已支持。
@@ -55,5 +55,5 @@ npx wrangler pages deploy website --project-name phi-website --branch main
 - `.workspace-preview`、`.terminal-shot`、`.flow`、`.flow-board`、`.session-stack` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。路由流转图的浅灰虚线表示配置拓扑，彩色线表示最近一次请求，线型（实线、虚线、点状）表示结果；颜色按应用区分。
 - 文案围绕用户的具体工作，少用术语堆叠；维持章节、列表、留白的阅读节奏。
 - 常见问题使用原生 `details` / `summary`，无 JavaScript 依赖，需检查鼠标和键盘展开。
-- 修改 CSS 后递增页面样式 URL 版本参数（当前 `flow-3`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
+- 修改 CSS 后递增页面样式 URL 版本参数（当前 `flow-4`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
 - 检查窄屏、桌面端、键盘焦点、锚点定位及减少动态效果偏好。不要引入外部字体、脚本或统计服务。

@@ -20,7 +20,7 @@
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="zh_CN">
   <link rel="icon" type="image/svg+xml" href="../assets/phi-app.svg">
-  <link rel="stylesheet" href="../css/style.css?v=flow-3">
+  <link rel="stylesheet" href="../css/style.css?v=flow-4">
   <script type="application/ld+json">
   {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI は Claude Code、Codex、Gemini CLI などのアプリをひとつのローカルゲートウェイにつなぎます。OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini の間を変換し（System One は近日対応）、直接接続またはルートグループでモデルを選び、内蔵ターミナルで CLI を実行し、利用量を記録します。", "url": "https://phi.semibot.ai/ja/", "inLanguage": "ja", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
   </script>
@@ -258,28 +258,6 @@
       </ul>
     </section>
 
-    <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
-      <div class="chapter-intro">
-        <h2 id="memory-title">ツールは変えても、セッションは引っ越さない。</h2>
-        <div class="chapter-copy">
-          <p>
-            PHI は各ツールがこのマシンに残したセッション記録を、ひとつの一覧にまとめています。プロジェクト別にまとめ、検索し、元の記録を開き、再開コマンドをコピーできます。次はツールをまたぐ文脈と長期記憶です。このプロジェクトで話したことを、毎回ゼロから言い直さずに済むようにします。
-          </p>
-        </div>
-      </div>
-
-      <div class="session-layout">
-        <p class="pull">Claude Code で始めた作業を、Codex でそのまま続けられます。</p>
-        <figure class="session-stack" role="img" aria-labelledby="session-caption">
-          <div class="session-card" aria-hidden="true"><img src="../assets/apps/claude.svg" width="24" height="24" alt=""><span>auth-refactor</span><b>↗</b></div>
-          <div class="session-card" aria-hidden="true"><img src="../assets/apps/openai.svg" width="24" height="24" alt=""><span>site-redesign</span><b>↗</b></div>
-          <div class="session-card" aria-hidden="true"><img src="../assets/apps/gemini.svg" width="24" height="24" alt=""><span>usage-ledger</span><b>↗</b></div>
-          <figcaption id="session-caption">セッション一覧の表示例</figcaption>
-        </figure>
-      </div>
-      <p class="footnote">ツールをまたぐ文脈と長期記憶は計画中です。現在のセッション閲覧は、各ツールがこのマシンに保存した記録を読むだけです。</p>
-    </section>
-
     <section class="chapter wrap" id="cli" aria-labelledby="cli-title">
       <div class="chapter-intro">
         <h2 id="cli-title">ターミナルは、このウィンドウの中で。</h2>
@@ -331,6 +309,28 @@
           <figcaption>画面は表示例です。ターミナルは Ghostty が描画します。</figcaption>
         </figure>
       </div>
+    </section>
+
+    <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
+      <div class="chapter-intro">
+        <h2 id="memory-title">ツールは変えても、セッションは引っ越さない。</h2>
+        <div class="chapter-copy">
+          <p>
+            PHI は各ツールがこのマシンに残したセッション記録を、ひとつの一覧にまとめています。プロジェクト別にまとめ、検索し、元の記録を開き、再開コマンドをコピーできます。次はツールをまたぐ文脈と長期記憶です。このプロジェクトで話したことを、毎回ゼロから言い直さずに済むようにします。
+          </p>
+        </div>
+      </div>
+
+      <div class="session-layout">
+        <p class="pull">Claude Code で始めた作業を、Codex でそのまま続けられます。</p>
+        <figure class="session-stack" role="img" aria-labelledby="session-caption">
+          <div class="session-card" aria-hidden="true"><img src="../assets/apps/claude.svg" width="24" height="24" alt=""><span>auth-refactor</span><b>↗</b></div>
+          <div class="session-card" aria-hidden="true"><img src="../assets/apps/openai.svg" width="24" height="24" alt=""><span>site-redesign</span><b>↗</b></div>
+          <div class="session-card" aria-hidden="true"><img src="../assets/apps/gemini.svg" width="24" height="24" alt=""><span>usage-ledger</span><b>↗</b></div>
+          <figcaption id="session-caption">セッション一覧の表示例</figcaption>
+        </figure>
+      </div>
+      <p class="footnote">ツールをまたぐ文脈と長期記憶は計画中です。現在のセッション閲覧は、各ツールがこのマシンに保存した記録を読むだけです。</p>
     </section>
 
     <section class="chapter wrap" id="workbench" aria-labelledby="workbench-title">
@@ -415,6 +415,7 @@
       <div class="footer-links"><a href="https://github.com/GoatGit/phi">GitHub</a><a href="https://github.com/GoatGit/phi/issues">問題を報告</a><a href="https://github.com/GoatGit/phi/blob/main/LICENSE">MIT License</a></div>
     </div>
     <p class="credits">ベースとなった <a href="https://github.com/farion1231/cc-switch">CC Switch</a> から独立して開発。原著作者の著作権表示を保持しています。</p>
+    <p class="credits">Claude、OpenAI、Gemini などのアプリ名とアイコンは各所有者の商標で、対応アプリを示す目的にのみ使用しています。</p>
   </footer>
 </body>
 </html>
