@@ -83,7 +83,11 @@ def main():
     wrapper.chmod(0o755)
     environment = dict(os.environ, PHI_GHOSTTY_MACOS_SDK=str(sdk))
     environment["PATH"] = str(shim) + os.pathsep + environment.get("PATH", "")
-    subprocess.run([str(zig), "build", f"-Dtarget={target_arch}-macos.13.0", "-Doptimize=ReleaseFast", "-Dapp-runtime=none", "-Demit-xcframework=false", "-Demit-macos-app=false", "-Demit-docs=false", "-Demit-webdata=false", "-Demit-helpgen=false", "-Demit-themes=false", "-Dsentry=false", "-Dstrip=true", "-j4", "--prefix", str(ROOT / "src-tauri/ghostty-sdk")], cwd=source, env=environment, check=True)
+    # Ghostty derives its version from git when no version string is given, then
+    # panics on a tag that does not equal its own ("tagged releases must be in
+    # vX.Y.Z format matching build.zig"). Building from PHI's release tag would
+    # hit that on every release, so pin the version explicitly.
+    subprocess.run([str(zig), "build", f"-Dtarget={target_arch}-macos.13.0", f"-Dversion-string={VERSION}", "-Doptimize=ReleaseFast", "-Dapp-runtime=none", "-Demit-xcframework=false", "-Demit-macos-app=false", "-Demit-docs=false", "-Demit-webdata=false", "-Demit-helpgen=false", "-Demit-themes=false", "-Dsentry=false", "-Dstrip=true", "-j4", "--prefix", str(ROOT / "src-tauri/ghostty-sdk")], cwd=source, env=environment, check=True)
     subprocess.run(["python3", str(ROOT / "scripts/ghostty/collect_licenses.py"), str(source), str(zig)], check=True)
     print(f"Ghostty {VERSION} ({target_arch}) SDK ready: src-tauri/ghostty-sdk")
 
