@@ -28,6 +28,14 @@ jobs:
           python-version: "3.12"
       - name: Check documentation, metadata and tracked local-data paths
         run: python scripts/check_repository.py
+      # The site is generated: en/ja pages from the Chinese source, changelog pages
+      # from scripts/changelog.json. Fail the build when either is stale instead of
+      # shipping pages that disagree with the source or a missing version page.
+      - name: Check generated website pages
+        run: |
+          python3 scripts/build_website.py --check
+          python3 scripts/build_changelog.py --check
+          python3 scripts/test_website.py
 
   security-audit-fixtures:
     name: Secret audit synthetic fixtures

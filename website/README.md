@@ -31,6 +31,19 @@ python3 scripts/test_website.py
 
 三种语言都有独立的标题、描述、`lang`、canonical、Open Graph、JSON-LD，以及互相指向的 `hreflang` 链接。默认入口为中文。测试覆盖翻译完整性、生成结果一致性、三语下拉切换与 `noscript` 兜底、资源与锚点、元数据及英文页面的中文漏译。浏览器验收还需检查长标题、日文换行、移动端语言入口和键盘焦点。
 
+## 更新日志
+
+应用内更新弹窗的「详情」链接到 `https://phi.semibot.ai/<zh|en|ja>/changelog/<version>`，因此**每个已发布版本都必须有对应页面**，否则用户会看到 404。
+
+条目集中在 `scripts/changelog.json`（版本、日期、三语文案），由生成器产出九个页面：三语言的列表页和版本详情页。
+
+```sh
+python3 scripts/build_changelog.py
+python3 scripts/build_changelog.py --check
+```
+
+发版流程里它要和 `src/whats-new/<version>.json` 一起更新：弹窗摘要写 3–4 条，这里可以写全。新增版本时记得给三种语言都写条目，生成器会拒绝缺项或条目数不一致的数据。
+
 ## 部署
 
 Cloudflare Pages 项目为 `phi-website`，发布目录为 `website/`。使用已授权的 Cloudflare 登录态执行生产部署：
@@ -55,5 +68,5 @@ npx wrangler pages deploy website --project-name phi-website --branch main
 - `.workspace-preview`、`.terminal-shot`、`.flow`、`.flow-board`、`.session-stack` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。路由流转图的浅灰虚线表示配置拓扑，彩色线表示最近一次请求，线型（实线、虚线、点状）表示结果；颜色按应用区分。
 - 文案围绕用户的具体工作，少用术语堆叠；维持章节、列表、留白的阅读节奏。
 - 常见问题使用原生 `details` / `summary`，无 JavaScript 依赖，需检查鼠标和键盘展开。
-- 修改 CSS 后递增页面样式 URL 版本参数（当前 `flow-4`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
+- 修改 CSS 后递增页面样式 URL 版本参数（当前 `flow-5`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
 - 检查窄屏、桌面端、键盘焦点、锚点定位及减少动态效果偏好。不要引入外部字体、脚本或统计服务。

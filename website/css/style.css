@@ -843,6 +843,30 @@ code { font-family: var(--mono); }
 .download-note a { margin-left: 8px; color: #fff; text-decoration: underline; text-underline-offset: 4px; }
 .download a:focus-visible { outline-color: #fff; }
 
+/* ---------- changelog ---------- */
+.changelog { padding-bottom: 40px; }
+.changelog h1 { font-size: clamp(30px, 4vw, 46px); line-height: 1.15; }
+.changelog .chapter { border-top: 0; padding-top: 64px; }
+.changelog-kicker { font-size: 12.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-soft); }
+.changelog-date { display: inline-block; margin-top: 10px; font-size: 13px; color: var(--muted-soft); font-variant-numeric: tabular-nums; }
+.changelog-list { list-style: none; margin: 34px 0 0; padding: 0; display: grid; gap: 16px; }
+.changelog-entry { padding: 22px 24px 20px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--card); }
+.changelog-entry h2 { display: flex; align-items: baseline; gap: 14px; font-size: 21px; }
+.changelog-entry h2 a { color: var(--ink); text-decoration: none; }
+.changelog-entry h2 a:hover { color: var(--accent-deep); text-decoration: underline; text-underline-offset: 4px; }
+.changelog-entry time { font-size: 12.5px; font-weight: 400; color: var(--muted-soft); font-variant-numeric: tabular-nums; }
+.changelog-entry ul, .changelog-items { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.changelog-entry li, .changelog-items li { position: relative; padding-left: 18px; font-size: 15px; line-height: 1.85; color: var(--muted); }
+.changelog-entry li::before, .changelog-items li::before { content: "·"; position: absolute; left: 2px; color: var(--accent); font-weight: 700; }
+.changelog-items { margin-top: 28px; gap: 12px; }
+.changelog-items li { font-size: 16px; padding-left: 22px; }
+.changelog-more { margin-top: 14px; font-size: 13px; }
+.changelog-more a { color: var(--accent-deep); text-decoration: none; }
+.changelog-more a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.changelog-back { margin-top: 32px; font-size: 13.5px; color: var(--muted); }
+.changelog-back a { color: var(--accent-deep); text-decoration: none; }
+.changelog-back a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
 /* ---------- footer ---------- */
 footer { padding: 46px 0 40px; }
 .footer-main { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-top: 26px; border-top: 1px solid var(--line); }

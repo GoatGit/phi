@@ -1,0 +1,56 @@
+[
+  {
+    "version": "1.0.1",
+    "date": "2026-10-19",
+    "items": {
+      "zh": [
+        "路由页改成一行一个应用，点开就能设路由、新建路由组。",
+        "路由组可以混装不同协议的模型，任何一个应用都能直接用。",
+        "侧边栏列出全部可路由应用，用得少的默认折叠，随时展开。",
+        "终端启动时就套用你的配色，不再先闪一帧默认主题。",
+        "前端构建链路的依赖升级，修掉已公布的安全告警。"
+      ],
+      "en": [
+        "The routing page is one row per app: open a row to set its route or start a group.",
+        "Route groups can mix models from different protocols, and any app can use them.",
+        "The sidebar lists every routable app, folding the less-used ones until you need them.",
+        "Terminal sessions start with your theme instead of flashing the default one.",
+        "Frontend build dependencies moved past the published security advisories."
+      ],
+      "ja": [
+        "ルーティング画面はアプリごとに 1 行。開いてルート設定やグループ作成ができます。",
+        "ルートグループに異なるプロトコルのモデルを混在でき、どのアプリからも使えます。",
+        "サイドバーに全ての対応アプリを並べ、使用頻度の低いものは畳んでおきます。",
+        "ターミナルは起動時からテーマを適用し、既定の配色が一瞬出なくなりました。",
+        "フロントエンドのビルド依存を更新し、公表済みのセキュリティ勧告に対応しました。"
+      ]
+    }
+  },
+  {
+    "version": "1.0.0",
+    "date": "2026-10-14",
+    "items": {
+      "zh": [
+        "PHI 1.0 正式发布：把 AI 编程工具接进同一套本地网关。",
+        "在一处管理 Claude Code、Codex 等应用的供应商配置。",
+        "用量统计新增「会话」和「上下文」两个面板。",
+        "新增 ZCode 桌面端支持。",
+        "内嵌终端支持分屏，退出 CLI 也不会黑屏。"
+      ],
+      "en": [
+        "PHI 1.0: one local gateway for all your AI coding tools.",
+        "Manage provider settings for Claude Code, Codex and the rest in one place.",
+        "Usage gained dedicated session and context panels.",
+        "ZCode desktop is now supported.",
+        "The embedded terminal supports split panes and survives a CLI exit."
+      ],
+      "ja": [
+        "PHI 1.0 正式リリース。AI 開発ツールを 1 つのローカルゲートウェイに。",
+        "Claude Code や Codex などのプロバイダー設定を一か所で管理できます。",
+        "使用量に「セッション」と「コンテキスト」のパネルを追加しました。",
+        "ZCode デスクトップに対応しました。",
+        "内蔵ターミナルは分割表示に対応し、CLI 終了時も画面が黒くなりません。"
+      ]
+    }
+  }
+]
