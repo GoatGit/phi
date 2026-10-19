@@ -871,12 +871,12 @@ footer { padding: 46px 0 40px; }
   .route-layout { grid-template-columns: 1fr; gap: 38px; }
   .route-map { max-width: 660px; }
   .hero { gap: 42px; }
-  .app-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 980px) {
   .hero { grid-template-columns: 1fr; gap: 54px; padding-top: 38px; padding-bottom: 80px; }
   .hero-stage { width: min(620px, 100%); justify-self: center; }
+  .app-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 660px; margin-inline: auto; }
   .story { grid-template-columns: 1fr; gap: 28px; }
   .story h2 { max-width: 16em; }
   .chapter-intro { grid-template-columns: 1fr; gap: 22px; }
@@ -895,7 +895,7 @@ footer { padding: 46px 0 40px; }
   .terminal-layout { grid-template-columns: 1fr; gap: 38px; }
   .terminal-shot { max-width: 560px; }
   .start-steps { grid-template-columns: 1fr; gap: 0; }
-  .start-steps li { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 18px; align-items: start; padding: 22px 0; border-top: 1.5px dashed var(--line-strong); }
+  .start-steps li { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 18px; align-items: start; padding: 22px 0; border-top: 1px solid var(--line); }
   .start-steps li:first-child { border-top: 1.5px solid var(--ink); }
   .step-glyph { margin-bottom: 0; }
   .download { padding: 44px 34px 38px; }
