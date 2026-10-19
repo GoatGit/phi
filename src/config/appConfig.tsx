@@ -77,6 +77,89 @@ export function isProxyAppId(appId: string): appId is ProxyAppId {
   return (PROXY_APP_IDS as string[]).includes(appId);
 }
 
+/**
+ * 路由专用应用：只接入统一路由，没有完整的应用管理页。
+ * 它们会出现在侧栏应用列表里，但点进去是路由页的「设置应用路由」。
+ * 与后端 `gateway::local_apps::LOCAL_APPS` 保持一致。
+ */
+export type LocalRoutableAppId =
+  | "commandcode"
+  | "crush"
+  | "droid"
+  | "kimi"
+  | "atomcode"
+  | "omo";
+
+export const LOCAL_ROUTABLE_APP_IDS: LocalRoutableAppId[] = [
+  "commandcode",
+  "crush",
+  "droid",
+  "kimi",
+  "atomcode",
+  "omo",
+];
+
+export function isLocalRoutableAppId(
+  appId: string,
+): appId is LocalRoutableAppId {
+  return (LOCAL_ROUTABLE_APP_IDS as string[]).includes(appId);
+}
+
+/**
+ * 允许接入统一路由的全部应用：代理模式应用 + 以「PHI」供应商行接入的累加式应用
+ * 与 Claude Desktop。与后端 `gateway::apps::ROUTING_APPS` 保持一致。
+ */
+export type RoutableAppId =
+  | ProxyAppId
+  | "claude-desktop"
+  | "opencode"
+  | "openclaw"
+  | "hermes"
+  | "pi"
+  | "mcode"
+  | "typesafe"
+  | LocalRoutableAppId;
+
+export const ROUTABLE_APP_IDS: RoutableAppId[] = [
+  "claude",
+  "claude-desktop",
+  "codex",
+  "gemini",
+  "grokbuild",
+  "opencode",
+  "openclaw",
+  "hermes",
+  "pi",
+  "mcode",
+  "typesafe",
+  ...LOCAL_ROUTABLE_APP_IDS,
+];
+
+/** 路由专用应用的显示名（它们不在 APP_ICON_MAP 里）。 */
+export const LOCAL_ROUTABLE_APP_LABELS: Record<string, string> = {
+  commandcode: "Command Code",
+  crush: "Crush",
+  droid: "Droid",
+  kimi: "Kimi Code",
+  atomcode: "AtomCode",
+  omo: "OmO",
+  typesafe: "System One",
+};
+
+/** 路由专用应用的图标名（ProviderIcon 注册名；Droid 的官方图标叫 Factory）。 */
+export const LOCAL_ROUTABLE_APP_ICONS: Record<LocalRoutableAppId, string> = {
+  commandcode: "commandcode",
+  crush: "crush",
+  droid: "factory",
+  kimi: "kimi",
+  atomcode: "atomcode",
+  omo: "omo",
+};
+
+export function isRoutableAppId(appId: string): appId is RoutableAppId {
+  return (ROUTABLE_APP_IDS as string[]).includes(appId);
+}
+
 /** 支持 Stack 模式的应用（后端 `mode::stack::supports_stack` 的镜像）。 */
 export type StackAppId = Extract<ProxyAppId, "claude" | "codex">;
 
@@ -248,5 +331,9 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
 };
 
 export function getAppLabel(appId: string): string {
-  return APP_ICON_MAP[appId as AppId]?.label ?? appId;
+  return (
+    LOCAL_ROUTABLE_APP_LABELS[appId] ??
+    APP_ICON_MAP[appId as AppId]?.label ??
+    appId
+  );
 }

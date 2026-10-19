@@ -7,7 +7,7 @@ use axum::{
     response::Response,
 };
 use futures::StreamExt;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 
 fn invalid(field: &str) -> ProxyError {
@@ -403,6 +403,323 @@ pub(crate) fn response_to_chat(value: &Value) -> Result<Value, ProxyError> {
     )
 }
 
+/// Chat 顶层字段白名单。与 `request_to_responses` 接受的范围一致。
+const CHAT_FIELDS: [&str; 17] = [
+    "model",
+    "messages",
+    "stream",
+    "stream_options",
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+    "max_tokens",
+    "max_completion_tokens",
+    "temperature",
+    "top_p",
+    "reasoning_effort",
+    "response_format",
+    "metadata",
+    "store",
+    "user",
+    "n",
+];
+
+fn chat_text(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// 把一条 Chat 消息的 content 归一成 `request_to_responses` 接受的形状。
+fn chat_content(role: &str, content: Option<&Value>) -> Option<Value> {
+    match content {
+        Some(Value::String(text)) => Some(json!(text)),
+        Some(Value::Array(parts)) => {
+            let mut kept = vec![];
+            for part in parts {
+                match part.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        if let Some(text) = chat_text(part.get("text")) {
+                            kept.push(json!({"type":"text","text":text}));
+                        }
+                    }
+                    Some("image_url") if role == "user" => {
+                        let image = part.get("image_url");
+                        let Some(url) = chat_text(image.and_then(|i| i.get("url"))) else {
+                            continue;
+                        };
+                        let detail = image
+                            .and_then(|i| i.get("detail"))
+                            .and_then(Value::as_str)
+                            .filter(|detail| matches!(*detail, "auto" | "low" | "high"))
+                            .unwrap_or("auto");
+                        kept.push(
+                            json!({"type":"image_url","image_url":{"url":url,"detail":detail}}),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            (!kept.is_empty()).then(|| Value::Array(kept))
+        }
+        _ => None,
+    }
+}
+
+/// 工具结果的文本：非字符串内容（多段文字或结构化结果）展开成字符串。
+fn chat_tool_output(content: Option<&Value>) -> String {
+    match content {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(parts)) => {
+            let joined = parts
+                .iter()
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if joined.is_empty() {
+                Value::Array(parts.clone()).to_string()
+            } else {
+                joined
+            }
+        }
+        Some(Value::Null) | None => String::new(),
+        Some(other) => other.to_string(),
+    }
+}
+
+fn chat_arguments(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Null) | None => "{}".into(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// 真实客户端的 Chat 请求可能带网关不认识的字段。这里把它们收敛成
+/// `request_to_responses` 能接受的形状：能表达的保留，表达不了的具体字段丢弃
+/// （而不是让整次路由请求以 400 失败）。
+fn normalize_chat_request(body: &Value) -> Value {
+    let mut out = Map::new();
+    let source = body.as_object();
+    if let Some(model) = chat_text(body.get("model")) {
+        out.insert("model".into(), json!(model));
+    }
+    out.insert(
+        "stream".into(),
+        json!(body.get("stream").and_then(Value::as_bool).unwrap_or(false)),
+    );
+    if let Some(include_usage) = body
+        .pointer("/stream_options/include_usage")
+        .and_then(Value::as_bool)
+    {
+        out.insert(
+            "stream_options".into(),
+            json!({"include_usage": include_usage}),
+        );
+    }
+    if let Some(messages) = body.get("messages").and_then(Value::as_array) {
+        let mut kept = vec![];
+        for message in messages {
+            let Some(role) = message.get("role").and_then(Value::as_str) else {
+                continue;
+            };
+            if role == "tool" {
+                let Some(call_id) = chat_text(message.get("tool_call_id")) else {
+                    continue;
+                };
+                kept.push(json!({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": chat_tool_output(message.get("content")),
+                }));
+                continue;
+            }
+            if !matches!(role, "system" | "developer" | "user" | "assistant") {
+                continue;
+            }
+            let mut row = Map::new();
+            row.insert("role".into(), json!(role));
+            let content = chat_content(role, message.get("content"));
+            let calls = message
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .map(|calls| {
+                    calls
+                        .iter()
+                        .filter_map(|call| {
+                            if call.get("type").and_then(Value::as_str) != Some("function") {
+                                return None;
+                            }
+                            let function = call.get("function")?;
+                            let name = chat_text(function.get("name"))?;
+                            Some(json!({
+                                "id": chat_text(call.get("id")).unwrap_or_default(),
+                                "type": "function",
+                                "function": {
+                                    "name": name,
+                                    "arguments": chat_arguments(function.get("arguments")),
+                                },
+                            }))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let has_calls = role == "assistant" && !calls.is_empty();
+            match content {
+                Some(content) => row.insert("content".into(), content),
+                // 只有带 tool_calls 的 assistant 允许 content 为 null。
+                None if has_calls => row.insert("content".into(), Value::Null),
+                None => row.insert("content".into(), json!("")),
+            };
+            if has_calls {
+                row.insert("tool_calls".into(), Value::Array(calls));
+            }
+            kept.push(Value::Object(row));
+        }
+        out.insert("messages".into(), Value::Array(kept));
+    }
+    if let Some(tools) = body.get("tools").and_then(Value::as_array) {
+        let mut kept = vec![];
+        for tool in tools {
+            let Some(function) = tool.get("function") else {
+                continue;
+            };
+            let Some(name) = chat_text(function.get("name")) else {
+                continue;
+            };
+            let mut row = Map::new();
+            row.insert("type".into(), json!("function"));
+            let mut native = Map::new();
+            native.insert("name".into(), json!(name));
+            if let Some(description) = function.get("description").and_then(Value::as_str) {
+                native.insert("description".into(), json!(description));
+            }
+            let parameters = function
+                .get("parameters")
+                .filter(|value| value.is_object())
+                .cloned()
+                .unwrap_or_else(|| json!({"type":"object","properties":{}}));
+            native.insert("parameters".into(), parameters);
+            if let Some(strict) = function.get("strict").and_then(Value::as_bool) {
+                native.insert("strict".into(), json!(strict));
+            }
+            row.insert("function".into(), Value::Object(native));
+            kept.push(Value::Object(row));
+        }
+        // 空工具列表对上游没有意义（有的会因此拒收 tool_choice），整段不发。
+        if !kept.is_empty() {
+            out.insert("tools".into(), Value::Array(kept));
+        }
+    }
+    // 没有可用的工具时 tool_choice 也没有意义。
+    if out.contains_key("tools") {
+        if let Some(choice) = body.get("tool_choice") {
+            let normalized = match choice {
+                Value::String(option)
+                    if matches!(option.as_str(), "none" | "auto" | "required") =>
+                {
+                    Some(choice.clone())
+                }
+                Value::Object(_)
+                    if choice.get("type").and_then(Value::as_str) == Some("function") =>
+                {
+                    chat_text(choice.pointer("/function/name"))
+                        .map(|name| json!({"type":"function","function":{"name":name}}))
+                }
+                _ => None,
+            };
+            if let Some(normalized) = normalized {
+                out.insert("tool_choice".into(), normalized);
+            }
+        }
+    }
+    if let Some(format) = body.get("response_format") {
+        let normalized = match format.get("type").and_then(Value::as_str) {
+            Some(kind @ ("text" | "json_object")) => Some(json!({"type": kind})),
+            Some("json_schema") => format.get("json_schema").and_then(|schema| {
+                let name = chat_text(schema.get("name"))?;
+                let body = schema.get("schema").filter(|value| value.is_object())?;
+                let mut row = Map::new();
+                row.insert("name".into(), json!(name));
+                row.insert("schema".into(), body.clone());
+                if let Some(text) = schema.get("description").and_then(Value::as_str) {
+                    row.insert("description".into(), json!(text));
+                }
+                if let Some(strict) = schema.get("strict").and_then(Value::as_bool) {
+                    row.insert("strict".into(), json!(strict));
+                }
+                Some(json!({"type":"json_schema","json_schema":Value::Object(row)}))
+            }),
+            _ => None,
+        };
+        if let Some(normalized) = normalized {
+            out.insert("response_format".into(), normalized);
+        }
+    }
+    if let Some(effort) = body.get("reasoning_effort").and_then(Value::as_str) {
+        if matches!(
+            effort,
+            "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+        ) {
+            out.insert("reasoning_effort".into(), json!(effort));
+        }
+    }
+    for (field, max) in [("temperature", 2.0), ("top_p", 1.0)] {
+        if let Some(value) = body.get(field).and_then(Value::as_f64) {
+            if (0.0..=max).contains(&value) {
+                out.insert(field.into(), json!(value));
+            }
+        }
+    }
+    for field in ["parallel_tool_calls", "store"] {
+        if let Some(value) = body.get(field).and_then(Value::as_bool) {
+            out.insert(field.into(), json!(value));
+        }
+    }
+    let limit = body
+        .get("max_completion_tokens")
+        .or_else(|| body.get("max_tokens"))
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0);
+    if let Some(limit) = limit {
+        out.insert("max_completion_tokens".into(), json!(limit));
+    }
+    if body.get("n").and_then(Value::as_u64) == Some(1) {
+        out.insert("n".into(), json!(1));
+    }
+    if let Some(user) = body.get("user").and_then(Value::as_str) {
+        out.insert("user".into(), json!(user));
+    }
+    if let Some(metadata) = body.get("metadata").and_then(Value::as_object) {
+        let kept = metadata
+            .iter()
+            .filter(|(key, value)| {
+                key.len() <= 64 && value.as_str().is_some_and(|value| value.len() <= 512)
+            })
+            .take(16)
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Map<String, Value>>();
+        out.insert("metadata".into(), Value::Object(kept));
+    }
+    if let Some(source) = source {
+        let dropped = source
+            .keys()
+            .filter(|key| !CHAT_FIELDS.contains(&key.as_str()))
+            .collect::<Vec<_>>();
+        if !dropped.is_empty() {
+            log::debug!("[ChatBridge] Dropped Chat fields without a Responses shape: {dropped:?}");
+        }
+    }
+    Value::Object(out)
+}
+
+/// Chat → Responses，用于真实客户端（OpenCode / Pi 等）：先归一化再走严格转换器。
+pub(crate) fn gateway_request_to_responses(body: &Value) -> Result<Value, ProxyError> {
+    request_to_responses(&normalize_chat_request(body))
+}
+
 struct StreamBridge {
     id: String,
     model: String,
@@ -414,6 +731,9 @@ struct StreamBridge {
     include_usage: bool,
     retained_bytes: usize,
     reporter: Option<super::ledger_observer::UsageReporter>,
+    /// 网关请求的轨迹：回包里的 usage 同时写进去，客户端没要 usage 时
+    /// 路由页的 token 统计仍然完整。
+    trace: Option<super::gateway_observer::Trace>,
 }
 fn reserve(
     total: &mut usize,
@@ -597,13 +917,19 @@ impl StreamBridge {
                 {
                     if let Some(reporter) = &self.reporter {
                         reporter.report(
-                            tokens,
+                            tokens.clone(),
                             if response["status"] == "incomplete" {
                                 "interrupted"
                             } else {
                                 "completed"
                             },
                         )?;
+                    }
+                    if let Some(trace) = &self.trace {
+                        if let Ok(mut trace) = trace.lock() {
+                            trace.input_tokens = Some(tokens.input_tokens);
+                            trace.output_tokens = Some(tokens.output_tokens);
+                        }
                     }
                 }
                 validate_output(response)?;
@@ -691,6 +1017,7 @@ mod tests {
             include_usage: false,
             retained_bytes: 0,
             reporter: None,
+            trace: None,
         }
     }
     #[test]
@@ -850,6 +1177,131 @@ mod tests {
             "Cannot help with this"
         );
     }
+
+    #[test]
+    fn real_client_chat_fields_are_normalized_instead_of_rejected() {
+        // 真实客户端（OpenCode / Pi 等）会带 Chat 特有字段：能表达的要保留，
+        // 表达不了的只丢那个字段，不能让整次路由请求 400。
+        let request = json!({
+            "model": "glm-5",
+            "stream": true,
+            "stream_options": {"include_usage": true, "exclude": true},
+            "stop": ["\n"],
+            "presence_penalty": 0.1,
+            "service_tier": "auto",
+            "max_tokens": 64,
+            "max_completion_tokens": 128,
+            "messages": [
+                {"role": "system", "content": "be brief", "name": "policy"},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "hi"},
+                    {"type": "image_url", "image_url": {"url": "https://example.invalid/i.png"}},
+                    {"type": "input_audio", "input_audio": {"data": "..."}}
+                ]},
+                {"role": "assistant", "content": null, "reasoning_content": "thinking",
+                 "tool_calls": [
+                    {"id": "c1", "type": "function", "function": {"name": "list", "arguments": "{\"path\":\"/\"}"}},
+                    {"id": "c2", "type": "custom", "custom": {"name": "x"}}
+                 ]},
+                {"role": "tool", "tool_call_id": "c1", "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]}
+            ],
+            "tools": [
+                {"type": "function", "function": {"name": "list"}},
+                {"type": "web_search"},
+                {"type": "function", "function": {"name": ""}}
+            ],
+            "tool_choice": {"type": "function", "function": {"name": "list", "extra": 1}},
+            "response_format": {"type": "json_object", "extra": 1}
+        });
+        let responses = gateway_request_to_responses(&request).expect("normalizes");
+        assert_eq!(responses["model"], "glm-5");
+        assert_eq!(responses["stream"], true);
+        // 客户端没写 max_tokens 的部分由 max_completion_tokens 接管；两边冲突时以前者为准。
+        assert_eq!(responses["max_output_tokens"], 128);
+        // 里表达不了的字段整条丢掉，但不影响其余内容。
+        assert!(responses.get("stop").is_none());
+        assert!(responses.get("stream_options").is_none());
+        let input = responses["input"].as_array().expect("input items");
+        assert_eq!(input.len(), 4);
+        assert_eq!(input[0]["role"], "system");
+        assert_eq!(input[1]["content"][1]["type"], "input_image");
+        // 只有 function 类型的工具调用留下来，arguments 原样带过去。
+        assert_eq!(input[2]["type"], "function_call");
+        assert_eq!(input[2]["name"], "list");
+        // 多段工具结果拼成文本。
+        assert_eq!(input[3]["output"], "a\nb");
+        // 没有 parameters 的工具补默认对象；非 function 和空名字的工具丢掉。
+        assert_eq!(responses["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(responses["tools"][0]["parameters"]["type"], "object");
+        assert_eq!(responses["tool_choice"]["name"], "list");
+        assert_eq!(responses["text"]["format"]["type"], "json_object");
+
+        // 空工具列表（很多客户端默认带）整段不发，连带 tool_choice 一起丢掉。
+        let empty = gateway_request_to_responses(&json!({
+            "model": "glm-5",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [],
+            "tool_choice": "auto"
+        }))
+        .unwrap();
+        assert!(empty.get("tools").is_none());
+        assert!(empty.get("tool_choice").is_none());
+    }
+
+    #[test]
+    fn a_stream_bridge_reports_usage_to_the_trace_without_emitting_it() {
+        let trace = std::sync::Arc::new(std::sync::Mutex::new(crate::gateway::RequestTrace {
+            id: "t".into(),
+            created_at: 0,
+            app_id: "pi".into(),
+            request_model: "glm-5".into(),
+            catalog_revision: 0,
+            policy: crate::gateway::RoutePolicy {
+                group_id: None,
+                id: "p".into(),
+                name: "Snapshot".into(),
+                app_id: "pi".into(),
+                enabled: true,
+                match_model: "glm-5".into(),
+                request_model: String::new(),
+                priority: 1,
+                failover: false,
+                candidates: vec![],
+            },
+            events: vec![],
+            outcome: "pending".into(),
+            latency_ms: 0,
+            input_tokens: None,
+            output_tokens: None,
+            estimated_cost: None,
+            decision: None,
+            persist: false,
+        }));
+        let mut bridge = StreamBridge {
+            include_usage: false,
+            trace: Some(trace.clone()),
+            ..bridge()
+        };
+        let chunks = bridge
+            .event(json!({
+                "type": "response.completed",
+                "response": {
+                    "status": "completed",
+                    "output": [{"type":"message","content":[{"type":"output_text","text":"hi"}]}],
+                    "usage": {"input_tokens": 7, "output_tokens": 2, "total_tokens": 9}
+                }
+            }))
+            .unwrap();
+        assert!(
+            !chunks
+                .iter()
+                .any(|chunk| chunk.get("usage").is_some_and(|value| !value.is_null())),
+            "客户端没要 usage，流里就不能带 usage chunk"
+        );
+        let trace = trace.lock().unwrap();
+        assert_eq!(trace.input_tokens, Some(7));
+        assert_eq!(trace.output_tokens, Some(2));
+    }
 }
 
 pub async fn handle(state: ProxyState, request: Request) -> Result<Response, ProxyError> {
@@ -908,11 +1360,34 @@ pub async fn handle(state: ProxyState, request: Request) -> Result<Response, Pro
         ));
     }
     let reporter = super::ledger_observer::usage_reporter();
-    let mut input = body.into_data_stream();
-    let output = async_stream::try_stream! {
+    let output = responses_sse_to_chat_stream(
+        body.into_data_stream(),
+        chat["model"].as_str().unwrap_or_default(),
+        include_usage,
+        reporter,
+        None,
+    );
+    Ok(Response::from_parts(parts, Body::from_stream(output)))
+}
+
+/// Responses SSE → Chat SSE。网关把 Chat 入口接到的请求归一成 Responses 之后，
+/// 上游回包也要按同一形状转回客户端。
+pub(crate) fn responses_sse_to_chat_stream<E>(
+    stream: impl futures::Stream<Item = Result<bytes::Bytes, E>> + Send + 'static,
+    model: &str,
+    include_usage: bool,
+    reporter: Option<super::ledger_observer::UsageReporter>,
+    trace: Option<super::gateway_observer::Trace>,
+) -> impl futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send
+where
+    E: std::fmt::Display + Send + 'static,
+{
+    let model = model.to_string();
+    async_stream::try_stream! {
         let mut buffer=String::new();let mut remainder=vec![];
-        let mut bridge=StreamBridge{id:format!("chatcmpl-{}",uuid::Uuid::new_v4()),model:chat["model"].as_str().unwrap_or_default().into(),created:chrono::Utc::now().timestamp(),tools:BTreeMap::new(),texts:BTreeMap::new(),refusals:BTreeMap::new(),done:false,retained_bytes:0,include_usage,reporter};
-        while let Some(chunk)=input.next().await {
+        let mut bridge=StreamBridge{id:format!("chatcmpl-{}",uuid::Uuid::new_v4()),model,created:chrono::Utc::now().timestamp(),tools:BTreeMap::new(),texts:BTreeMap::new(),refusals:BTreeMap::new(),done:false,retained_bytes:0,include_usage,reporter,trace};
+        tokio::pin!(stream);
+        while let Some(chunk)=stream.next().await {
             let chunk=chunk.map_err(|e|std::io::Error::other(e.to_string()))?;
             if buffer.len()+chunk.len()>2*1024*1024 {Err(std::io::Error::other("Responses event exceeds limit"))?;}
             super::sse::append_utf8_safe(&mut buffer,&mut remainder,&chunk);
@@ -925,9 +1400,5 @@ pub async fn handle(state: ProxyState, request: Request) -> Result<Response, Pro
             }
         }
         Err(std::io::Error::other("Responses stream ended without a terminal event"))?;
-    };
-    Ok(Response::from_parts(
-        parts,
-        Body::from_stream(output.map(|chunk: Result<bytes::Bytes, std::io::Error>| chunk)),
-    ))
+    }
 }

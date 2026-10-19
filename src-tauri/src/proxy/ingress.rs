@@ -11,7 +11,27 @@ use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::sync::LazyLock;
 
-const APPS: [&str; 5] = ["claude", "codex", "gemini", "grokbuild", "claude-desktop"];
+const APPS: [&str; 17] = [
+    "claude",
+    "codex",
+    "gemini",
+    "grokbuild",
+    "claude-desktop",
+    "opencode",
+    "openclaw",
+    "hermes",
+    "pi",
+    "mcode",
+    // 路由专用应用：只经本地网关接入路由组，不在侧栏出现。
+    "commandcode",
+    "crush",
+    "droid",
+    "kimi",
+    "atomcode",
+    "omo",
+    // System One 虚拟应用：只经 /typesafe/v1/systemone 进入决策组。
+    "typesafe",
+];
 static TOKENS: LazyLock<Vec<String>> = LazyLock::new(|| {
     APPS.iter()
         .map(|app| {
@@ -35,7 +55,9 @@ pub fn token(app: &str) -> &'static str {
 }
 
 pub fn is_local_credential(value: &str) -> bool {
-    value == "PROXY_MANAGED" || value.starts_with("phi-local-v1:") || value.starts_with("phi-binding-v1:")
+    value == "PROXY_MANAGED"
+        || value.starts_with("phi-local-v1:")
+        || value.starts_with("phi-binding-v1:")
 }
 
 pub fn listen_ip(address: &str) -> Result<std::net::IpAddr, String> {
@@ -72,12 +94,32 @@ fn permitted(app: &str, path: &str) -> bool {
     if matches!(path, "/models" | "/v1/models") {
         return matches!(app, "claude" | "codex");
     }
+    if path.starts_with("/typesafe/") {
+        return app == crate::gateway::typesafe::APP_ID;
+    }
+    // 路由专用应用：入口前缀就是它的命名空间。
+    if let Some(spec) = crate::gateway::local_apps::LOCAL_APPS
+        .iter()
+        .find(|spec| path.starts_with(&format!("{}/", spec.ingress)))
+    {
+        return app == spec.id;
+    }
     let expected = if path.starts_with("/claude-desktop/") {
         "claude-desktop"
     } else if path.starts_with("/grokbuild/") {
         "grokbuild"
     } else if path.starts_with("/gemini/") || path.starts_with("/v1beta/") {
         "gemini"
+    } else if path.starts_with("/opencode/") {
+        "opencode"
+    } else if path.starts_with("/openclaw/") {
+        "openclaw"
+    } else if path.starts_with("/hermes/") {
+        "hermes"
+    } else if path.starts_with("/pi/") {
+        "pi"
+    } else if path.starts_with("/mcode/") {
+        "mcode"
     } else if path.starts_with("/claude/") || path == "/v1/messages" {
         "claude"
     } else {
@@ -91,10 +133,18 @@ pub async fn authenticate(request: Request, next: Next) -> Response {
     authenticate_inner(None, request, next).await
 }
 pub async fn authenticate_bound(
-    axum::extract::State(state): axum::extract::State<super::server::ProxyState>, request: Request, next: Next,
-) -> Response { authenticate_inner(Some(&state.db), request, next).await }
+    axum::extract::State(state): axum::extract::State<super::server::ProxyState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    authenticate_inner(Some(&state.db), request, next).await
+}
 
-async fn authenticate_inner(db: Option<&crate::Database>, mut request: Request, next: Next) -> Response {
+async fn authenticate_inner(
+    db: Option<&crate::Database>,
+    mut request: Request,
+    next: Next,
+) -> Response {
     if request.uri().path() == "/health" {
         return next.run(request).await;
     }
@@ -161,15 +211,29 @@ async fn authenticate_inner(db: Option<&crate::Database>, mut request: Request, 
     };
     let local_app = APPS
         .iter()
-        .find(|app| equal(token(app), local) && permitted(app, request.uri().path())).copied();
+        .find(|app| equal(token(app), local) && permitted(app, request.uri().path()))
+        .copied();
     let binding = if local_app.is_none() {
-        db.and_then(|db|db.authenticate_binding(local).ok().flatten())
-    } else { None };
-    let Some(app) = local_app.or_else(|| binding.as_ref().and_then(|b|crate::access::tool_app(&b.tool)).filter(|app|permitted(app,request.uri().path()))) else {
+        db.and_then(|db| db.authenticate_binding(local).ok().flatten())
+    } else {
+        None
+    };
+    let Some(app) = local_app.or_else(|| {
+        binding
+            .as_ref()
+            .and_then(|b| crate::access::tool_app(&b.tool))
+            .filter(|app| permitted(app, request.uri().path()))
+    }) else {
         return reject();
     };
     let preserve_official = dedicated.is_some() && app == "codex" && binding.is_none();
-    if dedicated.is_some() && headers.get("authorization").and_then(|v|v.to_str().ok()).and_then(|v|v.strip_prefix("Bearer ")).is_some_and(is_local_credential) {
+    if dedicated.is_some()
+        && headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .is_some_and(is_local_credential)
+    {
         return reject();
     }
     if dedicated.is_some() && headers.contains_key("authorization") && !preserve_official {
@@ -193,6 +257,21 @@ pub struct Identity {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_local_token_only_opens_its_own_application_namespace() {
+        assert!(super::permitted(
+            "opencode",
+            "/opencode/v1/chat/completions"
+        ));
+        assert!(super::permitted("mcode", "/mcode/v1/models"));
+        assert!(!super::permitted(
+            "opencode",
+            "/openclaw/v1/chat/completions"
+        ));
+        assert!(!super::permitted("pi", "/mcode/v1/chat/completions"));
+        assert!(!super::permitted("hermes", "/v1/chat/completions"));
+    }
+
     use super::*;
     use axum::{body::Body, http::Request as HttpRequest, routing::any, Router};
     use tower::Service;
@@ -257,6 +336,12 @@ mod tests {
                 "/claude-desktop/v1/models",
                 "authorization",
             ),
+            ("opencode", "/opencode/v1/chat/completions", "authorization"),
+            ("openclaw", "/openclaw/v1/models", "authorization"),
+            ("hermes", "/hermes/v1/chat/completions", "authorization"),
+            ("pi", "/pi/v1/chat/completions", "authorization"),
+            ("mcode", "/mcode/v1/chat/completions", "authorization"),
+            ("typesafe", "/typesafe/v1/systemone", "authorization"),
         ] {
             let value = if header == "authorization" {
                 format!("Bearer {}", token(app))
@@ -343,5 +428,9 @@ mod tests {
         assert!(!equal(token("claude"), token("codex")));
         assert!(!permitted("claude", "/v1/responses"));
         assert!(!permitted("codex", "/gemini/v1beta/models"));
+        // System One 只有自己的决策入口，不能借道聊天路径。
+        assert!(permitted("typesafe", "/typesafe/v1/systemone"));
+        assert!(!permitted("typesafe", "/v1/responses"));
+        assert!(!permitted("codex", "/typesafe/v1/systemone"));
     }
 }

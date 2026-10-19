@@ -19,12 +19,13 @@ mod handlers;
 pub mod http_client;
 pub mod hyper_client;
 pub(crate) mod ingress;
-pub(crate) mod ledger_observer;
 pub(crate) mod json_canonical;
+pub(crate) mod ledger_observer;
 pub mod log_codes;
 pub mod media_sanitizer;
 pub mod model_mapper;
 pub mod opaque_state_rectifier;
+pub mod protocol;
 pub mod provider_router;
 pub mod providers;
 pub mod response_processor;
@@ -61,6 +62,7 @@ pub(crate) use types::*;
 pub(crate) mod supervisor;
 
 pub(crate) mod chat_bridge;
+pub(crate) mod chat_upstream;
 
 #[cfg(test)]
 mod golden;

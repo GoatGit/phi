@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 interface DesktopAccessBarProps {
   current?: Provider;
-  onOpenRoutingSettings: () => void;
+  onOpenGatewaySettings: () => void;
 }
 
 /**
@@ -24,7 +24,7 @@ interface DesktopAccessBarProps {
  */
 export function DesktopAccessBar({
   current,
-  onOpenRoutingSettings,
+  onOpenGatewaySettings,
 }: DesktopAccessBarProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -119,7 +119,7 @@ export function DesktopAccessBar({
               <Button
                 variant="quiet"
                 size="compact"
-                onClick={onOpenRoutingSettings}
+                onClick={onOpenGatewaySettings}
               >
                 {t("desktopAccess.changePort")}
               </Button>

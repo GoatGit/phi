@@ -15,10 +15,7 @@ pub fn get_window_controls_center_y(window: tauri::WebviewWindow) -> Result<Opti
             // 全屏时系统把红绿灯移出常规标题栏，对 content view 的几何换算
             // 会得到接近内容区高度的值，把对齐元素推到底部；返回 None 让前端
             // 沿用上一次（或默认）的位置。
-            if native
-                .styleMask()
-                .contains(NSWindowStyleMask::FullScreen)
-            {
+            if native.styleMask().contains(NSWindowStyleMask::FullScreen) {
                 return Ok(None);
             }
             let button = native

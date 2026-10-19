@@ -4,7 +4,20 @@ import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { gatewayApi, type GatewayCatalog } from "@/lib/api";
 import type { ProxyAppId } from "@/config/appConfig";
 import { gatewayCatalogKey, useGatewayErrorMessage } from "./useGatewayCatalog";
-import { supplierTemplates } from "./supplierTemplates";
+import { SYSTEM_ONE_TEMPLATE_ID, supplierTemplates } from "./supplierTemplates";
+import {
+  SupplierEditorDialog,
+  type SupplierEditorInitial,
+} from "./SupplierEditorDialog";
+
+/** TypeSafe 的 System One 决策协议出口；没有应用模板，直接进资源池编辑器。 */
+const SYSTEM_ONE_INITIAL: SupplierEditorInitial = {
+  name: "TypeSafe System One",
+  protocol: "systemone",
+  baseUrl: "https://api.typesafe.ai",
+  models: ["jev-latest"],
+  authField: "TYPESAFE_API_KEY",
+};
 
 /** The existing template picker/form, with a pool-only persistence boundary. */
 export function AddPoolSupplier({
@@ -28,6 +41,18 @@ export function AddPoolSupplier({
       throw new Error(describeError(error));
     }
   };
+  // System One 没有应用表单：选中后直接打开资源池供应商编辑器。
+  if (presetId === SYSTEM_ONE_TEMPLATE_ID) {
+    return (
+      <SupplierEditorDialog
+        open
+        supplier={null}
+        revision={revision}
+        initial={SYSTEM_ONE_INITIAL}
+        onClose={onClose}
+      />
+    );
+  }
   return (
     <AddProviderDialog
       key={appId}

@@ -316,10 +316,7 @@ pub struct Presentation {
     dimmed: bool,
 }
 #[tauri::command]
-pub fn terminal_set_visible(
-    window: tauri::WebviewWindow,
-    ids: Vec<String>,
-) -> Result<(), String> {
+pub fn terminal_set_visible(window: tauri::WebviewWindow, ids: Vec<String>) -> Result<(), String> {
     authorize(&window)?;
     if ids.len() > 32 {
         return Err("terminal-limit".into());
@@ -365,14 +362,18 @@ pub fn terminal_present(
             registry.layout_revisions.insert(id.clone(), p.revision);
         } else {
             // 无 id 的 present（隐藏全部）用任意比历史大的值即可
-            if p.revision <= registry.layout_revisions.values().copied().max().unwrap_or(0)
+            if p.revision
+                <= registry
+                    .layout_revisions
+                    .values()
+                    .copied()
+                    .max()
+                    .unwrap_or(0)
                 && !registry.layout_revisions.is_empty()
             {
                 return Ok(());
             }
-            registry
-                .layout_revisions
-                .insert(String::new(), p.revision);
+            registry.layout_revisions.insert(String::new(), p.revision);
         }
     }
     #[cfg(target_os = "macos")]

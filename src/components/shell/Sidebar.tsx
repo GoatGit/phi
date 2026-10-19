@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
@@ -15,6 +22,7 @@ import {
   Layers,
   LayoutGrid,
   Route,
+  Router,
   Server,
   Settings,
   SlidersHorizontal,
@@ -22,7 +30,6 @@ import {
 } from "lucide-react";
 import type { AppId } from "@/lib/api";
 import type { VisibleApps } from "@/types";
-import { APP_IDS } from "@/config/appConfig";
 import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage, visibleSettingsSections } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
@@ -35,6 +42,12 @@ import {
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
 import { useSidebarStatus, type AppNavStatus } from "@/hooks/useSidebarStatus";
+import { useSidebarApps } from "@/hooks/useSidebarApps";
+import {
+  collapseSidebarApps,
+  SIDEBAR_VISIBLE_APP_LIMIT,
+  type SidebarAppEntry,
+} from "./sidebarApps";
 import { fmtUsd } from "@/components/usage/format";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { DRAG_REGION_ATTR, DRAG_REGION_STYLE, isMac } from "@/lib/platform";
@@ -42,7 +55,7 @@ import { cn } from "@/lib/utils";
 // 日间用黑 φ、夜间用白 φ：跟随主题的双版本
 import phiLogoLight from "@/assets/icons/phi/phi-logo-light.png";
 import phiLogoDark from "@/assets/icons/phi/phi-logo-dark.png";
-import { APP_DISPLAY_NAME, AppGlyph } from "./AppGlyph";
+import { AppGlyph, getAppDisplayName } from "./AppGlyph";
 
 const NO_DRAG = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
@@ -60,7 +73,11 @@ interface SidebarProps {
   onSelectSettingsSection: (section: SettingsSection) => void;
   /** 打开了「启动时检查应用更新」并且查到了新版本 */
   appsUpdateAvailable?: boolean;
-  terminalCounts?: Partial<Record<AppId, number>>;
+  terminalCounts?: Partial<Record<string, number>>;
+  /** 路由页当前从侧栏打开的路由专用应用（用于选中态） */
+  activeRoutingApp?: string | null;
+  /** 点击路由专用应用：跳到路由页并打开它的「设置应用路由」 */
+  onSelectRoutingApp?: (appId: string) => void;
 }
 
 type DirectoryProps = SidebarProps & { collapsed: boolean };
@@ -250,6 +267,8 @@ function SidebarTopBar({
 
 // ─── 主目录 ────────────────────────────────────────────────────────────────
 
+const EMPTY_TERMINAL_COUNTS: Partial<Record<string, number>> = {};
+
 /** 工具箱二级菜单覆盖的页面（Skills 的发现页也算 Skills）。 */
 const TOOLBOX_PAGES: GlobalPage[] = [
   "mcp",
@@ -267,13 +286,51 @@ function MainDirectory({
   onSelectApp,
   onSelectPage,
   appsUpdateAvailable = false,
-  terminalCounts = {},
+  terminalCounts = EMPTY_TERMINAL_COUNTS,
+  activeRoutingApp = null,
+  onSelectRoutingApp,
 }: DirectoryProps) {
   const { t } = useTranslation();
   const { hasUpdate } = useUpdate();
-  const { appStatus, todayCost, authNeedsAttention } = useSidebarStatus();
-  const apps = APP_IDS.filter((app) => visibleApps[app]);
+  const { appStatus, todayCost, authNeedsAttention, serviceRunning } =
+    useSidebarStatus();
+  // 可见应用 + 路由专用应用，按“进行中 → 最近有流量 → 已接入路由组 → 其余”排序。
+  const sidebarApps = useSidebarApps(visibleApps);
   const onAppPage = isAppPage(view);
+  const appListId = useId();
+  const [appsExpanded, setAppsExpanded] = useState(false);
+  // 折叠只影响显示；当前应用、侧栏打开的路由专用应用、进行中的请求不藏。
+  const { shown: shownApps, hiddenCount } = useMemo(
+    () =>
+      collapseSidebarApps(sidebarApps, {
+        expanded: appsExpanded,
+        pinned: [
+          activeApp,
+          ...(activeRoutingApp ? [activeRoutingApp] : []),
+          ...sidebarApps
+            .filter((entry) => entry.live)
+            .map((entry) => entry.appId),
+          // 跑着终端的应用也不能被折叠藏掉，否则看不见它还在运行。
+          ...Object.entries(terminalCounts)
+            .filter(([, count]) => (count ?? 0) > 0)
+            .map(([appId]) => appId),
+        ],
+      }),
+    [sidebarApps, appsExpanded, activeApp, activeRoutingApp, terminalCounts],
+  );
+  const canCollapse =
+    sidebarApps.length > SIDEBAR_VISIBLE_APP_LIMIT &&
+    (appsExpanded || hiddenCount > 0);
+
+  // 路由专用应用没有应用页：已接入路由组时显示「路由」，服务没跑就是提醒。
+  const statusFor = (entry: SidebarAppEntry): AppNavStatus =>
+    entry.local
+      ? {
+          mode: entry.groupId ? "route" : "direct",
+          mapping: false,
+          alert: Boolean(entry.groupId) && !serviceRunning,
+        }
+      : appStatus(entry.appId as AppId);
 
   const todayLabel =
     todayCost > 0
@@ -340,24 +397,104 @@ function MainDirectory({
         )}
       >
         <div
+          id={appListId}
           role="group"
           aria-label={t("nav.appsGroup")}
           className="flex shrink-0 flex-col"
         >
-          {apps.map((app) => (
+          {shownApps.map((entry) => (
             <AppNavItem
-              key={app}
-              app={app}
+              key={entry.appId}
+              app={entry.appId}
               collapsed={collapsed}
-              selected={onAppPage && activeApp === app}
-              status={appStatus(app)}
-              terminalCount={terminalCounts[app] ?? 0}
-              onSelect={() => onSelectApp(app)}
+              selected={
+                view === "routingOverview"
+                  ? activeRoutingApp === entry.appId
+                  : onAppPage && activeApp === entry.appId
+              }
+              status={statusFor(entry)}
+              terminalCount={terminalCounts[entry.appId] ?? 0}
+              onSelect={() =>
+                entry.local
+                  ? onSelectRoutingApp?.(entry.appId)
+                  : onSelectApp(entry.appId as AppId)
+              }
             />
           ))}
         </div>
+        {canCollapse && (
+          <SidebarMoreApps
+            collapsed={collapsed}
+            expanded={appsExpanded}
+            hiddenCount={hiddenCount}
+            controls={appListId}
+            onToggle={() => setAppsExpanded((value) => !value)}
+          />
+        )}
       </div>
     </>
+  );
+}
+
+/** 「展开其余 N 个应用 / 收起其余应用」：默认把优先级靠后的应用折起来。 */
+function SidebarMoreApps({
+  collapsed,
+  expanded,
+  hiddenCount,
+  controls,
+  onToggle,
+}: {
+  collapsed: boolean;
+  expanded: boolean;
+  hiddenCount: number;
+  controls: string;
+  onToggle: () => void;
+}) {
+  const { t } = useTranslation();
+  const label = expanded
+    ? t("nav.fewerApps")
+    : t("nav.moreApps", { count: hiddenCount });
+
+  if (collapsed) {
+    return (
+      <HoverTip content={label} side="right" disableHoverableContent>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={label}
+          aria-expanded={expanded}
+          aria-controls={controls}
+          className="mx-auto mt-0.5 flex h-8 w-10 shrink-0 items-center justify-center rounded-control text-fg-3 transition-colors hover:bg-subtle hover:text-fg-1"
+        >
+          <ChevronDown
+            aria-hidden
+            className={cn(
+              "h-4 w-4 transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        </button>
+      </HoverTip>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-controls={controls}
+      className="mx-2 mt-1 flex h-7 w-[184px] shrink-0 items-center gap-2 rounded-control border border-dashed border-border px-2 text-start text-caption text-fg-3 transition-colors hover:bg-subtle hover:text-fg-1"
+    >
+      <ChevronDown
+        aria-hidden
+        className={cn(
+          "h-4 w-4 shrink-0 transition-transform",
+          expanded && "rotate-180",
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
   );
 }
 
@@ -394,7 +531,7 @@ function AppNavItem({
   onSelect,
   terminalCount,
 }: {
-  app: AppId;
+  app: string;
   collapsed: boolean;
   selected: boolean;
   status: AppNavStatus;
@@ -402,7 +539,7 @@ function AppNavItem({
   terminalCount: number;
 }) {
   const { t } = useTranslation();
-  const name = APP_DISPLAY_NAME[app];
+  const name = getAppDisplayName(app);
   const tag = modeTag(status, t);
   const modeName = status.mapping
     ? t("nav.mode.mappingFull")
@@ -754,7 +891,7 @@ const SETTINGS_ITEMS: { section: SettingsSection; icon: IconComponent }[] = [
   { section: "general", icon: SlidersHorizontal },
   { section: "auth", icon: KeyRound },
   { section: "apps", icon: LayoutGrid },
-  { section: "routing", icon: Route },
+  { section: "routing", icon: Router },
   { section: "network", icon: Globe },
   { section: "data", icon: Database },
   { section: "about", icon: Info },

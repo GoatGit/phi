@@ -1,4 +1,4 @@
-//! OpenAI Responses ↔ Anthropic Messages format conversion module (used when the Codex upstream is an Anthropic gateway)
+//! OpenAI Responses ↔ Anthropic Messages format conversion.
 //!
 //! Scenario: The Codex CLI only speaks the OpenAI Responses protocol, while the
 //! upstream AI gateway only offers the native Anthropic Messages protocol
@@ -11,7 +11,7 @@
 //! - this module:               Responses request → Anthropic request, Anthropic response → Responses response
 
 use super::codex_compaction;
-use super::transform_codex_chat::{
+use super::responses_to_chat::{
     build_codex_tool_context_from_request, response_tool_call_item_from_chat_name,
     response_tool_call_item_id_from_chat_name, CodexToolContext,
 };

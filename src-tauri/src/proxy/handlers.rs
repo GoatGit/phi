@@ -19,20 +19,19 @@ use super::{
     providers::{
         codex_chat_common::extract_reasoning_field_text,
         codex_chat_history::record_responses_sse_stream,
-        get_adapter, get_claude_api_format,
+        get_adapter, get_claude_api_format, responses_to_chat,
         streaming::create_anthropic_sse_stream,
-        streaming_codex_anthropic::{
-            create_responses_sse_stream_from_anthropic_with_context,
-            responses_sse_events_from_anthropic_message,
-        },
-        streaming_codex_chat::create_responses_sse_stream_from_chat_with_context,
         streaming_gemini::create_anthropic_sse_stream_from_gemini,
         streaming_responses::{
             create_anthropic_sse_stream_from_responses,
             create_anthropic_sse_stream_from_responses_with_web_search_options,
         },
-        transform, transform_codex_anthropic, transform_codex_chat,
-        transform_codex_responses_namespace, transform_codex_responses_xai_sanitize,
+        streaming_responses_to_anthropic::{
+            create_responses_sse_stream_from_anthropic_with_context,
+            responses_sse_events_from_anthropic_message,
+        },
+        streaming_responses_to_chat::create_responses_sse_stream_from_chat_with_context,
+        transform, transform_codex_responses_namespace, transform_codex_responses_xai_sanitize,
         transform_gemini, transform_responses,
     },
     response_processor::{
@@ -93,7 +92,10 @@ pub async fn handle_models(
     axum::Extension(identity): axum::Extension<super::ingress::Identity>,
 ) -> Result<Json<Value>, ProxyError> {
     if let Some(binding) = &identity.binding {
-        let catalog=state.db.gateway_catalog().map_err(|e|ProxyError::DatabaseError(e.to_string()))?;
+        let catalog = state
+            .db
+            .gateway_catalog()
+            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
         let aliases = crate::gateway::routing::published_unbound_aliases(&catalog, &binding.tool);
         let data: Vec<Value> = aliases.into_iter().filter(|(model, _)| {
             binding.allowed_groups.is_empty() || crate::gateway::routing::matched_unbound_policy(&catalog, &binding.tool, model).ok().flatten()
@@ -152,6 +154,38 @@ pub async fn handle_models(
         json!({"models": []})
     };
     Ok(Json(catalog))
+}
+
+/// 累加式路由应用（OpenCode / OpenClaw / Hermes / Pi / MCode）的 `/models`：
+/// 只发布当前路由组里可用的模型，凭据不离开本地。这些客户端用模型清单做连通性
+/// 探测和选择器，缺了会回退到上游 `/models`（聚合网关通常不支持）。
+pub async fn handle_route_app_models(
+    State(state): State<ProxyState>,
+    axum::Extension(identity): axum::Extension<super::ingress::Identity>,
+) -> Result<Json<Value>, ProxyError> {
+    let catalog = state
+        .db
+        .gateway_catalog()
+        .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+    let models = crate::gateway::routing::published_models(&catalog, identity.app);
+    let data: Vec<Value> = models
+        .iter()
+        .map(|model| {
+            json!({
+                "id": model,
+                "object": "model",
+                "type": "model",
+                "display_name": model,
+                "created": 0,
+                "owned_by": "phi",
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "object": "list",
+        "data": data,
+        "has_more": false,
+    })))
 }
 
 // ============================================================================
@@ -893,8 +927,338 @@ pub async fn handle_chat_completions(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
-    if request.extensions().get::<super::ingress::Identity>().is_some_and(|identity|identity.binding.is_some()) {
-        return super::chat_bridge::handle(state,request).await;
+    handle_chat_completions_for_app(state, request, AppType::Codex, "Codex", "codex").await
+}
+
+/// OpenCode / OpenClaw / Hermes / Pi / MCode 的 OpenAI Chat 入口。请求体、转换和
+/// 用量归因都和 Codex 走同一条聊天链路，只有应用归属不同。
+pub async fn handle_opencode_chat_completions(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    handle_chat_completions_for_app(state, request, AppType::OpenCode, "OpenCode", "opencode").await
+}
+
+pub async fn handle_openclaw_chat_completions(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    handle_chat_completions_for_app(state, request, AppType::OpenClaw, "OpenClaw", "openclaw").await
+}
+
+pub async fn handle_hermes_chat_completions(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    handle_chat_completions_for_app(state, request, AppType::Hermes, "Hermes", "hermes").await
+}
+
+pub async fn handle_pi_chat_completions(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    handle_chat_completions_for_app(state, request, AppType::Pi, "Pi", "pi").await
+}
+
+pub async fn handle_mcode_chat_completions(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    handle_chat_completions_for_app(state, request, AppType::Mcode, "MCode", "mcode").await
+}
+
+/// System One 的 pass-through 入口。
+///
+/// 决策协议没有聊天消息可转换，也没有可写的客户端原生配置：这里按模型名从
+/// `app_ids` 含 `typesafe` 的组里选供应商，校验请求形状后原样转发到上游
+/// `/v1/systemone`。故障转移只在同组内重试，不跨协议。
+pub async fn handle_typesafe_systemone(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    let (_parts, body) = request.into_parts();
+    let bytes = body
+        .collect()
+        .await
+        .map_err(|error| ProxyError::Internal(format!("Failed to read request body: {error}")))?
+        .to_bytes();
+    let input: Value = serde_json::from_slice(&bytes)
+        .map_err(|error| ProxyError::InvalidRequest(format!("Invalid System One body: {error}")))?;
+    // 用 codec 校验 state / model / questions 的必填与类型；转发仍保留调用方的
+    // 原始字段，避免把不认识的扩展字段提前丢掉。
+    let parsed = crate::proxy::protocol::codec::system_one::parse_request(input.clone())
+        .map_err(|error| ProxyError::InvalidRequest(error.to_string()))?;
+    let route = state
+        .db
+        .resolve_typesafe_route(&parsed.model)
+        .map_err(|error| ProxyError::ConfigError(error.to_string()))?
+        .ok_or_else(|| {
+            ProxyError::NoAvailableProviderWithReason(format!(
+                "System One has no route group for model {}",
+                parsed.model
+            ))
+        })?;
+    if route.providers.is_empty() {
+        return Err(ProxyError::AllProvidersCircuitOpen);
+    }
+    // 访问绑定可以限制只能使用某个组；System One 没有新的鉴权通道，
+    // 所以和聊天入口一样在选定组后按绑定范围校验。
+    super::ledger_observer::authorize_group(route.policy.group_id.as_deref()).map_err(|error| {
+        if error.to_string().contains("ACCESS_SCOPE_DENIED") {
+            ProxyError::UpstreamError {
+                status: 403,
+                body: Some(
+                    json!({"error":{"type":"permission_error","code":"ACCESS_SCOPE_DENIED","message":"This PHI access token is not authorized for the selected route group."}})
+                        .to_string(),
+                ),
+            }
+        } else {
+            ProxyError::ConfigError(error.to_string())
+        }
+    })?;
+    let attempts = if route.policy.failover {
+        route.providers.len()
+    } else {
+        1
+    };
+    // 路由流转图靠 trace 画「这次决策请求由谁服务」，与聊天入口一致。
+    // 回包观察器负责写最终状态与用量；这里只是在请求开始时登记。
+    let trace = {
+        let trace = std::sync::Arc::new(std::sync::Mutex::new(crate::gateway::RequestTrace {
+            id: super::ledger_observer::request_id()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            created_at: chrono::Utc::now().timestamp_millis(),
+            app_id: crate::gateway::typesafe::APP_ID.into(),
+            request_model: parsed.model.clone(),
+            catalog_revision: route.revision,
+            policy: route.policy.clone(),
+            events: Vec::new(),
+            outcome: "pending".into(),
+            latency_ms: 0,
+            input_tokens: None,
+            output_tokens: None,
+            estimated_cost: None,
+            decision: Some(route.decision.clone()),
+            persist: super::response_processor::usage_logging_enabled(&state),
+        }));
+        super::gateway_observer::register(&trace);
+        if let Ok(snapshot) = trace.lock() {
+            if let Err(error) = state.db.write_gateway_trace(&snapshot) {
+                log::warn!("[TYPESAFE] trace write failed: {error}");
+            }
+        }
+        trace
+    };
+    let timeout = std::time::Duration::from_secs(
+        route
+            .timeouts
+            .map(|timeouts| timeouts.non_streaming)
+            .unwrap_or(600) as u64,
+    );
+    let mut last_response = None;
+    for provider in route.providers.iter().take(attempts) {
+        let Some((base, api_key)) = typesafe_endpoint(provider) else {
+            log::warn!(
+                "[TYPESAFE] supplier {} has no base_url or TYPESAFE_API_KEY",
+                provider.id
+            );
+            continue;
+        };
+        let mut payload = input.clone();
+        if let Some(model) = route.models.get(&provider.id) {
+            payload["model"] = json!(model);
+        }
+        let model = route.models.get(&provider.id).cloned().unwrap_or_default();
+        let started = std::time::Instant::now();
+        let event = typesafe_trace_attempt(&trace, &route, provider, &model);
+        // 与聊天入口一致：预算闸门与用量记账在发出请求前登记本次尝试。
+        // 成功时由回包观察器结算（它会读到响应里的 usage）。
+        let attempt = super::ledger_observer::begin(provider, &model)?;
+        let base = base.trim_end_matches('/');
+        let url = if base.ends_with("/v1") {
+            format!("{base}/systemone")
+        } else {
+            format!("{base}/v1/systemone")
+        };
+        match super::http_client::get()
+            .post(&url)
+            .header(http::header::CONTENT_TYPE, "application/json")
+            .bearer_auth(api_key)
+            .timeout(timeout)
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                let status = response.status();
+                let content_type = response.headers().get(http::header::CONTENT_TYPE).cloned();
+                let body = response
+                    .bytes()
+                    .await
+                    .map_err(|error| ProxyError::ForwardFailed(error.to_string()))?;
+                if status.is_success() {
+                    typesafe_trace_settle(
+                        &trace,
+                        event,
+                        "upstream_accepted",
+                        started.elapsed().as_millis() as u64,
+                    );
+                    return typesafe_response(status, content_type, body);
+                }
+                // 还要换下一个供应商：先结算这次失败，否则下一次 begin 会覆盖它。
+                typesafe_trace_settle(
+                    &trace,
+                    event,
+                    match status.as_u16() {
+                        401 | 403 => "authentication",
+                        429 => "rate_limit",
+                        500..=599 => "upstream_unavailable",
+                        _ => "request_rejected",
+                    },
+                    started.elapsed().as_millis() as u64,
+                );
+                if let Err(settle) = super::ledger_observer::failed(
+                    attempt,
+                    &ProxyError::UpstreamError {
+                        status: status.as_u16(),
+                        body: Some(String::from_utf8_lossy(&body).to_string()),
+                    },
+                ) {
+                    log::warn!("[TYPESAFE] failed to settle attempt: {settle}");
+                }
+                last_response = Some((status, content_type, body));
+            }
+            Err(error) => {
+                typesafe_trace_settle(
+                    &trace,
+                    event,
+                    "transport",
+                    started.elapsed().as_millis() as u64,
+                );
+                if let Err(settle) = super::ledger_observer::failed(
+                    attempt,
+                    &ProxyError::ForwardFailed(error.to_string()),
+                ) {
+                    log::warn!("[TYPESAFE] failed to settle attempt: {settle}");
+                }
+                log::warn!(
+                    "[TYPESAFE] {} upstream request failed: {error}",
+                    provider.name
+                );
+            }
+        }
+    }
+    if let Some((status, content_type, body)) = last_response {
+        return typesafe_response(status, content_type, body);
+    }
+    Err(ProxyError::ForwardFailed(
+        "System One upstream request failed".into(),
+    ))
+}
+
+/// 登记一次上游尝试，返回它在 trace 事件里的下标。
+fn typesafe_trace_attempt(
+    trace: &std::sync::Mutex<crate::gateway::RequestTrace>,
+    route: &crate::gateway::ResolvedRoute,
+    provider: &crate::provider::Provider,
+    model: &str,
+) -> Option<usize> {
+    let supplier = route.supplier_ids.get(&provider.id)?.clone();
+    let group_path = route
+        .decision
+        .candidates
+        .iter()
+        .find(|candidate| candidate.supplier_id == supplier && candidate.model == model)
+        .map(|candidate| candidate.group_path.clone())
+        .unwrap_or_default();
+    let mut trace = trace.lock().ok()?;
+    let index = trace.events.len();
+    trace.events.push(crate::gateway::TraceEvent {
+        supplier_name: provider.name.clone(),
+        supplier_id: supplier,
+        model: model.to_string(),
+        outcome: "pending".into(),
+        group_path,
+        started_at: chrono::Utc::now().timestamp_millis(),
+        latency_ms: 0,
+    });
+    Some(index)
+}
+
+fn typesafe_trace_settle(
+    trace: &std::sync::Mutex<crate::gateway::RequestTrace>,
+    index: Option<usize>,
+    outcome: &str,
+    latency_ms: u64,
+) {
+    let (Some(index), Ok(mut trace)) = (index, trace.lock()) else {
+        return;
+    };
+    if let Some(event) = trace.events.get_mut(index) {
+        event.outcome = outcome.into();
+        event.latency_ms = latency_ms;
+    }
+}
+
+fn typesafe_endpoint(provider: &crate::provider::Provider) -> Option<(String, String)> {
+    let base = provider
+        .settings_config
+        .get("base_url")?
+        .as_str()?
+        .to_string();
+    let api_key = provider
+        .settings_config
+        .pointer("/auth/TYPESAFE_API_KEY")
+        .or_else(|| provider.settings_config.pointer("/auth/OPENAI_API_KEY"))?
+        .as_str()?
+        .to_string();
+    Some((base, api_key))
+}
+
+fn typesafe_response(
+    status: StatusCode,
+    content_type: Option<http::HeaderValue>,
+    body: Bytes,
+) -> Result<axum::response::Response, ProxyError> {
+    let mut response = axum::response::Response::builder().status(status);
+    if let Some(content_type) = content_type {
+        response = response.header(http::header::CONTENT_TYPE, content_type);
+    }
+    response
+        .body(axum::body::Body::from(body))
+        .map_err(|error| ProxyError::Internal(error.to_string()))
+}
+
+/// 路由专用应用的 OpenAI Chat 入口（Command Code、Crush、Droid、Kimi Code、
+/// AtomCode、OmO）。它们只写原生配置指向本地网关，不在 PHI 侧做完整应用管理；
+/// 应用归属取自路径对应的本地身份，转换与用量链路和 OpenCode 入口一致。
+pub async fn handle_local_app_chat_completions(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ProxyError> {
+    let app = request
+        .extensions()
+        .get::<super::ingress::Identity>()
+        .map(|identity| identity.app)
+        .ok_or_else(|| ProxyError::Internal("missing local app identity".into()))?;
+    let spec = crate::gateway::local_apps::spec(app)
+        .ok_or_else(|| ProxyError::Internal(format!("unknown local app {app}")))?;
+    handle_chat_completions_for_app(state, request, AppType::OpenCode, spec.label, spec.id).await
+}
+
+async fn handle_chat_completions_for_app(
+    state: ProxyState,
+    request: axum::extract::Request,
+    app_type: AppType,
+    tag: &'static str,
+    app_type_str: &'static str,
+) -> Result<axum::response::Response, ProxyError> {
+    if request
+        .extensions()
+        .get::<super::ingress::Identity>()
+        .is_some_and(|identity| identity.binding.is_some())
+    {
+        return super::chat_bridge::handle(state, request).await;
     }
     let (parts, req_body) = request.into_parts();
     let method = parts.method.clone();
@@ -909,7 +1273,7 @@ pub async fn handle_chat_completions(
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
-    let stack = match resolve_stack_target(&state, &AppType::Codex, &mut body) {
+    let stack = match resolve_stack_target(&state, &app_type, &mut body) {
         Ok(stack) => stack,
         Err(rejected) => return Ok(*rejected),
     };
@@ -918,9 +1282,9 @@ pub async fn handle_chat_completions(
         &state,
         &body,
         &headers,
-        AppType::Codex,
-        "Codex",
-        "codex",
+        app_type.clone(),
+        tag,
+        app_type_str,
         stack,
     )
     .await?;
@@ -930,11 +1294,30 @@ pub async fn handle_chat_completions(
         .get("stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let include_usage = body
+        .pointer("/stream_options/include_usage")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    // Chat 入口的应用可以接 Anthropic / Responses 路由成员：请求会先归一成
+    // Responses 再转发，回包需要转回 Chat。工具名映射上下文从归一后的请求里取，
+    // 与 Responses handler 一致。
+    let bridged = crate::gateway::apps::chat_ingress(&app_type)
+        && ctx.get_providers().iter().any(|provider| {
+            super::chat_upstream::upstream_for(provider) != super::chat_upstream::Upstream::Chat
+        });
+    let bridge_tools = if bridged {
+        super::chat_bridge::gateway_request_to_responses(&body)
+            .map(|responses| responses_to_chat::build_codex_tool_context_from_request(&responses))
+            .unwrap_or_default()
+    } else {
+        responses_to_chat::CodexToolContext::default()
+    };
 
     let forwarder = ctx.create_forwarder(&state);
     let mut result = match forwarder
         .forward_with_retry(
-            &AppType::Codex,
+            &app_type,
             method,
             &endpoint,
             body,
@@ -958,6 +1341,23 @@ pub async fn handle_chat_completions(
     ctx.outbound_model = result.outbound_model.take();
     ctx.provider = result.provider;
     let response = result.response;
+
+    if bridged {
+        let upstream = super::chat_upstream::upstream_for(&ctx.provider);
+        if upstream != super::chat_upstream::Upstream::Chat {
+            return super::chat_upstream::convert_response(
+                response,
+                &ctx,
+                &state,
+                upstream,
+                is_stream,
+                include_usage,
+                bridge_tools,
+                connection_guard,
+            )
+            .await;
+        }
+    }
 
     process_response(
         response,
@@ -1049,7 +1449,7 @@ async fn handle_responses_for_app(
         .get("stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let codex_tool_context = transform_codex_chat::build_codex_tool_context_from_request(&body);
+    let codex_tool_context = responses_to_chat::build_codex_tool_context_from_request(&body);
     let compaction_request = codex_tool_context.is_compaction_request();
     // Captured before `body` is moved into the forwarder: the flat-name →
     // {namespace, name} map used to restore the native Responses upstream's
@@ -1382,7 +1782,7 @@ async fn handle_responses_compact_for_app(
         .get("stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let codex_tool_context = transform_codex_chat::build_codex_tool_context_from_request(&body);
+    let codex_tool_context = responses_to_chat::build_codex_tool_context_from_request(&body);
     let namespace_restore_map = transform_codex_responses_namespace::namespace_restore_map(&body);
 
     let forwarder = ctx.create_forwarder(&state);
@@ -1671,7 +2071,7 @@ async fn handle_codex_chat_to_responses_transform(
     state: &ProxyState,
     is_stream: bool,
     connection_guard: Option<ActiveConnectionGuard>,
-    tool_context: transform_codex_chat::CodexToolContext,
+    tool_context: responses_to_chat::CodexToolContext,
 ) -> Result<axum::response::Response, ProxyError> {
     let status = response.status();
 
@@ -1811,7 +2211,7 @@ async fn handle_codex_chat_to_responses_transform(
             ));
         }
     };
-    let responses_response = transform_codex_chat::chat_completion_to_response_with_context(
+    let responses_response = crate::proxy::protocol::chat_completion_to_response_with_context(
         chat_response,
         &tool_context,
     )
@@ -1910,7 +2310,7 @@ async fn handle_codex_anthropic_to_responses_transform(
     state: &ProxyState,
     is_stream: bool,
     connection_guard: Option<ActiveConnectionGuard>,
-    codex_tool_context: transform_codex_chat::CodexToolContext,
+    codex_tool_context: responses_to_chat::CodexToolContext,
 ) -> Result<axum::response::Response, ProxyError> {
     let status = response.status();
 
@@ -1950,7 +2350,7 @@ async fn handle_codex_anthropic_to_responses_transform(
         // aggregate it back into a message before continuing the conversion.
         Err(_) if body_looks_like_sse(&body_str) => {
             log::warn!("[Codex] Upstream returned an unmarked Anthropic SSE body, falling back to aggregation");
-            transform_codex_anthropic::anthropic_sse_to_message_value(&body_str).map_err(|e| {
+            crate::proxy::protocol::anthropic_sse_to_message_value(&body_str).map_err(|e| {
                 log::error!("[Codex] Failed to aggregate Anthropic SSE body: {e}");
                 e
             })?
@@ -1983,15 +2383,14 @@ async fn handle_codex_anthropic_to_responses_transform(
     }
 
     let _connection_guard = connection_guard;
-    let responses_response =
-        transform_codex_anthropic::anthropic_response_to_responses_with_context(
-            anthropic_response,
-            &codex_tool_context,
-        )
-        .map_err(|e| {
-            log::error!("[Codex] Failed to convert Anthropic response to Responses: {e}");
-            e
-        })?;
+    let responses_response = crate::proxy::protocol::anthropic_response_to_responses_with_context(
+        anthropic_response,
+        &codex_tool_context,
+    )
+    .map_err(|e| {
+        log::error!("[Codex] Failed to convert Anthropic response to Responses: {e}");
+        e
+    })?;
 
     if let Some(usage) = TokenUsage::from_codex_response_auto(&responses_response)
         .filter(TokenUsage::has_billable_tokens)
@@ -2190,7 +2589,7 @@ async fn handle_codex_chat_error_response(
         }
     };
 
-    let responses_error = transform_codex_chat::chat_error_to_response_error(Some(&parsed_value));
+    let responses_error = crate::proxy::protocol::chat_error_to_response_error(Some(&parsed_value));
 
     strip_entity_headers_for_rebuilt_body(&mut response_headers);
     strip_hop_by_hop_response_headers(&mut response_headers);
@@ -2264,7 +2663,7 @@ fn codex_proxy_error_json(
                 .as_deref()
                 .map(|body| serde_json::from_str::<Value>(body).unwrap_or_else(|_| json!(body)));
             (
-                transform_codex_chat::chat_error_to_response_error(parsed_body.as_ref()),
+                crate::proxy::protocol::chat_error_to_response_error(parsed_body.as_ref()),
                 Some(*status),
             )
         }
@@ -2558,7 +2957,7 @@ async fn responses_sse_stream_to_anthropic_message(
             })??
     };
 
-    transform_codex_anthropic::anthropic_sse_to_message_value(&body)
+    crate::proxy::protocol::anthropic_sse_to_message_value(&body)
 }
 
 /// 把 OpenAI Responses SSE 流聚合成一个完整的 Responses JSON 对象，供下游转成 Anthropic
@@ -4186,10 +4585,186 @@ mod stack_tests {
         headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
         let Json(body) = handle_models(
             State(proxy_state()),
-            axum::Extension(super::super::ingress::Identity { app: "claude", binding: None }),
+            axum::Extension(super::super::ingress::Identity {
+                app: "claude",
+                binding: None,
+            }),
         )
         .await
         .expect("models");
         assert_eq!(body, json!({ "data": [], "has_more": false }));
+    }
+}
+
+#[cfg(test)]
+mod typesafe_tests {
+    //! System One 没有聊天消息可转换，入口只做鉴权后的原样转发：
+    //! 按模型名选组内成员，请求体保留调用方字段，只把模型改写成为成员的模型。
+    use super::*;
+    use crate::database::Database;
+    use crate::gateway::{Endpoint, SupplierUpsert};
+    use axum::body::Body;
+    use axum::extract::State;
+    use axum::http::{Request, StatusCode};
+    use serde_json::{json, Value};
+    use std::sync::{Arc, Mutex};
+    use tower::Service;
+
+    fn request(model: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/typesafe/v1/systemone")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "model": model,
+                    "state": {"message": "I was charged twice."},
+                    "questions": {
+                        "refund": {"type": "noul", "instructions": "Does the customer ask for a refund?"}
+                    }
+                })
+                .to_string(),
+            ))
+            .unwrap()
+    }
+
+    async fn state_with_system_one(base_url: String) -> ProxyState {
+        let db = Arc::new(Database::memory().expect("memory db"));
+        let catalog = db
+            .create_gateway_supplier(SupplierUpsert {
+                name: Some("TypeSafe".into()),
+                endpoint: Some(Endpoint {
+                    protocol: "systemone".into(),
+                    base_url,
+                }),
+                models: Some(vec!["jev-latest".into()]),
+                revision: None,
+                api_key: Some("sk-typesafe".into()),
+                auth_field: Some("TYPESAFE_API_KEY".into()),
+            })
+            .expect("supplier");
+        let supplier = catalog.suppliers[0].id.clone();
+        let mut catalog = db.gateway_catalog().expect("catalog");
+        catalog.groups.push(
+            serde_json::from_value(json!({
+                "id": "system-one",
+                "name": "System One",
+                "appIds": ["typesafe"],
+                "members": [{"id": "m1", "supplierId": supplier, "model": "jev-latest"}]
+            }))
+            .expect("group"),
+        );
+        db.save_gateway_catalog(catalog).expect("save catalog");
+        ProxyState::for_test(db)
+    }
+
+    #[tokio::test]
+    async fn system_one_ingress_passes_the_decision_body_through() {
+        let seen: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+        let captured = seen.clone();
+        let upstream = axum::Router::new().route(
+            "/v1/systemone",
+            axum::routing::post(
+                move |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| {
+                    let captured = captured.clone();
+                    async move {
+                        assert_eq!(headers["authorization"], "Bearer sk-typesafe");
+                        *captured.lock().unwrap() = Some(body.clone());
+                        axum::Json(json!({
+                            "model": body["model"],
+                            "answers": {"refund": {"type": "noul", "noul": 0.91}},
+                            "usage": {"input_tokens": 12, "output_tokens": 3}
+                        }))
+                    }
+                },
+            ),
+        );
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, upstream).await.expect("upstream");
+        });
+        let state = state_with_system_one(format!("http://{address}")).await;
+        let db = state.db.clone();
+        // 带上回包观察器，验证 trace 的最终状态与事件（路由流转图读取它）。
+        let mut router = axum::Router::new()
+            .route(
+                "/typesafe/v1/systemone",
+                axum::routing::post(handle_typesafe_systemone),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                super::super::gateway_observer::observe,
+            ))
+            .with_state(state);
+
+        let response = router.call(request("jev-latest")).await.expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let body: Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(body["answers"]["refund"]["noul"], 0.91);
+        assert_eq!(body["usage"]["input_tokens"], 12);
+
+        let upstream_body = seen.lock().unwrap().clone().expect("upstream body");
+        assert_eq!(upstream_body["model"], "jev-latest");
+        assert_eq!(upstream_body["state"]["message"], "I was charged twice.");
+
+        // 路由流转图靠这条 trace 画 System One 的实时链路。
+        // 最终快照由回包观察器异步落库，等它写完再断言。
+        let mut traces = Vec::new();
+        for _ in 0..100 {
+            traces = db.gateway_traces().expect("traces");
+            if traces
+                .first()
+                .is_some_and(|trace| trace.outcome == "completed")
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0].app_id, "typesafe");
+        assert_eq!(traces[0].request_model, "jev-latest");
+        assert_eq!(traces[0].policy.group_id.as_deref(), Some("system-one"));
+        assert_eq!(traces[0].outcome, "completed");
+        assert_eq!(traces[0].events.len(), 1);
+        assert_eq!(traces[0].events[0].outcome, "upstream_accepted");
+        assert_eq!(traces[0].input_tokens, Some(12));
+        assert_eq!(traces[0].output_tokens, Some(3));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn system_one_ingress_rejects_shapes_it_cannot_route() {
+        let state = state_with_system_one("http://127.0.0.1:9".into()).await;
+
+        let broken = Request::builder()
+            .method("POST")
+            .uri("/typesafe/v1/systemone")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({"model": "jev-latest", "state": "x", "questions": {}}).to_string(),
+            ))
+            .unwrap();
+        match handle_typesafe_systemone(State(state.clone()), broken).await {
+            Err(ProxyError::InvalidRequest(message)) => {
+                assert!(message.contains("questions"), "{message}");
+            }
+            other => panic!("expected invalid request, got {other:?}"),
+        }
+
+        match handle_typesafe_systemone(State(state), request("unknown-model")).await {
+            Err(ProxyError::NoAvailableProviderWithReason(message)) => {
+                assert!(message.contains("unknown-model"), "{message}");
+            }
+            other => panic!("expected no route, got {other:?}"),
+        }
     }
 }

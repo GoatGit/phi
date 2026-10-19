@@ -54,13 +54,10 @@ fn equal(a: &str, b: &str) -> bool {
     mac.verify_slice(&tag).is_ok()
 }
 pub fn tool_app(tool: &str) -> Option<&'static str> {
-    match tool {
-        "claude" => Some("claude"),
-        "codex" => Some("codex"),
-        "gemini" => Some("gemini"),
-        "grokbuild" => Some("grokbuild"),
-        _ => None,
+    if crate::gateway::typesafe::is_app(tool) {
+        return Some(crate::gateway::typesafe::APP_ID);
     }
+    crate::gateway::apps::spec_by_id(tool).map(|spec| spec.id)
 }
 impl Database {
     pub fn access_projects(&self) -> Result<Vec<Project>, AppError> {

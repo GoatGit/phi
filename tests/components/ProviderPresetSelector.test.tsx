@@ -24,6 +24,7 @@ import {
   sectionPresetRows,
 } from "@/components/providers/forms/presetGroups";
 import { providerPresets } from "@/config/claudeProviderPresets";
+import { supplierTemplates } from "@/components/gateway/supplierTemplates";
 import { codexProviderPresets } from "@/config/codexProviderPresets";
 import {
   PRESET_FAMILIES,
@@ -177,6 +178,14 @@ describe("preset helpers", () => {
       "cloud",
       "login",
     ]);
+  });
+
+  it("files the System One template under model vendors", () => {
+    const entry = supplierTemplates.find((item) => item.id === "systemone");
+    expect(entry).toBeDefined();
+    // category 保持 third_party，分类由预设自己的 group 覆盖。
+    expect(entry!.preset.category).toBe("third_party");
+    expect(presetGroup(entry!.preset)).toBe("vendor");
   });
 
   it("sorts only by name, with Chinese names placed by pinyin initial", () => {

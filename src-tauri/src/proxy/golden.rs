@@ -203,21 +203,69 @@ async fn golden_generic_chat_three_outbounds_text_tools_stream_usage_and_auth() 
                 if streaming {
                     assert!(body.ends_with("data: [DONE]\n\n"));
                     assert!(body.contains("chat.completion.chunk"));
-                    let events: Vec<Value> = body.lines().filter_map(|line| line.strip_prefix("data: ")).filter(|line| *line != "[DONE]").map(|line|serde_json::from_str(line).unwrap()).collect();
+                    let events: Vec<Value> = body
+                        .lines()
+                        .filter_map(|line| line.strip_prefix("data: "))
+                        .filter(|line| *line != "[DONE]")
+                        .map(|line| serde_json::from_str(line).unwrap())
+                        .collect();
                     if tools {
-                        let calls: Vec<&Value> = events.iter().filter_map(|event|event.pointer("/choices/0/delta/tool_calls").and_then(Value::as_array)).flatten().collect();
-                        let arguments: String = calls.iter().filter_map(|call|call.pointer("/function/arguments").and_then(Value::as_str)).collect();
-                        assert_eq!(serde_json::from_str::<Value>(&arguments).unwrap(),json!({"path":"sample.txt"}));
-                        assert_eq!(calls.iter().filter(|call|call.pointer("/function/name").and_then(Value::as_str)==Some("read_file")).count(),1);
+                        let calls: Vec<&Value> = events
+                            .iter()
+                            .filter_map(|event| {
+                                event
+                                    .pointer("/choices/0/delta/tool_calls")
+                                    .and_then(Value::as_array)
+                            })
+                            .flatten()
+                            .collect();
+                        let arguments: String = calls
+                            .iter()
+                            .filter_map(|call| {
+                                call.pointer("/function/arguments").and_then(Value::as_str)
+                            })
+                            .collect();
+                        assert_eq!(
+                            serde_json::from_str::<Value>(&arguments).unwrap(),
+                            json!({"path":"sample.txt"})
+                        );
+                        assert_eq!(
+                            calls
+                                .iter()
+                                .filter(|call| call
+                                    .pointer("/function/name")
+                                    .and_then(Value::as_str)
+                                    == Some("read_file"))
+                                .count(),
+                            1
+                        );
                     } else {
-                        let text: String = events.iter().filter_map(|event|event.pointer("/choices/0/delta/content").and_then(Value::as_str)).collect();
-                        assert_eq!(text,"Synthetic reply.");
+                        let text: String = events
+                            .iter()
+                            .filter_map(|event| {
+                                event
+                                    .pointer("/choices/0/delta/content")
+                                    .and_then(Value::as_str)
+                            })
+                            .collect();
+                        assert_eq!(text, "Synthetic reply.");
                     }
                 } else {
                     let value: Value = serde_json::from_str(&body).unwrap();
                     assert_eq!(value["object"], "chat.completion");
                     assert_eq!(value["usage"]["prompt_tokens"], 12);
-                    if tools { assert_eq!(serde_json::from_str::<Value>(value["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"].as_str().unwrap()).unwrap(),json!({"path":"sample.txt"})); }
+                    if tools {
+                        assert_eq!(
+                            serde_json::from_str::<Value>(
+                                value["choices"][0]["message"]["tool_calls"][0]["function"]
+                                    ["arguments"]
+                                    .as_str()
+                                    .unwrap()
+                            )
+                            .unwrap(),
+                            json!({"path":"sample.txt"})
+                        );
+                    }
                 }
                 let ledger = db
                     .ledger_page(crate::ledger::LedgerQuery::default())

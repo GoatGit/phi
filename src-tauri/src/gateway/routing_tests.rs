@@ -455,6 +455,137 @@ async fn materialization_preserves_multiple_models_and_pending_trace_without_log
     assert!(db.gateway_runtime.active().is_empty());
 }
 
+#[test]
+fn codex_gateway_entry_publishes_every_group_model() {
+    let db = Database::memory().unwrap();
+    let mut c = db
+        .create_gateway_supplier(SupplierUpsert {
+            revision: Some(0),
+            name: Some("A".into()),
+            endpoint: Some(Endpoint {
+                protocol: "openai_responses".into(),
+                base_url: "https://a.invalid/v1".into(),
+            }),
+            models: Some(vec!["m".into(), "n".into()]),
+            api_key: Some("secret".into()),
+            auth_field: Some("OPENAI_API_KEY".into()),
+        })
+        .unwrap();
+    let supplier_a = c.suppliers[0].id.clone();
+    let c = db
+        .create_gateway_supplier(SupplierUpsert {
+            revision: Some(c.revision),
+            name: Some("B".into()),
+            endpoint: Some(Endpoint {
+                protocol: "anthropic".into(),
+                base_url: "https://b.invalid".into(),
+            }),
+            models: Some(vec!["claude-x".into(), "claude-y".into()]),
+            api_key: Some("secret-b".into()),
+            auth_field: Some("ANTHROPIC_API_KEY".into()),
+        })
+        .unwrap();
+    let supplier_b = c.suppliers[1].id.clone();
+    let mut group = catalog().groups.remove(0);
+    group.app_ids = vec!["codex".into()];
+    group.members = serde_json::from_value(json!([
+        {"id":"one","supplierId":supplier_a,"model":"m"},
+        {"id":"two","supplierId":supplier_b,"model":"claude-x"}
+    ]))
+    .unwrap();
+    let mut c = c;
+    c.groups.push(group);
+    let saved = db.save_gateway_catalog(c).unwrap();
+    db.select_gateway_group("codex", "root", Some(saved.revision))
+        .unwrap();
+
+    let entry = db.gateway_entry_provider("codex").unwrap().unwrap();
+    let models: Vec<&str> = entry.settings_config["modelCatalog"]["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["model"].as_str())
+        .collect();
+    // 组里混了 Anthropic 成员：Codex 的选择器也要能看到它，才能按模型名点名。
+    assert_eq!(models, vec!["m", "n", "claude-x", "claude-y"]);
+    assert!(entry.settings_config["config"]
+        .as_str()
+        .unwrap()
+        .contains("model = \"m\""));
+    assert!(!entry.settings_config.to_string().contains("secret"));
+}
+
+#[test]
+fn request_model_pins_the_matching_group_member() {
+    let mut c: Catalog = serde_json::from_value(json!({
+        "revision": 7,
+        "suppliers": [
+            {"id":"gpt","name":"GPT","endpoint":{"protocol":"openai_responses","baseUrl":"https://g.invalid"},"models":["gpt-5"]},
+            {"id":"claude","name":"Claude","endpoint":{"protocol":"anthropic","baseUrl":"https://c.invalid"},"models":["claude-x"]}
+        ],
+        "policies": [],
+        "groups": [{"id":"root","name":"Root","appIds":["codex"],"members":[
+            {"id":"g","supplierId":"gpt","model":"gpt-5"},
+            {"id":"c","supplierId":"claude","model":"claude-x"}
+        ]}]
+    }))
+    .unwrap();
+    let mut connection = group_policy(&c, "codex", "root", "").unwrap();
+    connection.id = connection_id("codex");
+    c.policies.push(connection);
+
+    let runtime = Runtime::default();
+    for (requested, expected) in [
+        ("claude-x", "claude-x"),
+        ("CLAUDE-X", "claude-x"),
+        ("gpt-5", "gpt-5"),
+        ("unknown", "gpt-5"),
+    ] {
+        let policy = matched_policy(&c, "codex", requested).unwrap().unwrap();
+        let decision = runtime
+            .plan(&c, &policy, None, vec![], false)
+            .expect("plan");
+        assert_eq!(decision.candidates[0].model, expected, "{requested}");
+    }
+
+    // `group/<id>` 是组别名，不是成员模型，不能触发点名。
+    let policy = matched_policy(&c, "codex", "group/root").unwrap().unwrap();
+    assert!(policy.request_model.is_empty());
+    assert_eq!(policy.match_model, "");
+}
+
+#[test]
+fn duplicate_models_keep_the_group_order_when_pinned() {
+    let mut c: Catalog = serde_json::from_value(json!({
+        "revision": 7,
+        "suppliers": [
+            {"id":"a","name":"A","endpoint":{"protocol":"openai_responses","baseUrl":"https://a.invalid"},"models":["same"]},
+            {"id":"b","name":"B","endpoint":{"protocol":"anthropic","baseUrl":"https://b.invalid"},"models":["same"]},
+            {"id":"c","name":"C","endpoint":{"protocol":"openai_responses","baseUrl":"https://c.invalid"},"models":["other"]}
+        ],
+        "policies": [],
+        "groups": [{"id":"root","name":"Root","appIds":["codex"],"members":[
+            {"id":"a","supplierId":"a","model":"same"},
+            {"id":"c","supplierId":"c","model":"other"},
+            {"id":"b","supplierId":"b","model":"same"}
+        ]}]
+    }))
+    .unwrap();
+    let mut connection = group_policy(&c, "codex", "root", "").unwrap();
+    connection.id = connection_id("codex");
+    c.policies.push(connection);
+    let policy = matched_policy(&c, "codex", "same").unwrap().unwrap();
+    let decision = Runtime::default()
+        .plan(&c, &policy, None, vec![], false)
+        .unwrap();
+    let order: Vec<_> = decision
+        .candidates
+        .iter()
+        .map(|candidate| candidate.supplier_id.as_str())
+        .collect();
+    assert_eq!(order, vec!["a", "b", "c"]);
+}
+
 #[tokio::test]
 async fn group_timeout_policy_defaults_validated_and_carried_into_routes() {
     // 旧目录 JSON 没有超时字段：反序列化落到默认值
@@ -528,4 +659,16 @@ fn codex_group_discovery_keeps_required_client_fields_without_custom_tools() {
     assert_eq!(row["default_reasoning_level"], "none");
     assert!(row.get("apply_patch_tool_type").is_none());
     assert_eq!(row["input_modalities"], json!(["text"]));
+}
+
+#[test]
+fn published_models_flattens_the_connected_group_for_any_app() {
+    let mut c = catalog();
+    c.groups[0].app_ids.push("opencode".into());
+    let mut connection = group_policy(&c, "opencode", "root", "").unwrap();
+    connection.id = connection_id("opencode");
+    c.policies.push(connection);
+    assert_eq!(published_models(&c, "opencode"), vec!["m", "n"]);
+    // 未接入的应用没有可发布模型，不能凭空给出别家的名单。
+    assert!(published_models(&c, "hermes").is_empty());
 }

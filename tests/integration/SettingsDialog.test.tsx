@@ -91,7 +91,6 @@ const renderDialog = (
           section="data"
           onExitSettings={() => {}}
           onOpenApps={() => {}}
-          onOpenApp={() => {}}
           {...props}
         />
       </Suspense>
@@ -170,9 +169,7 @@ describe("SettingsPage integration", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "settings.browseDirectory" }),
     );
-    await waitFor(() =>
-      expect(appInput.value).toBe("/home/mock/.phi/picked"),
-    );
+    await waitFor(() => expect(appInput.value).toBe("/home/mock/.phi/picked"));
 
     fireEvent.click(
       screen.getByRole("button", { name: "settings.resetDefault" }),

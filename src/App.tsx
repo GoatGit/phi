@@ -122,6 +122,7 @@ import {
   ProviderCatalogPage,
   RoutingOverviewPage,
 } from "@/components/gateway/GatewayPages";
+import type { RouteAppRequest } from "@/components/gateway/routingFlowModel";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
 import { SwitchModePanel } from "@/components/providers/mode/SwitchModePanel";
 import { DesktopAccessBar } from "@/components/providers/mode/DesktopAccessBar";
@@ -196,6 +197,10 @@ function App() {
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
   const sharedFeatureApp = sharedFeatureAppOf(activeApp);
   const [gatewayPolicyId, setGatewayPolicyId] = useState<string | null>(null);
+  // 侧栏里的路由专用应用：没有应用页，点进去是路由页的设置路由；保留选中态
+  const [activeRoutingApp, setActiveRoutingApp] = useState<string | null>(null);
+  const [routeAppRequest, setRouteAppRequest] =
+    useState<RouteAppRequest | null>(null);
   const [currentView, setCurrentView] = useState<View>("usage");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(
     readStoredSettingsSection,
@@ -685,6 +690,8 @@ function App() {
     if (managementBusyRef.current) return;
     if (confirmLeave(() => openSettings(section))) return;
     closeProviderPanels();
+    setActiveRoutingApp(null);
+    setRouteAppRequest(null);
     if (currentViewRef.current !== "settings") {
       settingsReturnViewRef.current = currentViewRef.current;
     }
@@ -700,12 +707,26 @@ function App() {
     if (managementBusyRef.current) return;
     if (confirmLeave(() => selectApp(app, page))) return;
     closeProviderPanels();
+    setActiveRoutingApp(null);
+    setRouteAppRequest(null);
     setActiveApp(app);
     localStorage.setItem(APP_STORAGE_KEY, app);
     setCurrentView(page);
   };
-  // 路由页 / 设置路由节的「配置 / 前往」：直达该应用的供应商列表
-  const openAppProviders = (app: AppId) => selectApp(app, "providers");
+
+  /** 侧栏点了路由专用应用（Command Code / Crush / …）：没有应用页，
+   *  直接进路由页并打开它的「设置应用路由」。 */
+  const selectRoutingApp = (appId: string) => {
+    if (managementBusyRef.current) return;
+    if (confirmLeave(() => selectRoutingApp(appId))) return;
+    closeProviderPanels();
+    setActiveRoutingApp(appId);
+    setRouteAppRequest((previous) => ({
+      appId,
+      nonce: (previous?.nonce ?? 0) + 1,
+    }));
+    setCurrentView("routingOverview");
+  };
 
   const openPage = (page: GlobalPage | "settings") => {
     if (page === "settings") {
@@ -715,6 +736,8 @@ function App() {
     if (managementBusyRef.current) return;
     if (confirmLeave(() => openPage(page))) return;
     closeProviderPanels();
+    setActiveRoutingApp(null);
+    setRouteAppRequest(null);
     if (page === "prompts" && currentViewRef.current !== "prompts") {
       // 提示词页默认选中侧栏里最后选的那个应用
       setPromptsApp(
@@ -760,7 +783,6 @@ function App() {
       openSettings("about");
       return;
     }
-    if (page === "routingOverview") setRoutingInitialTab(undefined);
     if (page === "usage") setUsageAppFilter("all");
     openPage(page);
   };
@@ -770,9 +792,6 @@ function App() {
   const [usageAppFilter, setUsageAppFilter] = useState<AppTypeFilter>("all");
   // 应用页 ⋯ 菜单下钻进全局页时记录来路，目标页顶栏据此显示返回按钮
   const [drillInReturn, setDrillInReturn] = useState<View | null>(null);
-  const [routingInitialTab, setRoutingInitialTab] = useState<
-    "connections" | "policies" | "status" | undefined
-  >(undefined);
   const exitDrillIn = () => {
     const target = drillInReturn;
     setDrillInReturn(null);
@@ -1385,7 +1404,6 @@ function App() {
           onSwitch={switchProvider}
           onOpenRoutingPage={() => {
             setDrillInReturn(currentViewRef.current);
-            setRoutingInitialTab("policies");
             setCurrentView("routingOverview");
           }}
           needsRouteRequest={
@@ -1414,7 +1432,7 @@ function App() {
           {activeApp === "claude-desktop" && (
             <DesktopAccessBar
               current={providers[currentProviderId]}
-              onOpenRoutingSettings={() => openSettings("routing")}
+              onOpenGatewaySettings={() => openSettings("routing")}
             />
           )}
           <ProviderList
@@ -1700,8 +1718,8 @@ function App() {
           <RoutingOverviewPage
             onBack={drillInReturn ? exitDrillIn : undefined}
             initialPolicyId={gatewayPolicyId}
-            initialTab={routingInitialTab}
-            onOpenApp={openAppProviders}
+            routeAppRequest={routeAppRequest}
+            onRouteAppRequestHandled={() => setRouteAppRequest(null)}
           />
         );
       case "usage":
@@ -1771,7 +1789,6 @@ function App() {
           onExitSettings={exitSettings}
           onImportSuccess={handleImportSuccess}
           onOpenApps={() => openSettings("apps")}
-          onOpenApp={openAppProviders}
         />
       );
     }
@@ -1790,6 +1807,10 @@ function App() {
           settingsSection={settingsSection}
           expertMode={settingsData?.expertMode ?? false}
           onSelectApp={selectApp}
+          activeRoutingApp={
+            currentView === "routingOverview" ? activeRoutingApp : null
+          }
+          onSelectRoutingApp={selectRoutingApp}
           terminalCounts={Object.fromEntries(
             terminals.sessions
               .filter(terminalAlive)

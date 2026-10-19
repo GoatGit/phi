@@ -130,6 +130,13 @@ pub async fn observe(State(state): State<ProxyState>, request: Request, next: Ne
         .is_some_and(|v| v.contains("text/event-stream"));
     let successful = response.status().is_success();
     let (parts, body) = response.into_parts();
+    // 非流式响应带 content-length 时，客户端读满这个长度就可能不再轮询流，
+    // 生成器收不到结尾的 `None`。按长度提前收尾，避免成功请求被记成 interrupted。
+    let expected_len = parts
+        .headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok());
     let mut stream = body.into_data_stream();
     let mut completion = Completion {
         db: state.db,
@@ -144,6 +151,7 @@ pub async fn observe(State(state): State<ProxyState>, request: Request, next: Ne
         let mut terminal = false;
         let mut oversized = false;
         let mut upstream_error = false;
+        let mut delivered = 0usize;
         while let Some(item) = stream.next().await {
             match item {
                 Ok(bytes) => {
@@ -174,6 +182,36 @@ pub async fn observe(State(state): State<ProxyState>, request: Request, next: Ne
                                 }
                             }
                         }
+                    }
+                    delivered += bytes.len();
+                    // 带 content-length 的整包响应：读满后立即按完整响应收尾。
+                    if !streaming
+                        && !oversized
+                        && expected_len.is_some_and(|expected| delivered >= expected)
+                    {
+                        let json = serde_json::from_str::<Value>(&buffer).ok();
+                        let complete_error = json.as_ref().is_some_and(|value| {
+                            value.get("error").is_some()
+                                || matches!(
+                                    value.get("status").and_then(Value::as_str),
+                                    Some("failed" | "incomplete")
+                                )
+                        });
+                        let usage = json.as_ref().and_then(|value| match app.as_str() {
+                            "claude" => TokenUsage::from_claude_response(value),
+                            "gemini" => TokenUsage::from_gemini_response(value),
+                            _ => TokenUsage::from_codex_response_auto(value),
+                        });
+                        completion.finish(
+                            if !successful || complete_error {
+                                "response_error"
+                            } else {
+                                "completed"
+                            },
+                            usage,
+                        );
+                        yield Ok::<_, axum::Error>(bytes);
+                        return;
                     }
                     yield Ok::<_, axum::Error>(bytes);
                 }
@@ -221,6 +259,7 @@ mod tests {
                 app_id: "claude".into(),
                 enabled: true,
                 match_model: "alias".into(),
+                request_model: String::new(),
                 priority: 1,
                 failover: false,
                 candidates: vec![],
@@ -269,6 +308,49 @@ mod tests {
             }).await.unwrap();
             assert_eq!(db.gateway_traces().unwrap()[0].outcome, outcome);
         }
+    }
+
+    #[tokio::test]
+    async fn content_length_response_completes_without_a_final_poll() {
+        let db = Arc::new(crate::Database::memory().unwrap());
+        let trace = trace();
+        trace.lock().unwrap().app_id = "opencode".into();
+        let captured = trace.clone();
+        let body = r#"{"usage":{"prompt_tokens":6,"completion_tokens":3}}"#;
+        let mut app = Router::new()
+            .route(
+                "/",
+                get(move || {
+                    let trace = captured.clone();
+                    async move {
+                        register(&trace);
+                        Response::builder()
+                            .header("content-type", "application/json")
+                            .header(axum::http::header::CONTENT_LENGTH, body.len())
+                            .body(Body::from(body))
+                            .unwrap()
+                    }
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                ProxyState::for_test(db.clone()),
+                observe,
+            ));
+        let response = app
+            .call(HttpRequest::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        // 客户端读满 content-length 就停，不再轮询到 None。
+        let mut stream = response.into_body().into_data_stream();
+        let delivered = stream.next().await.unwrap().unwrap();
+        assert_eq!(delivered.as_ref(), body.as_bytes());
+        drop(stream);
+        let snapshot = trace.lock().unwrap().clone();
+        assert_eq!(snapshot.outcome, "completed");
+        assert_eq!(
+            snapshot.input_tokens.zip(snapshot.output_tokens),
+            Some((6, 3))
+        );
     }
 
     #[tokio::test]

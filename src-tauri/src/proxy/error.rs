@@ -131,7 +131,8 @@ impl IntoResponse for ProxyError {
                         (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
                     }
                     ProxyError::ForwardFailed(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
-                    ProxyError::NoAvailableProvider | ProxyError::NoAvailableProviderWithReason(_) => {
+                    ProxyError::NoAvailableProvider
+                    | ProxyError::NoAvailableProviderWithReason(_) => {
                         (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
                     }
                     ProxyError::AllProvidersCircuitOpen => {

@@ -316,6 +316,8 @@ function ClientAccessManager() {
                               ["codex", "OpenAI Chat / Responses"],
                               ["claude", "Anthropic Messages"],
                               ["gemini", "Gemini"],
+                              // System One 是决策协议，只接 /typesafe/v1/systemone。
+                              ["typesafe", "System One"],
                             ].map(([value, label]) => (
                               <SelectItem key={value} value={value}>
                                 {label}

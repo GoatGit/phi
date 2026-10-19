@@ -784,6 +784,7 @@ mod tests {
             app_id: "claude".into(),
             enabled: true,
             match_model: String::new(),
+            request_model: String::new(),
             priority: 0,
             failover: true,
             candidates: vec![],

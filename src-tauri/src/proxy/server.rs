@@ -415,6 +415,81 @@ impl ProxyServer {
                 "/grokbuild/v1/responses",
                 post(handlers::handle_grokbuild_responses),
             )
+            // 累加式路由应用的 OpenAI Chat 入口：每个应用一个独立命名空间，
+            // 请求按路径归属到应用（用量、轨迹和故障转移都跟着应用走）。
+            .route(
+                "/opencode/v1/chat/completions",
+                post(handlers::handle_opencode_chat_completions),
+            )
+            .route(
+                "/openclaw/v1/chat/completions",
+                post(handlers::handle_openclaw_chat_completions),
+            )
+            .route(
+                "/hermes/v1/chat/completions",
+                post(handlers::handle_hermes_chat_completions),
+            )
+            .route(
+                "/pi/v1/chat/completions",
+                post(handlers::handle_pi_chat_completions),
+            )
+            .route(
+                "/mcode/v1/chat/completions",
+                post(handlers::handle_mcode_chat_completions),
+            )
+            .route(
+                "/opencode/v1/models",
+                get(handlers::handle_route_app_models),
+            )
+            .route(
+                "/openclaw/v1/models",
+                get(handlers::handle_route_app_models),
+            )
+            .route("/hermes/v1/models", get(handlers::handle_route_app_models))
+            .route("/pi/v1/models", get(handlers::handle_route_app_models))
+            .route("/mcode/v1/models", get(handlers::handle_route_app_models))
+            // System One 决策协议：pass-through，仅同组 System One 供应商。
+            .route(
+                "/typesafe/v1/systemone",
+                post(handlers::handle_typesafe_systemone),
+            )
+            // 路由专用应用：只写应用原生配置指向网关，不进入侧栏的应用管理。
+            .route(
+                "/commandcode/v1/chat/completions",
+                post(handlers::handle_local_app_chat_completions),
+            )
+            .route(
+                "/crush/v1/chat/completions",
+                post(handlers::handle_local_app_chat_completions),
+            )
+            .route(
+                "/droid/v1/chat/completions",
+                post(handlers::handle_local_app_chat_completions),
+            )
+            .route(
+                "/kimi/v1/chat/completions",
+                post(handlers::handle_local_app_chat_completions),
+            )
+            .route(
+                "/atomcode/v1/chat/completions",
+                post(handlers::handle_local_app_chat_completions),
+            )
+            .route(
+                "/omo/v1/chat/completions",
+                post(handlers::handle_local_app_chat_completions),
+            )
+            .route(
+                "/commandcode/v1/models",
+                get(handlers::handle_route_app_models),
+            )
+            .route("/crush/v1/models", get(handlers::handle_route_app_models))
+            .route("/droid/v1/models", get(handlers::handle_route_app_models))
+            .route("/kimi/v1/models", get(handlers::handle_route_app_models))
+            .route(
+                "/atomcode/v1/models",
+                get(handlers::handle_route_app_models),
+            )
+            .route("/omo/v1/models", get(handlers::handle_route_app_models))
             // OpenAI Responses Compact API (Codex CLI 远程压缩，透传)
             .route(
                 "/responses/compact",
@@ -1482,6 +1557,7 @@ mod tests {
             app_id: "codex".into(),
             enabled: true,
             match_model: "client-alias".into(),
+            request_model: String::new(),
             priority: 1,
             failover: true,
             candidates: catalog
@@ -1595,6 +1671,712 @@ mod tests {
         proxy.stop().await.unwrap();
         server.abort();
     }
+    /// 累加式应用经各自的 Chat 入口接入：令牌只开自己的命名空间，请求按应用
+    /// 归属到网关轨迹，模型清单来自当前路由组。
+    #[tokio::test]
+    async fn additive_app_chat_ingress_routes_models_and_attributes_the_request() {
+        use crate::gateway::{Endpoint, SupplierUpsert};
+
+        let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+        let capture = captured.clone();
+        let upstream = Router::new().route(
+            "/v1/chat/completions",
+            post(move |request: axum::extract::Request| {
+                let captured = capture.clone();
+                async move {
+                    let (parts, body) = request.into_parts();
+                    let body = axum::body::to_bytes(body, 1024 * 1024)
+                        .await
+                        .expect("read upstream body");
+                    captured.lock().await.push(CapturedRequest {
+                        path_and_query: parts
+                            .uri
+                            .path_and_query()
+                            .map(|value| value.as_str().to_string())
+                            .unwrap_or_else(|| parts.uri.path().to_string()),
+                        authorization: parts
+                            .headers
+                            .get(header::AUTHORIZATION)
+                            .and_then(|value| value.to_str().ok())
+                            .map(ToString::to_string),
+                        body: serde_json::from_slice(&body).expect("parse upstream body"),
+                    });
+                    axum::Json(json!({
+                        "id": "chatcmpl-additive",
+                        "object": "chat.completion",
+                        "model": "glm-5",
+                        "choices": [{
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "hello from additive"},
+                            "finish_reason": "stop"
+                        }],
+                        "usage": {"prompt_tokens": 6, "completion_tokens": 3, "total_tokens": 9}
+                    }))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+
+        let db = Arc::new(Database::memory().unwrap());
+        let mut catalog = db.gateway_catalog().unwrap();
+        catalog = db
+            .create_gateway_supplier(SupplierUpsert {
+                name: Some("chat-relay".into()),
+                endpoint: Some(Endpoint {
+                    protocol: "openai_chat".into(),
+                    base_url: format!("http://{address}/v1"),
+                }),
+                models: Some(vec!["glm-5".into()]),
+                api_key: Some("upstream-chat-key".into()),
+                auth_field: Some("OPENAI_API_KEY".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let supplier_id = catalog.suppliers[0].id.clone();
+        catalog.groups.push(
+            serde_json::from_value(json!({
+                "id": "additive",
+                "name": "Additive",
+                "appIds": ["opencode"],
+                "strategy": "ordered",
+                "failover": false,
+                "maxAttempts": 1,
+                "members": [{
+                    "id": "only",
+                    "supplierId": supplier_id,
+                    "model": "glm-5"
+                }]
+            }))
+            .unwrap(),
+        );
+        let mut connection =
+            crate::gateway::routing::group_policy(&catalog, "opencode", "additive", "").unwrap();
+        connection.id = crate::gateway::routing::connection_id("opencode");
+        catalog.policies.push(connection);
+        db.save_gateway_catalog(catalog).unwrap();
+
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                enable_logging: true,
+                ..Default::default()
+            },
+            db.clone(),
+            None,
+        );
+        let info = proxy.start().await.unwrap();
+        let client = reqwest::Client::new();
+        let token = super::super::ingress::token("opencode");
+
+        let response = client
+            .post(format!(
+                "http://127.0.0.1:{}/opencode/v1/chat/completions",
+                info.port
+            ))
+            .bearer_auth(token)
+            .json(&json!({
+                "model": "glm-5",
+                "messages": [{"role": "user", "content": "hi"}]
+            }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("hello from additive"));
+
+        // 另一个应用的令牌不能借用 OpenCode 的入口。
+        let denied = client
+            .post(format!(
+                "http://127.0.0.1:{}/openclaw/v1/chat/completions",
+                info.port
+            ))
+            .bearer_auth(token)
+            .json(&json!({"model": "glm-5", "messages": []}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+
+        // 模型清单一律来自当前路由组，供客户端选择器和连通性检查使用。
+        let models = client
+            .get(format!("http://127.0.0.1:{}/opencode/v1/models", info.port))
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(models.status(), StatusCode::OK);
+        let models: Value = models.json().await.unwrap();
+        assert_eq!(models["data"][0]["id"], "glm-5");
+
+        let seen = captured.lock().await;
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].path_and_query, "/v1/chat/completions");
+        assert_eq!(seen[0].body["model"], "glm-5");
+        assert_eq!(
+            seen[0].authorization.as_deref(),
+            Some("Bearer upstream-chat-key")
+        );
+
+        let trace = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if let Some(trace) = db
+                    .gateway_traces()
+                    .unwrap()
+                    .into_iter()
+                    .find(|trace| trace.outcome == "completed")
+                {
+                    break trace;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("gateway trace completes");
+        assert_eq!(trace.app_id, "opencode");
+        assert_eq!(trace.events[0].supplier_name, "chat-relay");
+        assert_eq!(trace.input_tokens, Some(6));
+        assert_eq!(trace.output_tokens, Some(3));
+
+        proxy.stop().await.expect("stop test proxy");
+        server.abort();
+    }
+
+    /// 路由专用应用（Command Code）经自己的入口接入路由组：模型清单、请求归属
+    /// 和用量都跟着应用走，别的应用的令牌借不到这个入口。
+    #[tokio::test]
+    async fn local_routing_app_ingress_routes_models_and_attributes_the_request() {
+        let (base_url, seen, upstream) = upstream_capture("/v1/chat/completions", || {
+            axum::response::Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(
+                    json!({
+                        "id": "chatcmpl-local",
+                        "object": "chat.completion",
+                        "model": "glm-5",
+                        "choices": [{
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "hello from local app"},
+                            "finish_reason": "stop"
+                        }],
+                        "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6}
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+        })
+        .await;
+        let (proxy, port, db) =
+            seed_single_supplier_route("commandcode", "openai_chat", base_url, "OPENAI_API_KEY")
+                .await;
+        let client = reqwest::Client::new();
+        let token = super::super::ingress::token("commandcode");
+
+        let response = client
+            .post(format!(
+                "http://127.0.0.1:{port}/commandcode/v1/chat/completions"
+            ))
+            .bearer_auth(token)
+            .json(&json!({
+                "model": "glm-5",
+                "messages": [{"role": "user", "content": "hi"}]
+            }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("hello from local app"), "{body}");
+
+        // 别的应用的令牌不能借用这个入口。
+        let denied = client
+            .post(format!(
+                "http://127.0.0.1:{port}/commandcode/v1/chat/completions"
+            ))
+            .bearer_auth(super::super::ingress::token("crush"))
+            .json(&json!({"model": "glm-5", "messages": []}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+
+        // 模型清单同样来自该应用的路由组。
+        let models = client
+            .get(format!("http://127.0.0.1:{port}/commandcode/v1/models"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(models.status(), StatusCode::OK);
+        let models: Value = models.json().await.unwrap();
+        assert_eq!(models["data"][0]["id"], "glm-5");
+
+        let trace = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if let Some(trace) = db
+                    .gateway_traces()
+                    .unwrap()
+                    .into_iter()
+                    .find(|trace| trace.outcome == "completed")
+                {
+                    break trace;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("gateway trace completes");
+        assert_eq!(trace.app_id, "commandcode");
+        assert_eq!(trace.input_tokens, Some(4));
+        assert_eq!(trace.output_tokens, Some(2));
+        assert_eq!(seen.lock().await.len(), 1);
+
+        proxy.stop().await.expect("stop test proxy");
+        upstream.abort();
+    }
+
+    /// 起一个只服务固定路径的假上游，返回 (地址, 捕获的请求)。
+    async fn upstream_capture(
+        path: &'static str,
+        reply: impl Fn() -> axum::response::Response + Send + Sync + Clone + 'static,
+    ) -> (
+        String,
+        Arc<Mutex<Vec<(String, String, Value)>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let seen = Arc::new(Mutex::new(Vec::<(String, String, Value)>::new()));
+        let capture = seen.clone();
+        let handler = move |request: axum::extract::Request| {
+            let capture = capture.clone();
+            let reply = reply.clone();
+            async move {
+                let (parts, body) = request.into_parts();
+                let raw = axum::body::to_bytes(body, 1024 * 1024)
+                    .await
+                    .expect("read upstream body");
+                capture.lock().await.push((
+                    parts
+                        .uri
+                        .path_and_query()
+                        .map(|value| value.as_str().to_string())
+                        .unwrap_or_else(|| parts.uri.path().to_string()),
+                    parts
+                        .headers
+                        .get(header::AUTHORIZATION)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string(),
+                    serde_json::from_slice(&raw).unwrap_or(Value::Null),
+                ));
+                reply()
+            }
+        };
+        let router = Router::new().route(path, post(handler));
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        (format!("http://{address}/v1"), seen, server)
+    }
+
+    /// 把一家供应商接成某个应用的路由组，返回监听端口。
+    async fn seed_single_supplier_route(
+        app_id: &str,
+        protocol: &str,
+        base_url: String,
+        auth_field: &str,
+    ) -> (ProxyServer, u16, Arc<Database>) {
+        use crate::gateway::{Endpoint, SupplierUpsert};
+
+        let db = Arc::new(Database::memory().unwrap());
+        let mut catalog = db
+            .create_gateway_supplier(SupplierUpsert {
+                name: Some("bridge-relay".into()),
+                endpoint: Some(Endpoint {
+                    protocol: protocol.into(),
+                    base_url,
+                }),
+                models: Some(vec!["glm-5".into()]),
+                api_key: Some("upstream-key".into()),
+                auth_field: Some(auth_field.into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let supplier_id = catalog.suppliers[0].id.clone();
+        catalog.groups.push(
+            serde_json::from_value(json!({
+                "id": "bridge",
+                "name": "Bridge",
+                "appIds": [app_id],
+                "strategy": "ordered",
+                "failover": false,
+                "maxAttempts": 1,
+                "members": [{
+                    "id": "only",
+                    "supplierId": supplier_id,
+                    "model": "glm-5"
+                }]
+            }))
+            .unwrap(),
+        );
+        let mut connection =
+            crate::gateway::routing::group_policy(&catalog, app_id, "bridge", "").unwrap();
+        connection.id = crate::gateway::routing::connection_id(app_id);
+        catalog.policies.push(connection);
+        db.save_gateway_catalog(catalog).unwrap();
+
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                enable_logging: true,
+                ..Default::default()
+            },
+            db.clone(),
+            None,
+        );
+        let info = proxy.start().await.unwrap();
+        (proxy, info.port, db)
+    }
+
+    /// Chat 入口接 Responses 成员：请求要归一成 Responses（`/responses` +
+    /// `input`），回包要转回 Chat completion。
+    #[tokio::test]
+    async fn chat_ingress_bridges_a_responses_supplier() {
+        let (base_url, seen, upstream) = upstream_capture("/v1/responses", || {
+            axum::response::Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(
+                    json!({
+                        "id": "resp_1",
+                        "object": "response",
+                        "created_at": 1,
+                        "model": "glm-5",
+                        "status": "completed",
+                        "output": [{
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "hello from responses"}]
+                        }],
+                        "usage": {"input_tokens": 6, "output_tokens": 3, "total_tokens": 9}
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+        })
+        .await;
+        let (proxy, port, db) =
+            seed_single_supplier_route("pi", "openai_responses", base_url, "OPENAI_API_KEY").await;
+
+        let response = reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{port}/pi/v1/chat/completions"))
+            .bearer_auth(super::super::ingress::token("pi"))
+            .json(&json!({
+                "model": "glm-5",
+                "messages": [{"role": "user", "content": "hi"}],
+                "tools": [{"type": "function", "function": {"name": "list", "parameters": {}}}]
+            }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["object"], "chat.completion");
+        assert_eq!(
+            body["choices"][0]["message"]["content"],
+            "hello from responses"
+        );
+        assert_eq!(body["choices"][0]["finish_reason"], "stop");
+
+        let seen = seen.lock().await;
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].0, "/v1/responses");
+        assert_eq!(seen[0].1, "Bearer upstream-key");
+        assert_eq!(seen[0].2["model"], "glm-5");
+        assert_eq!(seen[0].2["input"][0]["role"], "user");
+        assert_eq!(seen[0].2["tools"][0]["name"], "list");
+        assert!(seen[0].2.get("messages").is_none());
+
+        let trace = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if let Some(trace) = db
+                    .gateway_traces()
+                    .unwrap()
+                    .into_iter()
+                    .find(|trace| trace.outcome == "completed")
+                {
+                    break trace;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("gateway trace completes");
+        assert_eq!(trace.app_id, "pi");
+        assert_eq!(trace.input_tokens, Some(6));
+        assert_eq!(trace.output_tokens, Some(3));
+
+        proxy.stop().await.expect("stop test proxy");
+        upstream.abort();
+    }
+
+    /// Chat 入口接 Anthropic 成员：请求体要变成 Messages（system / max_tokens /
+    /// tool_use），回包同样转回 Chat。
+    #[tokio::test]
+    async fn chat_ingress_bridges_an_anthropic_supplier() {
+        let (base_url, seen, upstream) = upstream_capture("/v1/messages", || {
+            axum::response::Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(
+                    json!({
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "model": "claude-x",
+                        "content": [{"type": "text", "text": "hello from anthropic"}],
+                        "stop_reason": "end_turn",
+                        "usage": {"input_tokens": 5, "output_tokens": 2}
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+        })
+        .await;
+        let (proxy, port, _db) =
+            seed_single_supplier_route("openclaw", "anthropic", base_url, "ANTHROPIC_AUTH_TOKEN")
+                .await;
+
+        let response = reqwest::Client::new()
+            .post(format!(
+                "http://127.0.0.1:{port}/openclaw/v1/chat/completions"
+            ))
+            .bearer_auth(super::super::ingress::token("openclaw"))
+            .json(&json!({
+                "model": "glm-5",
+                "messages": [
+                    {"role": "system", "content": "be brief"},
+                    {"role": "user", "content": "hi"}
+                ]
+            }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["object"], "chat.completion");
+        assert_eq!(
+            body["choices"][0]["message"]["content"],
+            "hello from anthropic"
+        );
+
+        let seen = seen.lock().await;
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].0, "/v1/messages");
+        assert_eq!(seen[0].2["system"][0]["text"], "be brief");
+        assert!(seen[0].2["max_tokens"].as_u64().is_some());
+        assert_eq!(seen[0].2["messages"][0]["role"], "user");
+        assert!(seen[0].2.get("input").is_none());
+
+        proxy.stop().await.expect("stop test proxy");
+        upstream.abort();
+    }
+
+    /// Chat 入口接 Anthropic 成员的流式回包：Anthropic SSE 直接变成 Chat chunk。
+    #[tokio::test]
+    async fn chat_ingress_streams_an_anthropic_supplier_as_chat_chunks() {
+        let (base_url, seen, upstream) = upstream_capture("/v1/messages", || {
+            let sse = concat!(
+                "event: message_start\n",
+                "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_s\",\"model\":\"claude-x\",\"usage\":{\"input_tokens\":4}}}\n\n",
+                "event: content_block_start\n",
+                "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+                "event: content_block_delta\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n",
+                "event: message_delta\n",
+                "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+                "event: message_stop\n",
+                "data: {\"type\":\"message_stop\"}\n\n"
+            );
+            axum::response::Response::builder()
+                .header(header::CONTENT_TYPE, "text/event-stream")
+                .body(axum::body::Body::from(sse))
+                .unwrap()
+        })
+        .await;
+        let (proxy, port, _db) =
+            seed_single_supplier_route("openclaw", "anthropic", base_url, "ANTHROPIC_AUTH_TOKEN")
+                .await;
+
+        let response = reqwest::Client::new()
+            .post(format!(
+                "http://127.0.0.1:{port}/openclaw/v1/chat/completions"
+            ))
+            .bearer_auth(super::super::ingress::token("openclaw"))
+            .json(&json!({
+                "model": "glm-5",
+                "stream": true,
+                "messages": [{"role":"user","content":"hi"}]
+            }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("\"role\":\"assistant\""), "{body}");
+        assert!(body.contains("\"content\":\"hello\""), "{body}");
+        assert!(body.contains("\"finish_reason\":\"stop\""), "{body}");
+        assert!(body.contains("data: [DONE]"), "{body}");
+
+        let seen = seen.lock().await;
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].0, "/v1/messages");
+        assert!(seen[0].2.get("input").is_none());
+
+        proxy.stop().await.expect("stop test proxy");
+        upstream.abort();
+    }
+
+    /// Chat 入口接 Responses 成员的流式回包：SSE 事件要逐块变成 Chat chunk。
+    #[tokio::test]
+    async fn chat_ingress_streams_a_responses_supplier_as_chat_chunks() {
+        let (base_url, _seen, upstream) = upstream_capture("/v1/responses", || {
+            let sse = concat!(
+                "event: response.created\n",
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_s\",\"model\":\"glm-5\",\"status\":\"in_progress\",\"output\":[]}}\n\n",
+                "event: response.output_text.delta\n",
+                "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"content_index\":0,\"delta\":\"hello\"}\n\n",
+                "event: response.completed\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_s\",\"model\":\"glm-5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}],\"usage\":{\"input_tokens\":4,\"output_tokens\":1,\"total_tokens\":5}}}\n\n"
+            );
+            axum::response::Response::builder()
+                .header(header::CONTENT_TYPE, "text/event-stream")
+                .body(axum::body::Body::from(sse))
+                .unwrap()
+        })
+        .await;
+        let (proxy, port, db) =
+            seed_single_supplier_route("mcode", "openai_responses", base_url, "OPENAI_API_KEY")
+                .await;
+
+        let response = reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{port}/mcode/v1/chat/completions"))
+            .bearer_auth(super::super::ingress::token("mcode"))
+            .json(&json!({
+                "model": "glm-5",
+                "stream": true,
+                "messages": [{"role": "user", "content": "hi"}]
+            }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body.contains("\"object\":\"chat.completion.chunk\""),
+            "{body}"
+        );
+        assert!(body.contains("\"content\":\"hello\""), "{body}");
+        // 客户端没要 usage，就不要往流里塞 usage chunk；但轨迹里的 token 仍要有。
+        assert!(!body.contains("\"usage\""), "{body}");
+        assert!(body.trim_end().ends_with("data: [DONE]"), "{body}");
+
+        let trace = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if let Some(trace) = db
+                    .gateway_traces()
+                    .unwrap()
+                    .into_iter()
+                    .find(|trace| trace.outcome == "completed")
+                {
+                    break trace;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("gateway trace completes");
+        assert_eq!(trace.app_id, "mcode");
+        assert_eq!(trace.input_tokens, Some(4));
+        assert_eq!(trace.output_tokens, Some(1));
+
+        proxy.stop().await.expect("stop test proxy");
+        upstream.abort();
+    }
+
+    /// 客户端要流、上游却回整包：补成一次 Chat SSE，别让客户端把 JSON 当流解析。
+    #[tokio::test]
+    async fn chat_ingress_synthesizes_a_stream_when_the_upstream_ignores_stream() {
+        let (base_url, _seen, upstream) = upstream_capture("/v1/responses", || {
+            axum::response::Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(
+                    json!({
+                        "id": "resp_json",
+                        "object": "response",
+                        "created_at": 1,
+                        "model": "glm-5",
+                        "status": "completed",
+                        "output": [{
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "whole"}]
+                        }],
+                        "usage": {"input_tokens": 2, "output_tokens": 1, "total_tokens": 3}
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+        })
+        .await;
+        let (proxy, port, _db) =
+            seed_single_supplier_route("opencode", "openai_responses", base_url, "OPENAI_API_KEY")
+                .await;
+
+        let response = reqwest::Client::new()
+            .post(format!(
+                "http://127.0.0.1:{port}/opencode/v1/chat/completions"
+            ))
+            .bearer_auth(super::super::ingress::token("opencode"))
+            .json(&json!({
+                "model": "glm-5",
+                "stream": true,
+                "messages": [{"role": "user", "content": "hi"}]
+            }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(content_type.contains("text/event-stream"), "{content_type}");
+        assert!(body.contains("\"content\":\"whole\""), "{body}");
+        assert!(body.contains("\"usage\""), "{body}");
+        assert!(body.trim_end().ends_with("data: [DONE]"), "{body}");
+
+        proxy.stop().await.expect("stop test proxy");
+        upstream.abort();
+    }
+
     #[tokio::test]
     #[serial_test::serial]
     async fn shared_group_failover_preserves_paths_and_live_outlet_counts() {
@@ -1649,6 +2431,7 @@ mod tests {
             app_id: "codex".into(),
             enabled: true,
             match_model: "client-alias".into(),
+            request_model: String::new(),
             priority: 1,
             failover: true,
             candidates: catalog

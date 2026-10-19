@@ -53,7 +53,8 @@ export function useSidebarStatus() {
     })),
   });
 
-  const serviceRunning = proxyStatus?.running ?? false;
+  // 未知时按“运行中”处理，避免刚打开界面就闪一次“需要处理”
+  const serviceRunning = proxyStatus?.running ?? true;
   const modes = PROXY_APP_IDS.map((_, index) => modeQueries[index]?.data?.mode);
   const modeKey = modes.join(",");
 
@@ -95,5 +96,5 @@ export function useSidebarStatus() {
     ),
   );
 
-  return { appStatus, todayCost, authNeedsAttention };
+  return { appStatus, todayCost, authNeedsAttention, serviceRunning };
 }

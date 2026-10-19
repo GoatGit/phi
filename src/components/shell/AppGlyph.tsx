@@ -1,6 +1,11 @@
 import { Monitor, Terminal } from "lucide-react";
 import type { AppId } from "@/lib/api";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import {
+  LOCAL_ROUTABLE_APP_ICONS,
+  LOCAL_ROUTABLE_APP_LABELS,
+  isLocalRoutableAppId,
+} from "@/config/appConfig";
 import { cn } from "@/lib/utils";
 
 /** 应用名：品牌名不翻译，四种语言都写原文。 */
@@ -38,8 +43,23 @@ const APP_BADGE_ICON: Partial<Record<AppId, typeof Terminal>> = {
   "claude-desktop": Monitor,
 };
 
+/** 应用显示名：AppId 用固定表，路由专用应用用它们自己的品牌名。 */
+export function getAppDisplayName(appId: string): string {
+  return (
+    (APP_DISPLAY_NAME as Record<string, string>)[appId] ??
+    LOCAL_ROUTABLE_APP_LABELS[appId] ??
+    appId
+  );
+}
+
+/** 应用图标名：没有图标的 id 返回 undefined，由调用方决定是否用首字母兜底。 */
+export function getAppIconName(appId: string): string | undefined {
+  if (isLocalRoutableAppId(appId)) return LOCAL_ROUTABLE_APP_ICONS[appId];
+  return (APP_ICON_NAME as Record<string, string>)[appId];
+}
+
 interface AppGlyphProps {
-  app: AppId;
+  app: string;
   /** 图标边长：侧栏 16，页头 20 */
   size?: number;
   /** 角标底色要和所在的行一致，否则看起来像缺了一块 */
@@ -54,7 +74,8 @@ export function AppGlyph({
   badgeClassName,
   className,
 }: AppGlyphProps) {
-  const BadgeIcon = APP_BADGE_ICON[app];
+  const BadgeIcon = APP_BADGE_ICON[app as AppId];
+  const iconName = getAppIconName(app);
   return (
     <span
       aria-hidden="true"
@@ -64,12 +85,7 @@ export function AppGlyph({
       )}
       style={{ width: size + 2, height: size + 2 }}
     >
-      <ProviderIcon
-        icon={APP_ICON_NAME[app]}
-        name=""
-        size={size}
-        showFallback={false}
-      />
+      <ProviderIcon icon={iconName} name="" size={size} showFallback={false} />
       {BadgeIcon && (
         <span
           className={cn(

@@ -13,10 +13,6 @@ const mocks = vi.hoisted(() => ({
   },
   save: vi.fn(),
   retry: vi.fn(),
-  restore: vi.fn(),
-}));
-vi.mock("@/lib/query", () => ({
-  useProvidersQuery: () => ({ data: { providers: {}, currentProviderId: "" } }),
 }));
 vi.mock("@/lib/query/proxy", () => ({
   useProxyStatusQuery: () => ({ data: mocks.status, isError: false }),
@@ -31,23 +27,11 @@ vi.mock("@/lib/query/proxy", () => ({
 vi.mock("@/hooks/useProxyStatus", () => ({
   useProxyStatus: () => ({
     startProxyServer: mocks.retry,
-    stopWithRestore: mocks.restore,
     isPending: false,
   }),
 }));
-vi.mock("@/lib/api/proxy", () => ({
-  proxyApi: {
-    getAppMode: async (app: string) => ({
-      mode: app === "claude" ? "route" : "direct",
-      attached: app === "claude",
-    }),
-  },
-}));
 vi.mock("@/components/settings/GatewayDiagnostics", () => ({
   GatewayDiagnostics: () => null,
-}));
-vi.mock("@/components/proxy/AutoFailoverConfigPanel", () => ({
-  AutoFailoverConfigPanel: () => null,
 }));
 vi.mock("@/components/settings/RectifierConfigPanel", () => ({
   RectifierConfigPanel: () => null,
@@ -57,12 +41,11 @@ beforeEach(() => {
   mocks.status = { running: true, port: 15821, address: "127.0.0.1" };
   mocks.save.mockReset().mockResolvedValue(undefined);
   mocks.retry.mockReset().mockResolvedValue(undefined);
-  mocks.restore.mockReset().mockResolvedValue(undefined);
 });
 
-describe("resident gateway settings", () => {
+describe("gateway settings", () => {
   it("saves a valid port and does not offer manual start/stop controls", async () => {
-    renderWithQueryClient(<RoutingSection onOpenApp={vi.fn()} />);
+    renderWithQueryClient(<RoutingSection />);
     expect(
       screen.queryByRole("button", { name: "routingSettings.start" }),
     ).not.toBeInTheDocument();
@@ -95,7 +78,7 @@ describe("resident gateway settings", () => {
 
   it("allows retrying a failed startup and saving settings while unavailable", async () => {
     mocks.status.running = false;
-    renderWithQueryClient(<RoutingSection onOpenApp={vi.fn()} />);
+    renderWithQueryClient(<RoutingSection />);
     expect(screen.getByText("routingSettings.unavailable")).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "routingSettings.retryStart" }),
@@ -106,15 +89,13 @@ describe("resident gateway settings", () => {
     ).toBeEnabled();
   });
 
-  it("restores app connections through the existing restore action", async () => {
-    renderWithQueryClient(<RoutingSection onOpenApp={vi.fn()} />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "routingSettings.exitAll" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "routingSettings.exitAllConfirm" }),
-    );
-    await waitFor(() => expect(mocks.restore).toHaveBeenCalledOnce());
-    expect(mocks.retry).not.toHaveBeenCalled();
+  it("leaves app routing out of the gateway settings page", () => {
+    renderWithQueryClient(<RoutingSection />);
+    expect(
+      screen.queryByText(/routingSettings\.usingApps/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "routingSettings.exitAll" }),
+    ).not.toBeInTheDocument();
   });
 });

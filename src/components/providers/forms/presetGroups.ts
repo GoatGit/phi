@@ -38,10 +38,17 @@ type PresetFields = AnyPreset & {
   requiresOAuth?: boolean;
   providerType?: string;
   apiFormat?: string;
+  /**
+   * 覆盖按 `category` 推导的分类。个别没有合适 category 的预设（如 System One
+   * 这种决策协议出口）需要直接指定它属于哪一栏，而不是借用会改变其它行为的
+   * `category` 值。
+   */
+  group?: PresetGroup;
 };
 
 export function presetGroup(preset: AnyPreset): PresetGroup {
   const p = preset as PresetFields;
+  if (p.group) return p.group;
   if (p.category === "official" || p.requiresOAuth || p.providerType) {
     return "login";
   }

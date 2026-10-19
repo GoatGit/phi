@@ -122,7 +122,19 @@ pub async fn connect_gateway_app(
     revision: Option<u64>,
 ) -> Result<(), String> {
     use std::str::FromStr;
+    // 路由专用应用只写原生配置，不进模式控制器，也不做供应商直连。
+    if crate::gateway::local_apps::spec(&app_id).is_some() {
+        let group_id = group_id.ok_or_else(|| "gateway.unavailableGroup".to_string())?;
+        return crate::gateway::attach::connect_local(&state, &app_id, &group_id, revision).await;
+    }
     let app = crate::AppType::from_str(&app_id).map_err(|e| e.to_string())?;
+    // 没有代理模式的应用以一行「PHI」供应商接入，接入和还原都走 attach。
+    if crate::gateway::apps::spec(&app)
+        .is_some_and(|spec| spec.attachment == crate::gateway::apps::Attachment::Provider)
+    {
+        let group_id = group_id.ok_or_else(|| "gateway.unavailableGroup".to_string())?;
+        return crate::gateway::attach::connect(&state, &app, &group_id, revision).await;
+    }
     if let Some(group_id) = group_id {
         return crate::mode::controller::enter_gateway_group(&state, &app, &group_id, revision)
             .await;
@@ -144,6 +156,32 @@ pub async fn get_gateway_trace_page(
         .db
         .gateway_trace_page(query)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_gateway_app_status(
+    state: State<'_, AppState>,
+    app_id: String,
+) -> Result<Option<crate::gateway::attach::AttachmentStatus>, String> {
+    use std::str::FromStr;
+    if crate::gateway::local_apps::spec(&app_id).is_some() {
+        return crate::gateway::attach::status_local(&state, &app_id);
+    }
+    let app = crate::AppType::from_str(&app_id).map_err(|e| e.to_string())?;
+    crate::gateway::attach::status(&state, &app)
+}
+
+#[tauri::command]
+pub async fn disconnect_gateway_app(
+    state: State<'_, AppState>,
+    app_id: String,
+) -> Result<(), String> {
+    use std::str::FromStr;
+    if crate::gateway::local_apps::spec(&app_id).is_some() {
+        return crate::gateway::attach::disconnect_local(&state, &app_id).await;
+    }
+    let app = crate::AppType::from_str(&app_id).map_err(|e| e.to_string())?;
+    crate::gateway::attach::disconnect(&state, &app).await
 }
 
 /// 把资源池供应商落成指定应用的直连供应商行，返回 provider id。

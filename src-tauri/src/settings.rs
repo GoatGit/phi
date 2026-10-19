@@ -1019,9 +1019,8 @@ mod tests {
     fn expert_mode_defaults_off_and_tolerates_old_settings() {
         assert!(!AppSettings::default().expert_mode);
         // 旧版设置文件没有这个键：反序列化回退到 false，不报错
-        let legacy: AppSettings =
-            serde_json::from_value(serde_json::json!({ "language": "zh" }))
-                .expect("legacy settings");
+        let legacy: AppSettings = serde_json::from_value(serde_json::json!({ "language": "zh" }))
+            .expect("legacy settings");
         assert!(!legacy.expert_mode);
     }
 

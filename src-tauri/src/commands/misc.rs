@@ -1068,7 +1068,22 @@ async fn get_single_tool_version_impl(
     let client = crate::proxy::http_client::get();
 
     // 1. 获取本地版本
-    let probe = probe_local_version(tool, wsl_distro.as_deref(), wsl_shell, wsl_shell_flag);
+    // 探测会起登录 shell / 子进程，是阻塞调用；放到 blocking 线程，不能占用
+    // Tokio worker，否则同时几次探测就能让本地网关停止响应。
+    let probe_tool = tool.to_string();
+    let probe_distro = wsl_distro.clone();
+    let probe_shell = wsl_shell.map(str::to_string);
+    let probe_shell_flag = wsl_shell_flag.map(str::to_string);
+    let probe = tokio::task::spawn_blocking(move || {
+        probe_local_version(
+            &probe_tool,
+            probe_distro.as_deref(),
+            probe_shell.as_deref(),
+            probe_shell_flag.as_deref(),
+        )
+    })
+    .await
+    .unwrap_or_else(|_| ShellProbe::NotFound("版本探测失败".to_string()));
     let (local_version, local_error, installed_but_broken) = match probe {
         ShellProbe::Found(v) => (Some(v), None, false),
         ShellProbe::FoundButFailed(e) => (None, Some(e), true),
@@ -1426,20 +1441,20 @@ enum ShellProbe {
 fn try_get_version(tool: &str) -> ShellProbe {
     use std::process::Command;
 
-    let output = {
-        let shell = std::env::var("SHELL")
-            .ok()
-            .filter(|s| is_valid_shell(s))
-            .unwrap_or_else(|| "sh".to_string());
-        let flag = default_flag_for_shell(&shell);
-        Command::new(shell)
-            .arg(flag)
-            .arg(format!("{tool} --version"))
-            .output()
-    };
+    // 版本探测只是 UI 信息，不能让一个卡住的登录 shell 永久占住线程。
+    const VERSION_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+    let shell = std::env::var("SHELL")
+        .ok()
+        .filter(|s| is_valid_shell(s))
+        .unwrap_or_else(|| "sh".to_string());
+    let flag = default_flag_for_shell(&shell);
+    let mut command = Command::new(shell);
+    command.arg(flag).arg(format!("{tool} --version"));
+    let output = crate::process_output::output_with_timeout(&mut command, VERSION_PROBE_TIMEOUT);
 
     match output {
-        Ok(out) => {
+        Ok(Some(out)) => {
             let stdout = decode_command_output(&out.stdout).trim().to_string();
             let stderr = decode_command_output(&out.stderr).trim().to_string();
             if out.status.success() {
@@ -1461,6 +1476,7 @@ fn try_get_version(tool: &str) -> ShellProbe {
             }
         }
         Err(_) => ShellProbe::NotFound(NOT_INSTALLED.to_string()),
+        Ok(None) => ShellProbe::NotFound(format!("{tool} --version 探测超时")),
     }
 }
 
@@ -2447,17 +2463,20 @@ fn scan_cli_version(tool: &str) -> ShellProbe {
             }
 
             #[cfg(target_os = "windows")]
-            let output = run_windows_tool_version_command(&tool_path, &new_path);
+            let output = run_windows_tool_version_command(&tool_path, &new_path).ok();
 
             #[cfg(not(target_os = "windows"))]
             let output = {
-                Command::new(&tool_path)
-                    .arg("--version")
-                    .env("PATH", &new_path)
-                    .output()
+                let mut command = Command::new(&tool_path);
+                command.arg("--version").env("PATH", &new_path);
+                crate::process_output::output_with_timeout(
+                    &mut command,
+                    std::time::Duration::from_secs(3),
+                )
+                .unwrap_or(None)
             };
 
-            if let Ok(out) = output {
+            if let Some(out) = output {
                 let stdout = decode_command_output(&out.stdout).trim().to_string();
                 let stderr = decode_command_output(&out.stderr).trim().to_string();
                 if out.status.success() {
@@ -2642,19 +2661,44 @@ fn login_shell_path() -> Option<String> {
 #[cfg(target_os = "macos")]
 pub(crate) fn embedded_cli_environment(tool: &str) -> Result<(PathBuf, String), String> {
     let deadline = CommandDeadline::from_timeout(Some(std::time::Duration::from_secs(8)));
-    let shell = std::env::var("SHELL").ok().filter(|s| is_valid_shell(s)).unwrap_or_else(|| "/bin/zsh".into());
+    let shell = std::env::var("SHELL")
+        .ok()
+        .filter(|s| is_valid_shell(s))
+        .unwrap_or_else(|| "/bin/zsh".into());
     let mut command = std::process::Command::new(shell);
-    command.args([default_flag_for_shell(command.get_program().to_string_lossy().as_ref()), "/usr/bin/env"])
-        .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
+    command
+        .args([
+            default_flag_for_shell(command.get_program().to_string_lossy().as_ref()),
+            "/usr/bin/env",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
     isolate_child_process_group(&mut command);
-    let path = command.spawn().ok().and_then(|child| wait_child_output(child, deadline).ok())
-        .and_then(|output| path_line_from_env_output(&decode_command_output(&output.stdout)).map(str::to_owned))
+    let path = command
+        .spawn()
+        .ok()
+        .and_then(|child| wait_child_output(child, deadline).ok())
+        .and_then(|output| {
+            path_line_from_env_output(&decode_command_output(&output.stdout)).map(str::to_owned)
+        })
         .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
-    let search = merge_path_segments(&path, &build_tool_search_paths(tool).iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>().join(":"));
+    let search = merge_path_segments(
+        &path,
+        &build_tool_search_paths(tool)
+            .iter()
+            .map(|p| p.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(":"),
+    );
     use std::os::unix::fs::PermissionsExt;
     for dir in std::env::split_paths(&search).filter(|p| p.is_absolute()) {
         let candidate = dir.join(tool);
-        if candidate.metadata().map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false) {
+        if candidate
+            .metadata()
+            .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+        {
             return Ok((candidate, search));
         }
     }

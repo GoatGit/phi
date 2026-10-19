@@ -1,7 +1,7 @@
 //! Shared builders for the OpenAI Responses SSE envelope.
 //!
-//! The two Codex streaming converters — `streaming_codex_chat` (Chat Completions SSE →
-//! Responses SSE) and `streaming_codex_anthropic` (Anthropic Messages SSE → Responses
+//! The two protocol streaming converters — `streaming_responses_to_chat` (Chat Completions SSE →
+//! Responses SSE) and `streaming_responses_to_anthropic` (Anthropic Messages SSE → Responses
 //! SSE) — have completely different *input* state machines but must emit the identical
 //! Responses event stream the Codex client understands. This module owns that output
 //! envelope so the two converters cannot drift when an event's shape changes: a wire fix

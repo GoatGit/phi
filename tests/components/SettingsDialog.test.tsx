@@ -164,7 +164,6 @@ const renderSettingsPage = (
     section: "general" as const,
     onExitSettings: vi.fn(),
     onOpenApps: vi.fn(),
-    onOpenApp: vi.fn(),
     ...props,
   };
   const view = render(
@@ -387,5 +386,4 @@ describe("SettingsPage", () => {
     expect(scrollContainer.scrollTop).toBe(0);
     expect(screen.getByText("about:false")).toBeInTheDocument();
   });
-
 });

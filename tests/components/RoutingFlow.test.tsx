@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RoutingFlow, wirePath } from "@/components/gateway/RoutingFlow";
+import { ROUTABLE_APP_IDS } from "@/config/appConfig";
 import {
   buildRoutingFlow,
   buildTimeline,
@@ -275,20 +276,33 @@ describe("routing flow model", () => {
     expect(liveCount).toBe(0);
     expect(apps.map((app) => app.appId)).toEqual([
       "claude",
+      "claude-desktop",
       "codex",
       "gemini",
       "grokbuild",
+      "opencode",
+      "openclaw",
+      "hermes",
+      "pi",
+      "mcode",
+      "typesafe",
+      "commandcode",
+      "crush",
+      "droid",
+      "kimi",
+      "atomcode",
+      "omo",
     ]);
     expect(apps[0]).toMatchObject({
       lane: null,
       staticGroupKey: "group:root",
       staticOutletKeys: ["a|model-a", "b|model-b", "b|model-nested"],
     });
-    // codex/gemini/grokbuild have no connection: app→PHI only.
+    // 其余应用没有连接：只有 app→PHI 一条边。
     expect(apps[1].staticGroupKey).toBeNull();
-    // The group column lists directly connected groups; the nested group's
-    // members are flattened into the model list instead.
-    expect(groups.map((g) => g.name)).toEqual(["Root group"]);
+    // The group column lists every catalog group (including nested ones),
+    // while the nested group's members are flattened into the model list.
+    expect(groups.map((g) => g.name)).toEqual(["Root group", "Nested group"]);
     expect(outlets).toMatchObject([
       { supplierName: "Pool A", state: null },
       { supplierName: "Pool B", state: null },
@@ -309,6 +323,53 @@ describe("routing flow model", () => {
     expect(outlets.find((o) => o.key === "a|model-a")!.state).toBe("failed");
     expect(outlets.find((o) => o.key === "b|model-b")!.state).toBe("completed");
     expect(outlets.find((o) => o.key === "b|model-nested")!.state).toBeNull();
+  });
+
+  it("orders apps by priority: live traffic, recent traffic, routed, then the rest", () => {
+    const routed: GatewayCatalog = {
+      ...catalog,
+      policies: [
+        ...catalog.policies,
+        {
+          ...catalog.policies[0],
+          id: "connection/pi",
+          appId: "pi",
+          groupId: "nested",
+        },
+      ],
+    };
+    const codex = {
+      ...baseTrace,
+      id: "codex-1",
+      appId: "codex",
+      createdAt: 1200,
+    };
+    const live = {
+      ...baseTrace,
+      id: "grok-1",
+      appId: "grokbuild",
+      createdAt: 1500,
+    };
+    const { apps } = buildRoutingFlow(page([baseTrace, codex], [live]), routed);
+    expect(apps.map((app) => app.appId)).toEqual([
+      "grokbuild", // 进行中
+      "codex", // 最近一次流量
+      "claude", // 更早的流量
+      "pi", // 已接入路由组但没有流量
+      "claude-desktop", // 其余按配置清单顺序
+      "gemini",
+      "opencode",
+      "openclaw",
+      "hermes",
+      "mcode",
+      "typesafe",
+      "commandcode",
+      "crush",
+      "droid",
+      "kimi",
+      "atomcode",
+      "omo",
+    ]);
   });
 
   it("flattens nested groups with a cycle guard", () => {
@@ -383,6 +444,8 @@ function laneOf(trace: GatewayRequestTrace) {
     groupKey: "group:root",
     groupName: "Snapshot root",
     groupStrategy: "ordered",
+    groupId: "root",
+    groupEnabled: true,
     attempts: [],
   };
 }
@@ -520,16 +583,56 @@ describe("routing flow diagram", () => {
     expect([...dimmed].every((p) => p.style.stroke !== "")).toBe(true);
   });
 
+  it("collapses the lower-priority apps by default and expands them on demand", () => {
+    render(<RoutingFlow data={page([])} catalog={catalog} />);
+    const list = screen.getByRole("list", { name: "gateway.flow.apps" });
+    expect(list.children).toHaveLength(6);
+    fireEvent.click(
+      screen.getByRole("button", { name: "gateway.flow.moreApps" }),
+    );
+    expect(list.children).toHaveLength(17);
+    fireEvent.click(
+      screen.getByRole("button", { name: "gateway.flow.fewerApps" }),
+    );
+    expect(list.children).toHaveLength(6);
+  });
+
+  it("keeps every in-flight app visible past the collapse limit", () => {
+    const live = [
+      "claude",
+      "codex",
+      "gemini",
+      "grokbuild",
+      "opencode",
+      "openclaw",
+      "hermes",
+      "pi",
+    ].map((appId, index) => ({
+      ...baseTrace,
+      id: `live-${appId}`,
+      appId,
+      createdAt: 1000 + index,
+    }));
+    render(<RoutingFlow data={page([], live)} />);
+    expect(
+      screen.getByRole("list", { name: "gateway.flow.apps" }).children,
+    ).toHaveLength(live.length);
+    // 没有可折叠的行时不显示展开按钮。
+    expect(
+      screen.queryByRole("button", { name: "gateway.flow.moreApps" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("draws configured apps, groups and models as gray dashed base lines", () => {
     const { container } = render(
       <RoutingFlow data={page([])} catalog={catalog} />,
     );
-    expect(
-      screen.getByRole("list", { name: "gateway.flow.apps" }).children,
-    ).toHaveLength(4);
+    // 默认只列优先级最高的 6 个应用，其余折叠在展开按钮后面。
+    const appList = screen.getByRole("list", { name: "gateway.flow.apps" });
+    expect(appList.children).toHaveLength(6);
     expect(
       screen.getByRole("list", { name: "gateway.flow.groups" }).children,
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(
       screen.getByRole("list", { name: "gateway.flow.models" }).children,
     ).toHaveLength(3);
@@ -537,10 +640,18 @@ describe("routing flow diagram", () => {
     expect(
       screen.queryByText("gateway.flow.states.unknown"),
     ).not.toBeInTheDocument();
-    // 4 app→PHI + 1 PHI→group + 3 group→model gray dashed wires.
+    // 6 app→PHI + 1 PHI→group + 3 group→model gray dashed wires.
     expect(
       container.querySelectorAll('path[data-state="static"]'),
-    ).toHaveLength(8);
+    ).toHaveLength(10);
+    fireEvent.click(
+      screen.getByRole("button", { name: "gateway.flow.moreApps" }),
+    );
+    // 展开后补齐剩下的应用与连线。
+    expect(appList.children).toHaveLength(17);
+    expect(
+      container.querySelectorAll('path[data-state="static"]'),
+    ).toHaveLength(21);
     expect(
       screen.queryByRole("button", { name: "gateway.flow.replay" }),
     ).not.toBeInTheDocument();
@@ -557,9 +668,10 @@ describe("routing flow diagram", () => {
     // app→PHI + PHI→group + two group→model attempt wires.
     expect(colored).toHaveLength(4);
     expect(colored.every((path) => path.style.stroke !== "")).toBe(true);
+    // 折叠状态下只有前 6 个应用在图上，claude 已被流量线替换。
     expect(
       regionOf(container, "app").querySelectorAll('[data-state="static"]'),
-    ).toHaveLength(3);
+    ).toHaveLength(5);
     expect(
       regionOf(container, "group").querySelectorAll('[data-state="static"]'),
     ).toHaveLength(0);
@@ -587,7 +699,7 @@ describe("routing flow diagram", () => {
     );
     expect(
       regionOf(container, "app").querySelectorAll('[data-state="static"]'),
-    ).toHaveLength(3);
+    ).toHaveLength(5);
     expect(
       regionOf(container, "group").querySelectorAll('[data-state="static"]'),
     ).toHaveLength(0);
@@ -612,7 +724,7 @@ describe("routing flow diagram", () => {
     );
     expect(
       regionOf(container, "app").querySelectorAll('[data-state="static"]'),
-    ).toHaveLength(3);
+    ).toHaveLength(5);
     expect(
       regionOf(container, "group").querySelectorAll('[data-state="static"]'),
     ).toHaveLength(1);
@@ -682,5 +794,110 @@ describe("wirePath geometry", () => {
     const d = wirePath({ right: 10, cy: 50 }, { left: 90, cy: 70 }, -5);
     expect(d.startsWith("M 10 45")).toBe(true);
     expect(d.endsWith("90 65")).toBe(true);
+  });
+
+  it("keeps a fanned endpoint inside the node instead of past its corner", () => {
+    const node = { right: 100, cy: 40, top: 8, bottom: 72 };
+    const target = { left: 220, cy: 40, top: 8, bottom: 72 };
+    // ±37.5 曾把落在 64px 高节点上的线推到节点下方 5.5px。
+    expect(wirePath(node, target, 37.5).startsWith("M 100 64")).toBe(true);
+    expect(wirePath(node, target, -37.5).startsWith("M 100 16")).toBe(true);
+  });
+});
+
+describe("wire attachment", () => {
+  const box = (
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ): DOMRect =>
+    ({
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height,
+      x: left,
+      y: top,
+      toJSON: () => ({}),
+    }) as DOMRect;
+  const ZERO = box(0, 0, 0, 0);
+
+  /** jsdom 的布局全是 0；这里给每个流程图节点一个固定盒子，让连线真的有坐标。 */
+  const stubLayout = () => {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        const el = this as HTMLElement;
+        if (el.classList?.contains("phi-flow-stage"))
+          return box(0, 0, 1200, 900);
+        const kind = el.dataset?.flow;
+        if (!kind) return ZERO;
+        if (kind === "hub") return box(244, 400, 104, 72);
+        if (!el.dataset.flowKey) return ZERO;
+        const siblings = [
+          ...document.querySelectorAll(`[data-flow="${kind}"][data-flow-key]`),
+        ];
+        const index = Math.max(0, siblings.indexOf(el));
+        if (kind === "app") return box(0, 100 + index * 80, 200, 64);
+        if (kind === "group") return box(392, 400 + index * 120, 300, 64);
+        return box(736, 200 + index * 100, 240, 64);
+      },
+    );
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  const endY = (path: SVGPathElement) => {
+    const coords = path.getAttribute("d")!.split(" ");
+    return Number(coords[coords.length - 1]);
+  };
+
+  it("draws one shared configuration edge on the node's centre, not beside it", () => {
+    stubLayout();
+    // 真实数据里十几个应用都接到同一个路由组：每条灰线本应完全重叠。
+    const shared: GatewayCatalog = {
+      ...catalog,
+      policies: ROUTABLE_APP_IDS.slice(0, 16).map((appId, index) => ({
+        ...catalog.policies[0],
+        id: `connection/${appId}`,
+        appId,
+        priority: index,
+      })),
+    };
+    const { container } = render(
+      <RoutingFlow data={page([])} catalog={shared} />,
+    );
+    const wires = [
+      ...regionOf(container, "group").querySelectorAll<SVGPathElement>(
+        'path[data-state="static"]',
+      ),
+    ];
+    expect(wires).toHaveLength(16);
+    // 组节点 400..464，中心 432：每个应用的灰线都落在同一点。
+    for (const path of wires) expect(endY(path)).toBe(432);
+    expect(new Set(wires.map((path) => path.getAttribute("d"))).size).toBe(1);
+  });
+
+  it("fans parallel traffic wires out without leaving the group node", () => {
+    stubLayout();
+    const live = [
+      baseTrace,
+      { ...baseTrace, id: "live-codex", appId: "codex", createdAt: 1100 },
+    ];
+    const { container } = render(<RoutingFlow data={page([], live)} />);
+    const wires = [
+      ...regionOf(container, "group").querySelectorAll<SVGPathElement>(
+        'path:not([data-state="static"])',
+      ),
+    ];
+    expect(wires).toHaveLength(2);
+    const ends = wires.map(endY);
+    // 两条线各有自己的落点，且都还在节点（400..464）的边内。
+    expect(new Set(ends).size).toBe(2);
+    for (const y of ends) {
+      expect(y).toBeGreaterThanOrEqual(408);
+      expect(y).toBeLessThanOrEqual(456);
+    }
   });
 });

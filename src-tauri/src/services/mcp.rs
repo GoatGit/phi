@@ -219,7 +219,8 @@ impl McpService {
             }
             AppType::Mcode => mcp::mcode::sync(&server.id, Some(&server.server))?,
             AppType::Pi => mcp::pi::sync(&server.id, Some(&server.server))?,
-            AppType::Zcode => { // ZCode 暂不支持 PHI 的 MCP 注入
+            AppType::Zcode => {
+                // ZCode 暂不支持 PHI 的 MCP 注入
                 log::debug!("ZCode MCP sync is not supported yet, skipping");
             }
         }
@@ -263,7 +264,8 @@ impl McpService {
             }
             AppType::Mcode => mcp::mcode::sync(id, None)?,
             AppType::Pi => mcp::pi::sync(id, None)?,
-            AppType::Zcode => { // ZCode 暂不支持 PHI 的 MCP 注入
+            AppType::Zcode => {
+                // ZCode 暂不支持 PHI 的 MCP 注入
                 log::debug!("ZCode MCP remove is not supported yet, skipping");
             }
         }

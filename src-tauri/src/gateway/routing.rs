@@ -381,7 +381,8 @@ pub fn validate(catalog: &Catalog) -> Result<(), AppError> {
             || !label(&g.name)
             || !ids.insert(&g.id)
             || g.app_ids.is_empty()
-            || g.app_ids.len() > 4
+            || g.app_ids.len()
+                > super::apps::ROUTING_APPS.len() + super::local_apps::LOCAL_APPS.len() + 1
             || g.members.len() > 32
             || g.rules.len() > 50
             || !(1..=11).contains(&g.max_attempts)
@@ -394,7 +395,12 @@ pub fn validate(catalog: &Catalog) -> Result<(), AppError> {
         }
         let mut apps = HashSet::new();
         for a in &g.app_ids {
-            app(a)?;
+            if super::apps::spec_by_id(a).is_none()
+                && super::local_apps::spec(a).is_none()
+                && !super::typesafe::is_app(a)
+            {
+                return Err(invalid("gateway.invalidGroup"));
+            }
             if !apps.insert(a) {
                 return Err(invalid("gateway.invalidGroup"));
             }
@@ -568,11 +574,65 @@ pub fn group_policy(
         app_id: app_id.into(),
         enabled: true,
         match_model: model.into(),
+        request_model: String::new(),
         priority: 0,
         failover: group.failover,
         candidates: vec![],
         group_id: Some(group.id.clone()),
     })
+}
+
+/// 一个应用当前连接的路由组里所有可发布的模型名（按组内出现顺序去重）。
+/// 用于把路由组的模型清单写进客户端配置，以及本地 `/models` 发现。
+pub fn published_models(catalog: &Catalog, app_id: &str) -> Vec<String> {
+    let mut models = Vec::new();
+    if let Some(connection) = app_connection(catalog, app_id) {
+        if let Some(group_id) = connection
+            .group_id
+            .as_deref()
+            .filter(|_| connection.enabled)
+        {
+            collect_group_models(catalog, group_id, &mut models, 0);
+        }
+    }
+    models
+}
+
+fn collect_group_models(catalog: &Catalog, group_id: &str, models: &mut Vec<String>, depth: usize) {
+    if depth > 8 {
+        return;
+    }
+    let Some(group) = catalog
+        .groups
+        .iter()
+        .find(|group| group.id == group_id && group.enabled)
+    else {
+        return;
+    };
+    for member in group.members.iter().filter(|member| member.enabled) {
+        if let Some(supplier_id) = &member.supplier_id {
+            if let Some(supplier) = catalog
+                .suppliers
+                .iter()
+                .find(|supplier| &supplier.id == supplier_id)
+            {
+                for model in &supplier.models {
+                    push_model(models, model);
+                }
+            }
+        }
+        if let Some(nested) = &member.group_id {
+            collect_group_models(catalog, nested, models, depth + 1);
+        }
+        push_model(models, &member.model);
+    }
+}
+
+fn push_model(models: &mut Vec<String>, model: &str) {
+    let model = model.trim();
+    if !model.is_empty() && !models.iter().any(|existing| existing == model) {
+        models.push(model.to_string());
+    }
 }
 
 pub fn matched_policy(
@@ -590,6 +650,13 @@ pub fn matched_policy(
             .ok_or_else(|| invalid("gateway.unavailableGroup"))?;
         let mut policy = group_policy(catalog, app_id, group_id, "")?;
         policy.id = connection.id.clone();
+        // 组连接仍然由「应用连接」决定组，但请求模型名可以点名组内成员：
+        // plan 会把模型匹配的候选排到最前。`group/<id>` 是组别名，不参与。
+        policy.request_model = if model.starts_with("group/") {
+            String::new()
+        } else {
+            model.to_string()
+        };
         return Ok(Some(policy));
     }
     matched_unbound_policy(catalog, app_id, model)
@@ -617,7 +684,6 @@ pub fn matched_unbound_policy(
     policies.sort_by(|a, b| a.priority.cmp(&b.priority).then(a.id.cmp(&b.id)));
     Ok(policies.first().map(|p| (*p).clone()))
 }
-
 
 impl Runtime {
     pub fn plan(
@@ -689,6 +755,14 @@ impl Runtime {
         }
         if decision.candidates.len() > 128 {
             return Err(invalid("gateway.limitExceeded"));
+        }
+        // 请求模型名只做「点名」：匹配的成员排到最前，其余候选保持策略顺序，
+        // 仍可作为故障转移。没有匹配时不改变任何行为。
+        let wanted = policy.request_model.trim();
+        if !wanted.is_empty() {
+            decision
+                .candidates
+                .sort_by_key(|candidate| !candidate.model.eq_ignore_ascii_case(wanted));
         }
         if advance {
             // Reserve a turn only for groups on the primary path. Exploring a

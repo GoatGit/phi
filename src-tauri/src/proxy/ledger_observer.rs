@@ -136,7 +136,9 @@ pub fn session_namespace() -> Option<String> {
         .flatten()
 }
 pub fn has_access_binding() -> bool {
-    ACTIVE.try_with(|active| active.binding.is_some()).unwrap_or(false)
+    ACTIVE
+        .try_with(|active| active.binding.is_some())
+        .unwrap_or(false)
 }
 pub fn authorize_group(group: Option<&str>) -> Result<(), crate::error::AppError> {
     ACTIVE

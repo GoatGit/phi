@@ -30,7 +30,50 @@
     align-items: center;
     justify-content: center;
   }
+  /* 应用列：节点列表 + 折叠开关。列本身不参与滚动，高度由可见节点决定。 */
+  .phi-flow-app-col {
+    align-items: stretch;
+  }
+  .phi-flow-app-list {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 16px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .phi-flow-more {
+    display: flex;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 14px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 12px;
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease;
+  }
+  .phi-flow-more:hover {
+    background: var(--bg-subtle);
+    color: var(--text-1);
+  }
+  .phi-flow-more:focus-visible {
+    outline: 2px solid var(--action-text);
+    outline-offset: 2px;
+  }
+  .phi-flow-more svg {
+    width: 13px;
+    height: 13px;
+    transition: transform 0.15s ease;
+  }
   .phi-flow-node {
+    position: relative;
     display: flex;
     min-width: 0;
     min-height: 64px;
@@ -46,6 +89,88 @@
     transition:
       opacity 0.2s ease,
       border-color 0.2s ease;
+  }
+  /* 节点右上角的轻量动作：应用设置路由、路由组编辑。 */
+  .phi-flow-action {
+    position: absolute;
+    inset-inline-end: 5px;
+    top: 5px;
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-3);
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease;
+  }
+  .phi-flow-action:hover {
+    background: var(--bg-subtle);
+    color: var(--text-1);
+  }
+  .phi-flow-action:focus-visible {
+    outline: 2px solid var(--action-text);
+    outline-offset: 1px;
+  }
+  .phi-flow-action svg {
+    width: 13px;
+    height: 13px;
+  }
+  /* 有动作时把文字区收窄一点，图标不会压住截断后的名称。 */
+  .phi-flow-node[data-has-action="true"] .phi-flow-hit,
+  .phi-flow-node[data-has-action="true"] .phi-flow-node-text {
+    padding-inline-end: 18px;
+  }
+  .phi-flow-node-text {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .phi-flow-node[data-disabled="true"] {
+    opacity: 0.6;
+  }
+  .phi-flow-group-list {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 16px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .phi-flow-add {
+    display: flex;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 14px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 12px;
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease;
+  }
+  .phi-flow-add:hover {
+    background: var(--bg-subtle);
+    color: var(--text-1);
+  }
+  .phi-flow-add:focus-visible {
+    outline: 2px solid var(--action-text);
+    outline-offset: 2px;
+  }
+  .phi-flow-add svg {
+    width: 13px;
+    height: 13px;
   }
   .phi-flow-node > span,
   .phi-flow-node > strong,

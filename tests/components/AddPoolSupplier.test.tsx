@@ -51,6 +51,7 @@ beforeEach(() => {
   vi.spyOn(universalProvidersApi, "sync");
   vi.spyOn(gatewayApi, "createFromTemplate").mockResolvedValue(saved);
   vi.spyOn(gatewayApi, "createFromUniversal").mockResolvedValue(saved);
+  vi.spyOn(gatewayApi, "createSupplier").mockResolvedValue(saved);
 });
 
 describe("resource pool template creation", () => {
@@ -222,5 +223,47 @@ describe("resource pool template creation", () => {
     expect(client.getQueryData(gatewayCatalogKey)).toEqual(saved);
     expect(universalProvidersApi.upsert).not.toHaveBeenCalled();
     expect(universalProvidersApi.sync).not.toHaveBeenCalled();
+  });
+
+  it("adds a System One supplier through the pool editor with the decision protocol preset", async () => {
+    const { onClose, client } = mount();
+    await screen.findByRole("textbox", {
+      name: "providerPreset.searchAriaLabel",
+    });
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "providerPreset.searchAriaLabel" }),
+      { target: { value: "System One" } },
+    );
+    chooseTemplate("TypeSafe System One");
+
+    // No application form: the pool editor opens with the TypeSafe defaults.
+    expect(
+      await screen.findByText("gateway.pool.createTitle"),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("TypeSafe System One")).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue("https://api.typesafe.ai"),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("jev-latest")).toBeInTheDocument();
+
+    fireEvent.change(document.getElementById("gateway-sup-key")!, {
+      target: { value: "typesafe-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "gateway.save" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(gatewayApi.createSupplier).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "TypeSafe System One",
+        endpoint: {
+          protocol: "systemone",
+          baseUrl: "https://api.typesafe.ai",
+        },
+        models: ["jev-latest"],
+        apiKey: "typesafe-key",
+        authField: "TYPESAFE_API_KEY",
+      }),
+    );
+    expect(gatewayApi.createFromTemplate).not.toHaveBeenCalled();
+    expect(client.getQueryData(gatewayCatalogKey)).toEqual(saved);
   });
 });

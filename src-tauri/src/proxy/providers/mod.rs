@@ -13,6 +13,7 @@
 
 mod adapter;
 mod auth;
+pub(crate) mod chat_to_anthropic;
 mod claude;
 mod codex;
 pub(crate) mod codex_chat_common;
@@ -30,14 +31,27 @@ pub mod models;
 pub(crate) mod reasoning_bridge;
 pub(crate) mod responses_late_arguments;
 pub mod streaming;
-pub mod streaming_codex_anthropic;
-pub mod streaming_codex_chat;
+pub(crate) mod streaming_anthropic_to_chat;
+// 文件暂保留历史文件名；模块名按协议方向命名（A → B），不再带应用入口名。
+#[path = "transform_codex_anthropic.rs"]
+pub mod responses_to_anthropic;
+#[path = "transform_codex_chat.rs"]
+pub mod responses_to_chat;
 pub mod streaming_gemini;
 pub mod streaming_responses;
+#[path = "streaming_codex_anthropic.rs"]
+pub mod streaming_responses_to_anthropic;
+#[path = "streaming_codex_chat.rs"]
+pub mod streaming_responses_to_chat;
 pub mod transform;
-pub mod transform_codex_anthropic;
-pub mod transform_codex_chat;
 pub mod transform_codex_chat_moonshot_schema;
+
+// 仅测试代码仍在用旧模块名；生产路径只暴露协议方向名。
+#[cfg(test)]
+pub use responses_to_anthropic as transform_codex_anthropic;
+#[cfg(test)]
+pub use responses_to_chat as transform_codex_chat;
+
 pub mod transform_codex_responses_namespace;
 pub mod transform_codex_responses_xai_sanitize;
 pub mod transform_gemini;
@@ -213,8 +227,14 @@ impl ProviderType {
                 ProviderType::Gemini
             }
             AppType::GrokBuild => ProviderType::Codex,
-            AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => ProviderType::Codex,
-            AppType::Pi | AppType::Mcode | AppType::Zcode => return None,
+            // 累加式应用统一经本地网关的 OpenAI Chat 入口接入，运行时行也是
+            // `base_url` + Bearer 的形状，由 Codex 适配器读写。
+            AppType::OpenCode
+            | AppType::OpenClaw
+            | AppType::Hermes
+            | AppType::Pi
+            | AppType::Mcode => ProviderType::Codex,
+            AppType::Zcode => return None,
         };
         Some(provider_type)
     }
@@ -269,8 +289,10 @@ pub fn get_adapter(app_type: &AppType) -> Option<Box<dyn ProviderAdapter>> {
         AppType::Codex => Box::new(CodexAdapter::new()),
         AppType::Gemini => Box::new(GeminiAdapter::new()),
         AppType::GrokBuild => Box::new(CodexAdapter::new()),
-        AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => Box::new(CodexAdapter::new()),
-        AppType::Pi | AppType::Mcode | AppType::Zcode => return None,
+        AppType::OpenCode | AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode => {
+            Box::new(CodexAdapter::new())
+        }
+        AppType::Zcode => return None,
     })
 }
 

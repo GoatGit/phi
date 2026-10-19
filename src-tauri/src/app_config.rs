@@ -155,7 +155,7 @@ impl SkillApps {
             AppType::Mcode => self.mcode = enabled,
             AppType::OpenClaw => {} // OpenClaw doesn't support Skills, ignore
             AppType::ClaudeDesktop => {} // Claude Desktop 3P profiles don't use PHI skill sync
-            AppType::Zcode => {} // ZCode 暂不支持 PHI 的 Skills 同步
+            AppType::Zcode => {}    // ZCode 暂不支持 PHI 的 Skills 同步
         }
     }
 
@@ -448,11 +448,11 @@ impl AppType {
         matches!(
             self,
             AppType::OpenCode
-            | AppType::OpenClaw
-            | AppType::Hermes
-            | AppType::Pi
-            | AppType::Mcode
-            | AppType::Zcode
+                | AppType::OpenClaw
+                | AppType::Hermes
+                | AppType::Pi
+                | AppType::Mcode
+                | AppType::Zcode
         )
     }
 
@@ -929,7 +929,7 @@ impl MultiAppConfig {
                 AppType::OpenClaw => continue, // OpenClaw MCP is still in development, skip
                 AppType::Hermes => continue,   // Hermes didn't exist in v3.6.x, skip
                 AppType::Pi | AppType::Mcode => continue, // Pi didn't exist in v3.6.x, skip
-                AppType::Zcode => continue, // ZCode didn't exist in v3.6.x, skip
+                AppType::Zcode => continue,    // ZCode didn't exist in v3.6.x, skip
             };
 
             for (id, entry) in old_servers {

@@ -14,7 +14,7 @@ import {
   Info,
   KeyRound,
   Loader2,
-  Route,
+  Router,
   SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -31,7 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { HelpTip } from "@/components/ui/help-tip";
 import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
 import { AppsPage } from "@/components/apps/AppsPage";
-import { settingsApi, type AppId } from "@/lib/api";
+import { settingsApi } from "@/lib/api";
 import type { SettingsSection } from "@/lib/navigation";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
@@ -58,7 +58,7 @@ const SECTION_ICON: Record<
   ComponentType<{ className?: string; strokeWidth?: number | string }>
 > = {
   general: SlidersHorizontal,
-  routing: Route,
+  routing: Router,
   network: Globe,
   data: Database,
   about: Info,
@@ -71,8 +71,6 @@ interface SettingsPageProps {
   onImportSuccess?: () => void | Promise<void>;
   /** 「在侧栏显示哪些应用」跳到「应用」页 */
   onOpenApps: () => void;
-  /** 本地路由 →「正在使用路由的应用」的「前往」 */
-  onOpenApp: (app: AppId) => void;
 }
 
 /**
@@ -84,7 +82,6 @@ export function SettingsPage({
   onExitSettings,
   onImportSuccess,
   onOpenApps,
-  onOpenApp,
 }: SettingsPageProps) {
   const { t } = useTranslation();
   // 与 FullScreenPanel 的返回按钮保持同一样式：顶栏标题左侧的 quiet 图标按钮。
@@ -249,7 +246,7 @@ export function SettingsPage({
           />
         );
       case "routing":
-        return <RoutingSection onOpenApp={onOpenApp} />;
+        return <RoutingSection />;
       case "network":
         return (
           <SettingsBlock

@@ -17,8 +17,10 @@ use super::ProxyError;
 /// - 转换错误：422 Unprocessable Entity
 /// - 其他错误：500 Internal Server Error
 pub fn map_proxy_error_to_status(error: &ProxyError) -> u16 {
-    if matches!(error, ProxyError::NoAvailableProvider | ProxyError::NoAvailableProviderWithReason(_)) {
-    }
+    if matches!(
+        error,
+        ProxyError::NoAvailableProvider | ProxyError::NoAvailableProviderWithReason(_)
+    ) {}
     match error {
         // 服务状态错误：与 IntoResponse 保持一致
         ProxyError::AlreadyRunning => 409,
@@ -67,8 +69,10 @@ pub fn map_proxy_error_to_status(error: &ProxyError) -> u16 {
 
 /// 将 ProxyError 转换为用户友好的错误消息
 pub fn get_error_message(error: &ProxyError) -> String {
-    if matches!(error, ProxyError::NoAvailableProvider | ProxyError::NoAvailableProviderWithReason(_)) {
-    }
+    if matches!(
+        error,
+        ProxyError::NoAvailableProvider | ProxyError::NoAvailableProviderWithReason(_)
+    ) {}
     match error {
         ProxyError::UpstreamError { status, body } => {
             if let Some(body) = body {

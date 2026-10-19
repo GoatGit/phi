@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { PROXY_APP_IDS } from "@/config/appConfig";
+import { LOCAL_ROUTABLE_APP_IDS, ROUTABLE_APP_IDS } from "@/config/appConfig";
 import { gatewayApi, type GatewayCatalog } from "@/lib/api";
 
 /** 目录只有一个整体，revision 是乐观锁：读改写都基于同一份缓存。 */
@@ -52,11 +52,31 @@ export function useGatewayErrorMessage() {
  * 编辑器里用于过滤候选供应商；后端保存时仍会最终校验。
  */
 export function protocolCompatibleWith(app: string, protocol: string): boolean {
+  // 路由专用应用都经本地 Chat 入口接入：Chat 直接送达，Responses / Anthropic
+  // 由网关的 Responses 中转转换。
+  if ((LOCAL_ROUTABLE_APP_IDS as string[]).includes(app)) {
+    return ["anthropic", "openai_chat", "openai_responses"].includes(protocol);
+  }
   const allowed: Record<string, string[]> = {
     claude: ["anthropic", "openai_chat", "openai_responses", "gemini_native"],
+    "claude-desktop": [
+      "anthropic",
+      "openai_chat",
+      "openai_responses",
+      "gemini_native",
+    ],
     codex: ["anthropic", "openai_chat", "openai_responses"],
     gemini: ["gemini_native"],
     grokbuild: ["anthropic", "openai_chat", "openai_responses"],
+    // 累加式应用经本地 Chat 入口接入：Chat 直接送达，Responses / Anthropic
+    // 由网关的 Responses 中转转换（Gemini 原生没有对应转换器）。
+    opencode: ["anthropic", "openai_chat", "openai_responses"],
+    openclaw: ["anthropic", "openai_chat", "openai_responses"],
+    hermes: ["anthropic", "openai_chat", "openai_responses"],
+    pi: ["anthropic", "openai_chat", "openai_responses"],
+    mcode: ["anthropic", "openai_chat", "openai_responses"],
+    // System One 是决策协议，只能接同协议的供应商，不能和聊天协议互转。
+    typesafe: ["systemone"],
   };
   return allowed[app]?.includes(protocol) ?? false;
 }
@@ -69,11 +89,21 @@ export function supplierDirectCompatible(
   app: string,
   protocol: string,
 ): boolean {
+  // 路由专用应用没有供应商直连：只写一个指向本地网关的供应商块。
+  if ((LOCAL_ROUTABLE_APP_IDS as string[]).includes(app)) return false;
+  // System One 没有客户端原生配置，也不存在供应商直连。
+  if (app === "typesafe") return false;
   const native: Record<string, string> = {
     claude: "anthropic",
+    "claude-desktop": "anthropic",
     codex: "openai_responses",
     grokbuild: "openai_responses",
     gemini: "gemini_native",
+    opencode: "openai_chat",
+    openclaw: "openai_chat",
+    hermes: "openai_chat",
+    pi: "openai_chat",
+    mcode: "openai_chat",
   };
   return native[app] === protocol;
 }
@@ -103,6 +133,42 @@ export function disableEmptyGroups(catalog: GatewayCatalog): GatewayCatalog {
     }
   }
   return { ...catalog, groups };
+}
+
+/** Remove a group and its references without silently enabling a different route. */
+export function catalogWithoutGroup(
+  catalog: GatewayCatalog,
+  id: string,
+): GatewayCatalog {
+  const groups = (catalog.groups ?? [])
+    .filter((g) => g.id !== id)
+    .map((g) => {
+      const removed = new Set(
+        g.members.filter((m) => m.groupId === id).map((m) => m.id),
+      );
+      const members = g.members.filter((m) => !removed.has(m.id));
+      return {
+        ...g,
+        members,
+        rules: g.rules.filter((r) => !removed.has(r.memberId)),
+        enabled:
+          g.enabled &&
+          members.some((m) => m.enabled) &&
+          !(g.strategy === "manual" && removed.has(g.manualMemberId ?? "")),
+        manualMemberId: removed.has(g.manualMemberId ?? "")
+          ? null
+          : g.manualMemberId,
+      };
+    });
+  return disableEmptyGroups({
+    ...catalog,
+    groups,
+    policies: catalog.policies.map((p) =>
+      p.groupId === id
+        ? { ...p, groupId: null, candidates: [], enabled: false }
+        : p,
+    ),
+  });
 }
 
 /** 从目录中移除供应商：同时摘除策略里引用它的候选；候选清空则停用策略。 */
@@ -154,4 +220,4 @@ export function catalogWithoutSupplier(
 }
 
 /** 固定的网关应用清单，供路由组、策略与请求筛选使用。 */
-export const GATEWAY_APPS = PROXY_APP_IDS;
+export const GATEWAY_APPS = ROUTABLE_APP_IDS;

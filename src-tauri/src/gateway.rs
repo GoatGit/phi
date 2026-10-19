@@ -3,8 +3,12 @@
 //! in gateway_supplier_secrets). Legacy per-app `credential` references are
 //! kept only as import provenance; routing never reads application configs.
 pub mod analytics;
+pub mod apps;
+pub mod attach;
 pub mod intent;
+pub mod local_apps;
 pub mod routing;
+pub mod typesafe;
 use crate::proxy::providers::{get_adapter, AuthInfo, AuthStrategy};
 use crate::{
     app_config::AppType,
@@ -15,10 +19,7 @@ use crate::{
 use rusqlite::{params, params_from_iter, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::{HashMap, HashSet},
-    str::FromStr,
-};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -81,6 +82,10 @@ pub struct RoutePolicy {
     pub enabled: bool,
     /// Empty matches every model; otherwise an exact client model alias.
     pub match_model: String,
+    /// 客户端这次请求的模型名。组连接用它把匹配的成员排到候选最前，
+    /// 但不参与策略别名匹配，也不会写回目录。
+    #[serde(default, skip_serializing)]
+    pub request_model: String,
     pub priority: u32,
     pub failover: bool,
     pub candidates: Vec<RouteCandidate>,
@@ -176,22 +181,108 @@ fn invalid(message: &str) -> AppError {
 fn db_error(e: impl std::fmt::Display) -> AppError {
     AppError::Database(e.to_string())
 }
-fn app(id: &str) -> Result<AppType, AppError> {
-    if !matches!(id, "claude" | "codex" | "gemini" | "grokbuild") {
-        return Err(invalid("gateway.invalidApp"));
+
+/// 网关入口发布给 Codex 的模型目录行：当前路由的模型在最前，后面按供应商名单顺序，去掉
+/// 重复（模型名大小写不敏感，同一家的写法可能不同）。
+fn model_catalog_rows(entry_model: &str, models: Vec<String>) -> Vec<serde_json::Value> {
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for model in std::iter::once(entry_model.to_string()).chain(models) {
+        let model = model.trim().to_string();
+        if model.is_empty() || seen.iter().any(|name| name.eq_ignore_ascii_case(&model)) {
+            continue;
+        }
+        seen.push(model.clone());
+        rows.push(serde_json::json!({ "model": model }));
     }
-    AppType::from_str(id).map_err(|_| invalid("gateway.invalidApp"))
+    rows
+}
+/// 可路由应用清单：托管应用（有代理模式或供应商行）+ 路由专用应用。
+fn routing_app_ids() -> impl Iterator<Item = &'static str> {
+    apps::ROUTING_APPS
+        .iter()
+        .map(|spec| spec.id)
+        .chain(local_apps::LOCAL_APPS.iter().map(|spec| spec.id))
+        .chain(std::iter::once(typesafe::APP_ID))
+}
+
+/// 某个应用（按 id）接受哪些上游协议。
+fn accept_protocol_for(app_id: &str, protocol: &str) -> bool {
+    if let Some(spec) = apps::spec_by_id(app_id) {
+        return apps::accepts_protocol(&spec.app, protocol);
+    }
+    if typesafe::is_app(app_id) {
+        return typesafe::accepts_protocol(protocol);
+    }
+    local_apps::spec(app_id).is_some_and(|_| local_apps::accepts_protocol(protocol))
+}
+
+fn app(id: &str) -> Result<AppType, AppError> {
+    apps::spec_by_id(id)
+        .map(|spec| spec.app.clone())
+        .ok_or_else(|| invalid("gateway.invalidApp"))
+}
+
+/// 可路由应用（托管应用或路由专用应用）。目录里的应用清单只用这个校验。
+fn ensure_routing_app(id: &str) -> Result<(), AppError> {
+    if apps::spec_by_id(id).is_some() || local_apps::spec(id).is_some() || typesafe::is_app(id) {
+        Ok(())
+    } else {
+        Err(invalid("gateway.invalidApp"))
+    }
+}
+
+/// 组的应用清单由成员端点协议推导，不是用户表单（前端 `inferGroupApps` 同一规则）。
+/// 新增可接的应用或协议后，旧目录里的 `app_ids` 会缺项，表现为「组已就绪，但应用里
+/// 选不到这个组」。读和写都按成员重新算一遍；嵌套组迭代到稳定。
+fn normalize_group_apps(catalog: &mut Catalog) {
+    for _ in 0..8 {
+        let known: Vec<(String, Vec<String>)> = catalog
+            .groups
+            .iter()
+            .map(|group| (group.id.clone(), group.app_ids.clone()))
+            .collect();
+        let mut changed = false;
+        for index in 0..catalog.groups.len() {
+            let members = catalog.groups[index].members.clone();
+            let suppliers = &catalog.suppliers;
+            let inferred = routing_app_ids()
+                .filter(|id| {
+                    members
+                        .iter()
+                        .all(|member| match (&member.group_id, &member.supplier_id) {
+                            (Some(nested), _) => known
+                                .iter()
+                                .find(|(known_id, _)| known_id == nested)
+                                .is_some_and(|(_, app_ids)| {
+                                    app_ids.iter().any(|known| known == id)
+                                }),
+                            (None, Some(supplier)) => suppliers
+                                .iter()
+                                .find(|candidate| &candidate.id == supplier)
+                                .is_some_and(|candidate| {
+                                    accept_protocol_for(id, &candidate.endpoint.protocol)
+                                }),
+                            _ => false,
+                        })
+                })
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            if catalog.groups[index].app_ids != inferred {
+                catalog.groups[index].app_ids = inferred;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
 }
 
 /// 每个应用可直接消费的本地协议。转换类协议（如 chat/anthropic 进 codex）
 /// 只能走本地路由，直连一律拒绝；前端路由页按同一规则禁用对应选项。
 pub(crate) fn direct_protocol_for(app: &AppType) -> Option<&'static str> {
-    match app {
-        AppType::Claude => Some("anthropic"),
-        AppType::Codex | AppType::GrokBuild => Some("openai_responses"),
-        AppType::Gemini => Some("gemini_native"),
-        _ => None,
-    }
+    apps::spec(app).and_then(|spec| spec.direct_protocol)
 }
 
 /// TOML 基本字符串（含转义），对应前端 `generateThirdPartyConfig` 的 tomlString。
@@ -258,14 +349,43 @@ fn supplier_direct_settings(
             }
             serde_json::json!({ "env": serde_json::Value::Object(env) })
         }
-        AppType::Codex | AppType::GrokBuild => serde_json::json!({
-            "auth": { "OPENAI_API_KEY": secret.api_key },
-            "config": supplier_codex_config(
-                &supplier.name,
-                base_url,
-                supplier.models.first().map(String::as_str).unwrap_or(""),
-            ),
+        AppType::Codex | AppType::GrokBuild => {
+            let mut settings = serde_json::json!({
+                "auth": { "OPENAI_API_KEY": secret.api_key },
+                "config": supplier_codex_config(
+                    &supplier.name,
+                    base_url,
+                    supplier.models.first().map(String::as_str).unwrap_or(""),
+                ),
+            });
+            // Codex 只认模型目录里的条目：直连行要把供应商声明的整个名单发布出去，选择器
+            // 里才有别的模型可选，也不需要退回上游 `/models`（聚合网关往往不支持，返回 401）。
+            if *app == AppType::Codex {
+                settings["modelCatalog"] = serde_json::json!({
+                    "models": supplier
+                        .models
+                        .iter()
+                        .map(|model| serde_json::json!({ "model": model }))
+                        .collect::<Vec<_>>()
+                });
+            }
+            settings
+        }
+        // Claude Desktop 直连只接受原生 Anthropic 入口，写法和 Claude Code 一样。
+        AppType::ClaudeDesktop => serde_json::json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": base_url,
+                "ANTHROPIC_AUTH_TOKEN": secret.api_key,
+            }
         }),
+        // 其余应用把供应商声明成指向上游的普通供应商行，模型名单一并发布。
+        AppType::OpenCode | AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode => {
+            if supplier.models.is_empty() {
+                return Err(invalid("gateway.invalidSupplier"));
+            }
+            apps::provider_settings(app, base_url, &secret.api_key, &supplier.models)
+                .ok_or_else(|| invalid("gateway.directIncompatible"))?
+        }
         _ => return Err(invalid("gateway.directIncompatible")),
     })
 }
@@ -284,7 +404,7 @@ fn valid_endpoint(endpoint: &Endpoint) -> bool {
     };
     matches!(
         endpoint.protocol.as_str(),
-        "anthropic" | "openai_chat" | "openai_responses" | "gemini_native"
+        "anthropic" | "openai_chat" | "openai_responses" | "gemini_native" | "systemone"
     ) && matches!(url.scheme(), "http" | "https")
         && url.host_str().is_some()
         && url.username().is_empty()
@@ -293,12 +413,7 @@ fn valid_endpoint(endpoint: &Endpoint) -> bool {
         && url.fragment().is_none()
 }
 fn compatible(app_id: &str, protocol: &str) -> bool {
-    match app_id {
-        "claude" => true,
-        "codex" | "grokbuild" => protocol != "gemini_native",
-        "gemini" => protocol == "gemini_native",
-        _ => false,
-    }
+    accept_protocol_for(app_id, protocol)
 }
 fn secret_text(s: &str) -> bool {
     !s.is_empty() && s.len() <= 4096 && !s.chars().any(char::is_control)
@@ -309,6 +424,7 @@ fn auth_field_allowed(protocol: &str, auth_field: &str) -> bool {
         "anthropic" => matches!(auth_field, "ANTHROPIC_API_KEY" | "ANTHROPIC_AUTH_TOKEN"),
         "openai_chat" | "openai_responses" => auth_field == "OPENAI_API_KEY",
         "gemini_native" => auth_field == "GEMINI_API_KEY",
+        "systemone" => auth_field == "TYPESAFE_API_KEY",
         _ => false,
     }
 }
@@ -329,24 +445,33 @@ fn auth_field_for(protocol: &str, strategy: &AuthStrategy) -> &'static str {
             }
         }
         "gemini_native" => "GEMINI_API_KEY",
+        "systemone" => "TYPESAFE_API_KEY",
         _ => "OPENAI_API_KEY",
     }
 }
 
 /// Extract a template without writing an application provider or native config.
 fn supplier_from_provider(app_id: &str, provider: &Provider) -> Result<Supplier, AppError> {
-    let adapter = get_adapter(&app(app_id)?).ok_or_else(|| invalid("gateway.invalidApp"))?;
-    let base_url = adapter
-        .extract_base_url(provider)
-        .map_err(|_| invalid("gateway.invalidSupplier"))?;
+    let app_type = app(app_id)?;
+    // 累加式应用把地址和密钥放在自己的原生字段里（options.baseURL、baseUrl、
+    // base_url 等），适配器只认 Codex 的形状，所以先按应用读一次。
+    let base_url = apps::provider_credentials(&app_type, &provider.settings_config)
+        .map(|(base_url, _)| base_url)
+        .or_else(|| {
+            get_adapter(&app_type).and_then(|adapter| adapter.extract_base_url(provider).ok())
+        })
+        .ok_or_else(|| invalid("gateway.invalidSupplier"))?;
     let protocol = match app_id {
-        "claude" => match crate::proxy::providers::get_claude_api_format(provider) {
-            "openai_chat" => "openai_chat",
-            "openai_responses" => "openai_responses",
-            "gemini_native" => "gemini_native",
-            _ => "anthropic",
-        },
+        "claude" | "claude-desktop" => {
+            match crate::proxy::providers::get_claude_api_format(provider) {
+                "openai_chat" => "openai_chat",
+                "openai_responses" => "openai_responses",
+                "gemini_native" => "gemini_native",
+                _ => "anthropic",
+            }
+        }
         "gemini" => "gemini_native",
+        "opencode" | "openclaw" | "hermes" | "pi" | "mcode" => "openai_chat",
         _ => {
             if crate::proxy::providers::should_convert_codex_responses_to_anthropic(
                 provider,
@@ -388,6 +513,10 @@ async fn fetch_upstream_model_ids(
     api_key: &str,
     timeout: std::time::Duration,
 ) -> Result<Vec<String>, AppError> {
+    // System One 没有公开的 /models 列表；模型名由用户手动填写。
+    if protocol == "systemone" {
+        return Ok(Vec::new());
+    }
     static FETCH_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
         reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -548,10 +677,15 @@ fn reusable_provider_auth(app_id: &str, provider: &Provider) -> Result<AuthInfo,
     {
         return Err(invalid("gateway.managedCredential"));
     }
-    let adapter = get_adapter(&app(app_id)?).ok_or_else(|| invalid("gateway.invalidApp"))?;
-    let auth = adapter
-        .extract_auth(provider)
-        .ok_or_else(|| invalid("gateway.missingCredential"))?;
+    let app_type = app(app_id)?;
+    let adapter = get_adapter(&app_type).ok_or_else(|| invalid("gateway.invalidApp"))?;
+    // 累加式应用的密钥在各自的 `options.apiKey` / `apiKey` / `api_key` 里，
+    // 适配器读不到时按 Bearer 兜底。
+    let auth = adapter.extract_auth(provider).or_else(|| {
+        apps::provider_credentials(&app_type, &provider.settings_config)
+            .map(|(_, key)| AuthInfo::new(key, AuthStrategy::Bearer))
+    });
+    let auth = auth.ok_or_else(|| invalid("gateway.missingCredential"))?;
     if auth.api_key.is_empty()
         || !matches!(
             auth.strategy,
@@ -583,7 +717,7 @@ impl Database {
         app_id: &str,
         model: &str,
     ) -> Result<RoutePreview, AppError> {
-        app(app_id)?;
+        ensure_routing_app(app_id)?;
         let catalog = self.gateway_catalog()?;
         let policy = routing::matched_policy(&catalog, app_id, model)?;
         let decision = policy
@@ -648,8 +782,17 @@ impl Database {
         let Some(route) = self.resolve_gateway_route(app_id, &model)? else {
             return Ok(None);
         };
-        let Some(mut provider) = route.providers.into_iter().next() else {
+        let Some(mut provider) = route.providers.first().cloned() else {
             return Ok(None);
+        };
+        // 组连接下客户端能用的模型是组内全部成员的模型，而不只是当前路由那一家。
+        // Codex 只认目录里的条目：只投影首成员会让其他成员（例如组里的 Claude）
+        // 在选择器里消失，用户也无法通过模型名点名该成员。
+        let in_group = model.strip_prefix("group/").is_some();
+        let group_models = if in_group {
+            routing::published_models(&catalog, app_id)
+        } else {
+            Vec::new()
         };
         // 组连接场景：路由按「应用连接」决定组、不依赖模型名，投影可以写首成员的
         // 真实模型（如 GLM-5.3）——CLI 界面会把配置里的模型名原样显示给用户，
@@ -692,6 +835,11 @@ impl Database {
             "grokbuild" => {
                 provider.settings_config["config"] = serde_json::json!(format!("[models]\ndefault = \"phi\"\n[model.phi]\nname = \"PHI\"\nmodel = {}\nbase_url = {}\napi_key = \"PHI_VIRTUAL\"\napi_backend = \"responses\"\ncontext_window = 500000\n", serde_json::to_string(&entry_model).map_err(db_error)?, serde_json::to_string(provider.settings_config["base_url"].as_str().unwrap_or_default()).map_err(db_error)?));
             }
+            "codex" => {
+                provider.settings_config["modelCatalog"] =
+                    serde_json::json!({ "models": model_catalog_rows(&entry_model, group_models) });
+                provider.settings_config["config"] = serde_json::json!(format!("model = {}\nmodel_provider = \"custom\"\n[model_providers.custom]\nname = \"PHI\"\nbase_url = {}\nwire_api = \"responses\"\n", serde_json::to_string(&entry_model).map_err(db_error)?, serde_json::to_string(provider.settings_config["base_url"].as_str().unwrap_or_default()).map_err(db_error)?));
+            }
             _ => {
                 provider.settings_config["config"] = serde_json::json!(format!("model = {}\nmodel_provider = \"custom\"\n[model_providers.custom]\nname = \"PHI\"\nbase_url = {}\nwire_api = \"responses\"\n", serde_json::to_string(&entry_model).map_err(db_error)?, serde_json::to_string(provider.settings_config["base_url"].as_str().unwrap_or_default()).map_err(db_error)?));
             }
@@ -707,7 +855,7 @@ impl Database {
         group_id: &str,
         revision: Option<u64>,
     ) -> Result<Option<RoutePolicy>, AppError> {
-        app(app_id)?;
+        ensure_routing_app(app_id)?;
         let mut catalog = self.gateway_catalog()?;
         if revision.is_some_and(|r| r != catalog.revision) {
             return Err(invalid("gateway.staleRevision"));
@@ -720,6 +868,19 @@ impl Database {
         catalog.policies.push(connection);
         self.save_gateway_catalog(catalog)?;
         Ok(previous)
+    }
+
+    /// 退出路由时移除应用的组连接。没有连接时是 no-op。
+    pub(crate) fn clear_gateway_group_connection(&self, app_id: &str) -> Result<(), AppError> {
+        ensure_routing_app(app_id)?;
+        let mut catalog = self.gateway_catalog()?;
+        let id = routing::connection_id(app_id);
+        if !catalog.policies.iter().any(|policy| policy.id == id) {
+            return Ok(());
+        }
+        catalog.policies.retain(|policy| policy.id != id);
+        self.save_gateway_catalog(catalog)?;
+        Ok(())
     }
 
     /// Compensate a failed client attachment without overwriting unrelated edits.
@@ -768,7 +929,10 @@ impl Database {
         // Legacy catalogs reference per-app credentials; self-heal them before use.
         self.ensure_supplier_secrets()?;
         let conn = lock_conn!(self.conn);
-        read_catalog(&conn)
+        let mut catalog = read_catalog(&conn)?;
+        // 旧目录里的应用清单可能缺项（后来才支持的应用/协议），读的时候按当前规则重算。
+        normalize_group_apps(&mut catalog);
+        Ok(catalog)
     }
     /// 一次性把旧目录里按应用引用的密钥复制进资源池；来源已失效或属于
     /// OAuth 托管账号（永远不能安全复用）的旧条目被直接移除。
@@ -871,7 +1035,16 @@ impl Database {
             .secret(supplier_id)?
             .ok_or_else(|| invalid("gateway.missingSecret"))?;
         let settings = supplier_direct_settings(&app_type, supplier, &secret)?;
-        let id = format!("gateway-supplier:{supplier_id}");
+        // 累加式应用的供应商标识只允许字母、数字、`-`/`_`（MCode 最严格），
+        // 走 `/` 之外的分隔形式；旧四个应用保持原 id 以兼容界面映射。
+        let id = if matches!(
+            app_type,
+            AppType::OpenCode | AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode
+        ) {
+            format!("gateway-supplier-{supplier_id}")
+        } else {
+            format!("gateway-supplier:{supplier_id}")
+        };
         let provider = Provider::with_id(id.clone(), supplier.name.clone(), settings, None);
         self.save_provider(app_id, &provider)?;
         Ok(id)
@@ -897,6 +1070,7 @@ impl Database {
             return Err(invalid("gateway.staleRevision"));
         }
         catalog.revision += 1;
+        normalize_group_apps(&mut catalog);
         let payload = serde_json::to_string(&catalog).map_err(db_error)?;
         tx.execute("INSERT INTO gateway_catalog(id,payload) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload", [payload]).map_err(db_error)?;
         for (id, api_key, auth_field) in secrets {
@@ -1116,11 +1290,13 @@ impl Database {
         protocol: &str,
     ) -> Result<(String, String), AppError> {
         let provider = self.credential_provider(reference)?;
-        let adapter =
-            get_adapter(&app(&reference.app_id)?).ok_or_else(|| invalid("gateway.invalidApp"))?;
-        let auth = adapter
-            .extract_auth(&provider)
-            .ok_or_else(|| invalid("gateway.missingCredential"))?;
+        let app_type = app(&reference.app_id)?;
+        let adapter = get_adapter(&app_type).ok_or_else(|| invalid("gateway.invalidApp"))?;
+        let auth = adapter.extract_auth(&provider).or_else(|| {
+            apps::provider_credentials(&app_type, &provider.settings_config)
+                .map(|(_, key)| AuthInfo::new(key, AuthStrategy::Bearer))
+        });
+        let auth = auth.ok_or_else(|| invalid("gateway.missingCredential"))?;
         Ok((
             auth.api_key,
             auth_field_for(protocol, &auth.strategy).to_string(),
@@ -1147,7 +1323,7 @@ impl Database {
         let mut policies = HashSet::new();
         let mut matches = HashSet::new();
         for p in &catalog.policies {
-            app(&p.app_id)?;
+            ensure_routing_app(&p.app_id)?;
             if !identifier(&p.id)
                 || !label(&p.name)
                 || !policies.insert(&p.id)
@@ -1242,6 +1418,31 @@ impl Database {
         self.materialize_gateway_route(&catalog, app_id, policy, decision)
             .map(Some)
     }
+
+    /// System One 没有连接策略，也没有客户端可写的原生配置；按模型名从
+    /// `app_ids` 含 `typesafe` 的组里选一个，再复用普通的组决策与故障转移。
+    pub fn resolve_typesafe_route(&self, model: &str) -> Result<Option<ResolvedRoute>, AppError> {
+        let catalog = self.gateway_catalog()?;
+        let Some(group_id) =
+            typesafe::group_for_model(&catalog, model).map(|group| group.id.clone())
+        else {
+            return Ok(None);
+        };
+        let mut policy = routing::group_policy(&catalog, typesafe::APP_ID, &group_id, model)?;
+        // 请求里的模型名点名组内成员：组里可以同时放 jev-latest 与其它决策模型，
+        // 不能让策略把请求改写成另一个成员。`group/<id>` 是组别名，不参与点名。
+        policy.request_model = if model.starts_with("group/") {
+            String::new()
+        } else {
+            model.to_string()
+        };
+        let decision = self
+            .gateway_runtime
+            .plan(&catalog, &policy, None, vec![], true)?;
+        self.materialize_gateway_route(&catalog, typesafe::APP_ID, policy, decision)
+            .map(Some)
+    }
+
     pub async fn plan_gateway_request(
         &self,
         app_id: &str,
@@ -1418,11 +1619,12 @@ impl Database {
             let base = &supplier.endpoint.base_url;
             let protocol = &supplier.endpoint.protocol;
             let api_key_field: String = match (app_id, secret.auth_field.as_str()) {
-                ("claude" | "codex" | "grokbuild", "ANTHROPIC_API_KEY") => {
+                ("claude" | "claude-desktop" | "codex" | "grokbuild", "ANTHROPIC_API_KEY") => {
                     "ANTHROPIC_API_KEY".to_string()
                 }
-                ("claude", _) => "ANTHROPIC_AUTH_TOKEN".to_string(),
+                ("claude" | "claude-desktop", _) => "ANTHROPIC_AUTH_TOKEN".to_string(),
                 ("gemini", _) => "GEMINI_API_KEY".to_string(),
+                ("typesafe", _) => "TYPESAFE_API_KEY".to_string(),
                 _ => "OPENAI_API_KEY".to_string(),
             };
             provider.meta = Some(ProviderMeta {
@@ -1431,7 +1633,7 @@ impl Database {
                 ..Default::default()
             });
             provider.settings_config = match app_id {
-                "claude" => {
+                "claude" | "claude-desktop" => {
                     let mut env = serde_json::Map::new();
                     env.insert(
                         "ANTHROPIC_BASE_URL".to_string(),
@@ -1443,6 +1645,11 @@ impl Database {
                 "gemini" => {
                     serde_json::json!({"env": {"GOOGLE_GEMINI_BASE_URL": base, "GEMINI_API_KEY": secret.api_key}})
                 }
+                "typesafe" => {
+                    serde_json::json!({"base_url": base, "auth": {"TYPESAFE_API_KEY": secret.api_key}, "config": ""})
+                }
+                // 其余路由入口都由 Codex 系适配器转发，地址与 Bearer 凭据放在
+                // 它认识的字段里；`config` 留空，不写客户端文件。
                 _ => {
                     serde_json::json!({"base_url": base, "auth": {"OPENAI_API_KEY": secret.api_key}, "config": ""})
                 }
@@ -1817,6 +2024,7 @@ mod tests {
             app_id: app_id.into(),
             enabled: true,
             match_model: match_model.into(),
+            request_model: String::new(),
             priority,
             failover,
             candidates: suppliers
@@ -2175,6 +2383,126 @@ mod tests {
     }
 
     #[test]
+    fn system_one_supplier_saves_without_becoming_a_chat_route() {
+        let db = memory_db();
+        let catalog = db
+            .create_gateway_supplier(SupplierUpsert {
+                name: Some("typesafe".into()),
+                endpoint: Some(Endpoint {
+                    protocol: "systemone".into(),
+                    base_url: "https://api.typesafe.ai".into(),
+                }),
+                models: Some(vec!["jev-latest".into()]),
+                revision: None,
+                api_key: Some("sk-typesafe".into()),
+                auth_field: Some("TYPESAFE_API_KEY".into()),
+            })
+            .expect("create systemone supplier");
+        assert_eq!(catalog.suppliers.len(), 1);
+        let supplier = &catalog.suppliers[0];
+        assert_eq!(supplier.endpoint.protocol, "systemone");
+        assert_eq!(
+            db.secret(&supplier.id).unwrap().unwrap().auth_field,
+            "TYPESAFE_API_KEY"
+        );
+
+        // System One 是决策协议：可以留在资源池，但不能直连任何聊天应用。
+        for app in ["claude", "codex", "gemini"] {
+            assert!(!accept_protocol_for(app, "systemone"), "{app}");
+            let err = db
+                .materialize_supplier_provider(app, &supplier.id)
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("directIncompatible"),
+                "{app}: {err}"
+            );
+        }
+
+        // 上游没有 /models 目录，模型清单由用户手填并原样保留。
+        assert_eq!(supplier.models, vec!["jev-latest".to_string()]);
+    }
+
+    /// 组里可以同时放多个 System One 模型：请求里的模型名必须点名对应成员，
+    /// 不能被路由策略换成组内第一个成员。
+    #[test]
+    fn system_one_route_pins_the_requested_model() {
+        let db = memory_db();
+        let mut first = test_supplier("sup-first");
+        first.endpoint = Endpoint {
+            protocol: "systemone".into(),
+            base_url: "https://first.invalid".into(),
+        };
+        first.models = vec!["jev-1.14.0".into()];
+        let mut second = test_supplier("sup-second");
+        second.endpoint = Endpoint {
+            protocol: "systemone".into(),
+            base_url: "https://second.invalid".into(),
+        };
+        second.models = vec!["jev-latest".into()];
+        let mut catalog = catalog_with(vec![first, second], vec![]);
+        catalog.groups.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "system-one",
+                "name": "System One",
+                "appIds": ["typesafe"],
+                "members": [
+                    {"id": "m1", "supplierId": "sup-first", "model": "jev-1.14.0"},
+                    {"id": "m2", "supplierId": "sup-second", "model": "jev-latest"}
+                ]
+            }))
+            .expect("system one group"),
+        );
+        seed_legacy_catalog(&db, &catalog);
+        seed_secret(&db, "sup-first", "sk-first", "TYPESAFE_API_KEY");
+        seed_secret(&db, "sup-second", "sk-second", "TYPESAFE_API_KEY");
+
+        // 目录里只推导出 System One 身份，不会混进聊天应用。
+        let loaded = db.gateway_catalog().unwrap();
+        assert_eq!(loaded.groups[0].app_ids, vec!["typesafe".to_string()]);
+
+        let route = db
+            .resolve_typesafe_route("jev-latest")
+            .unwrap()
+            .expect("resolved");
+        let primary = &route.providers[0];
+        assert_eq!(
+            route.models.get(&primary.id).map(String::as_str),
+            Some("jev-latest")
+        );
+        assert_eq!(
+            primary.settings_config["auth"]["TYPESAFE_API_KEY"].as_str(),
+            Some("sk-second")
+        );
+
+        // 组别名只选组，不点名成员：仍按策略顺序取第一个成员。
+        let aliased = db
+            .resolve_typesafe_route("group/system-one")
+            .unwrap()
+            .expect("resolved alias");
+        let primary = &aliased.providers[0];
+        assert_eq!(
+            aliased.models.get(&primary.id).map(String::as_str),
+            Some("jev-1.14.0")
+        );
+
+        assert!(db.resolve_typesafe_route("missing").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn system_one_skips_model_discovery() {
+        let ids = fetch_upstream_model_ids(
+            "https://api.typesafe.ai",
+            "systemone",
+            "TYPESAFE_API_KEY",
+            "sk-typesafe",
+            std::time::Duration::from_millis(1),
+        )
+        .await
+        .expect("systemone discovery");
+        assert!(ids.is_empty());
+    }
+
+    #[test]
     fn legacy_entries_gain_secrets_or_are_dropped() {
         let db = memory_db();
         db.save_provider("claude", &test_provider("prov-a", "ANTHROPIC_AUTH_TOKEN"))
@@ -2237,6 +2565,40 @@ mod tests {
             env.get("ANTHROPIC_AUTH_TOKEN").and_then(|v| v.as_str()),
             Some("sk-test-key")
         );
+    }
+
+    #[test]
+    fn legacy_group_apps_gain_newly_bridged_protocols_on_read_and_save() {
+        let db = memory_db();
+        let mut supplier = test_supplier("sup-r");
+        supplier.endpoint.protocol = "openai_responses".into();
+        let mut catalog = catalog_with(vec![supplier], vec![]);
+        catalog.groups.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "legacy",
+                "name": "Legacy",
+                "appIds": ["claude", "codex", "grokbuild"],
+                "members": [{"id": "only", "supplierId": "sup-r", "model": "routed-model"}]
+            }))
+            .expect("legacy group"),
+        );
+        seed_legacy_catalog(&db, &catalog);
+        seed_secret(&db, "sup-r", "sk-test", "OPENAI_API_KEY");
+
+        // 读：旧目录的应用清单按当前协议规则补齐（新增的 Chat 入口应用能选到该组）。
+        let loaded = db.gateway_catalog().unwrap();
+        let apps = &loaded.groups[0].app_ids;
+        for app in [
+            "claude", "codex", "opencode", "openclaw", "hermes", "pi", "mcode",
+        ] {
+            assert!(apps.iter().any(|id| id == app), "{app}: {apps:?}");
+        }
+        assert!(!apps.iter().any(|id| id == "gemini"), "{apps:?}");
+
+        // 写：保存后的目录也是推导过的，不靠前端再算一次。
+        db.save_gateway_catalog(loaded).unwrap();
+        let saved = db.gateway_catalog().unwrap();
+        assert!(saved.groups[0].app_ids.iter().any(|id| id == "pi"));
     }
 
     #[test]
@@ -2621,7 +2983,7 @@ mod tests {
         let mut responses_supplier = test_supplier("sup-r");
         responses_supplier.endpoint.protocol = "openai_responses".into();
         responses_supplier.endpoint.base_url = "https://open.bigmodel.cn/coding/paas/v5".into();
-        responses_supplier.models = vec!["glm-4.8".into()];
+        responses_supplier.models = vec!["glm-4.8".into(), "glm-4.8-flash".into()];
         seed_legacy_catalog(&db, &catalog_with(vec![responses_supplier.clone()], vec![]));
         seed_secret(&db, "sup-r", "sk-r", "OPENAI_API_KEY");
         let codex_id = db
@@ -2640,6 +3002,14 @@ mod tests {
         assert!(config.contains("base_url = \"https://open.bigmodel.cn/coding/paas/v5\""));
         assert!(config.contains("wire_api = \"responses\""));
         assert!(!config.contains("gateway-supplier"));
+        // 直连行发布供应商的整个名单：Codex 只认目录里的模型，只写一个会让其余模型消失。
+        let catalog_models: Vec<&str> = codex_provider.settings_config["modelCatalog"]["models"]
+            .as_array()
+            .expect("modelCatalog.models")
+            .iter()
+            .filter_map(|row| row["model"].as_str())
+            .collect();
+        assert_eq!(catalog_models, vec!["glm-4.8", "glm-4.8-flash"]);
 
         // gemini：gemini_native 供应商 → env GOOGLE_GEMINI_BASE_URL
         let mut gemini_supplier = test_supplier("sup-g");
@@ -2661,6 +3031,114 @@ mod tests {
             gemini_provider.settings_config["env"]["GEMINI_MODEL"],
             "gemini-3.6-flash"
         );
+    }
+
+    #[test]
+    fn desktop_route_keeps_the_anthropic_auth_field() {
+        let db = memory_db();
+        seed_legacy_catalog(&db, &catalog_with(vec![test_supplier("sup-a")], vec![]));
+        seed_secret(&db, "sup-a", "sk-a", "ANTHROPIC_AUTH_TOKEN");
+        let mut catalog = db.gateway_catalog().unwrap();
+        catalog.policies.push(test_policy(
+            "p1",
+            "claude-desktop",
+            "",
+            1,
+            false,
+            &["sup-a"],
+        ));
+        db.save_gateway_catalog(catalog).unwrap();
+
+        let resolved = db
+            .resolve_gateway_route("claude-desktop", "claude-sonnet-4-5")
+            .expect("resolve")
+            .expect("matched");
+        let provider = &resolved.providers[0];
+        assert_eq!(
+            provider.settings_config["env"]["ANTHROPIC_AUTH_TOKEN"],
+            "sk-a"
+        );
+        assert_eq!(
+            provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.api_key_field.as_deref()),
+            Some("ANTHROPIC_AUTH_TOKEN")
+        );
+
+        // x-api-key 的供应商必须继续写 ANTHROPIC_API_KEY，而不是 OpenAI 字段。
+        seed_secret(&db, "sup-a", "sk-a", "ANTHROPIC_API_KEY");
+        let resolved = db
+            .resolve_gateway_route("claude-desktop", "claude-sonnet-4-5")
+            .expect("resolve")
+            .expect("matched");
+        let provider = &resolved.providers[0];
+        assert_eq!(provider.settings_config["env"]["ANTHROPIC_API_KEY"], "sk-a");
+        assert_eq!(
+            provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.api_key_field.as_deref()),
+            Some("ANTHROPIC_API_KEY")
+        );
+    }
+
+    #[test]
+    fn materialize_supplier_provider_builds_additive_app_rows() {
+        use std::str::FromStr;
+        let db = memory_db();
+        let mut supplier = test_supplier("sup-c");
+        supplier.endpoint.protocol = "openai_chat".into();
+        supplier.models = vec!["glm-5".into(), "kimi-k3".into()];
+        seed_legacy_catalog(&db, &catalog_with(vec![supplier], vec![]));
+        seed_secret(&db, "sup-c", "sk-c", "OPENAI_API_KEY");
+        for app in ["opencode", "openclaw", "hermes", "pi", "mcode"] {
+            let id = db
+                .materialize_supplier_provider(app, "sup-c")
+                .expect("materialize additive app");
+            assert_eq!(id, "gateway-supplier-sup-c");
+            let provider = db
+                .get_provider_by_id(&id, app)
+                .expect("fetch provider")
+                .expect("provider exists");
+            let app_type = AppType::from_str(app).unwrap();
+            let credentials = apps::provider_credentials(&app_type, &provider.settings_config)
+                .expect("native credentials");
+            assert_eq!(credentials.0, "https://relay.example.com", "{app}");
+            assert_eq!(credentials.1, "sk-c", "{app}");
+            let published = match app {
+                "opencode" | "mcode" => provider.settings_config["models"]["glm-5"].is_object(),
+                _ => provider.settings_config["models"]
+                    .as_array()
+                    .is_some_and(|models| models.iter().any(|row| row["id"] == "glm-5")),
+            };
+            assert!(published, "{app} publishes the supplier models");
+        }
+    }
+
+    #[test]
+    fn supplier_from_provider_reads_native_additive_shapes() {
+        use std::str::FromStr;
+        for (app, settings) in [
+            (
+                "opencode",
+                serde_json::json!({"npm":"@ai-sdk/openai-compatible","options":{"baseURL":"https://relay.example.com/v1","apiKey":"sk"},"models":{"m":{}}}),
+            ),
+            (
+                "mcode",
+                serde_json::json!({"api":"openai-completions","options":{"baseURL":"https://relay.example.com/v1","apiKey":"sk"},"models":{"m":{}}}),
+            ),
+            (
+                "pi",
+                serde_json::json!({"baseUrl":"https://relay.example.com/v1","apiKey":"sk","models":[{"id":"m"}]}),
+            ),
+        ] {
+            let provider =
+                crate::provider::Provider::with_id("p".into(), "P".into(), settings, None);
+            let supplier = supplier_from_provider(app, &provider).expect("supplier");
+            assert_eq!(supplier.endpoint.protocol, "openai_chat", "{app}");
+            assert_eq!(supplier.endpoint.base_url, "https://relay.example.com/v1");
+        }
     }
 
     #[test]

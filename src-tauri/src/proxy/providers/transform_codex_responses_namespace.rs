@@ -30,7 +30,7 @@ use std::collections::HashMap;
 
 use serde_json::{json, Value};
 
-use super::transform_codex_chat::flatten_namespace_tool_name;
+use super::responses_to_chat::flatten_namespace_tool_name;
 use crate::proxy::error::ProxyError;
 
 /// Reverse map entry: a flattened tool name resolves back to its original

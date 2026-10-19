@@ -329,6 +329,7 @@ fn route_explanation_survives_disabled_and_deleted_diagnostic_traces() {
             app_id: "claude".into(),
             enabled: true,
             match_model: "alias".into(),
+            request_model: String::new(),
             priority: 0,
             failover: true,
             candidates: vec![],

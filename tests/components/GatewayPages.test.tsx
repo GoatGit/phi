@@ -20,10 +20,12 @@ import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import {
   GroupSection,
-  catalogWithoutGroup,
   inferGroupApps,
 } from "@/components/gateway/GroupSection";
-import { catalogWithoutSupplier } from "@/components/gateway/useGatewayCatalog";
+import {
+  catalogWithoutGroup,
+  catalogWithoutSupplier,
+} from "@/components/gateway/useGatewayCatalog";
 import type { GatewayRouteGroup } from "@/lib/api/gateway";
 import { ResourcePoolSection } from "@/components/gateway/ResourcePoolSection";
 import { RoutingStatus } from "@/components/gateway/RoutingStatus";
@@ -31,7 +33,7 @@ import type { GatewayCatalog } from "@/lib/api";
 import { gatewayApi, providersApi } from "@/lib/api";
 import { proxyApi } from "@/lib/api/proxy";
 import { piApi } from "@/lib/api/pi";
-import { APP_IDS, PROXY_APP_IDS, getAppLabel } from "@/config/appConfig";
+import { ROUTABLE_APP_IDS, getAppLabel } from "@/config/appConfig";
 import {
   ProviderCatalogPage,
   RoutingOverviewPage,
@@ -59,6 +61,8 @@ vi.mock("@/lib/api", () => ({
     fetchModels: vi.fn(),
     saveCatalog: vi.fn(),
     connectApp: vi.fn(),
+    getAppStatus: vi.fn(),
+    disconnectApp: vi.fn(),
     materializeSupplierProvider: vi.fn(),
     previewRoute: vi.fn(),
     getTraces: vi.fn(),
@@ -79,6 +83,7 @@ vi.mock("@/lib/api/proxy", () => ({
     setProxyTakeoverForApp: vi.fn(),
     getAppMode: vi.fn(),
     getProxyStatus: vi.fn(),
+    getProxyTakeoverStatus: vi.fn().mockResolvedValue({}),
   },
 }));
 
@@ -146,6 +151,8 @@ beforeEach(() => {
       revision: catalog.revision + 1,
     }));
   vi.mocked(gatewayApi.connectApp).mockReset().mockResolvedValue(undefined);
+  vi.mocked(gatewayApi.getAppStatus).mockReset().mockResolvedValue(null);
+  vi.mocked(gatewayApi.disconnectApp).mockReset().mockResolvedValue(undefined);
   vi.mocked(gatewayApi.materializeSupplierProvider)
     .mockReset()
     .mockImplementation(
@@ -155,6 +162,9 @@ beforeEach(() => {
   vi.mocked(proxyApi.setProxyTakeoverForApp)
     .mockReset()
     .mockResolvedValue(undefined);
+  vi.mocked(proxyApi.stopProxyWithRestore)
+    .mockReset()
+    .mockResolvedValue(undefined as never);
   vi.mocked(gatewayApi.getTraces).mockReset().mockResolvedValue([]);
   vi.mocked(gatewayApi.getTracePage)
     .mockReset()
@@ -340,11 +350,84 @@ describe("provider catalog", () => {
 });
 
 describe("routing overview", () => {
+  const openAppRoute = async (app: string) => {
+    const user = userEvent.setup();
+    // 默认折叠靠后的应用：等应用列出来以后再展开。
+    await screen.findByRole("list", { name: "gateway.flow.apps" });
+    const expand = screen.queryByRole("button", {
+      name: "gateway.flow.moreApps",
+    });
+    if (expand) await user.click(expand);
+    const node = (await screen.findByText(app)).closest("li")!;
+    await user.click(
+      within(node).getByRole("button", {
+        name: "gateway.flow.routeSettingsFor",
+      }),
+    );
+    return { user, dialog: await screen.findByRole("dialog") };
+  };
+
+  it("opens a routing-only app's settings when the sidebar asks for it", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
+    const handled = vi.fn();
+    mount(
+      <RoutingOverviewPage
+        routeAppRequest={{ appId: "omo", nonce: 1 }}
+        onRouteAppRequestHandled={handled}
+      />,
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("OmO");
+    await waitFor(() => expect(handled).toHaveBeenCalledTimes(1));
+  });
+
+  it("uses the flow as the only routing page with inline app and group actions", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
+      ...sharedCatalog,
+      groups: [routeGroup],
+    });
+    mount(<RoutingOverviewPage />);
+    expect(
+      await screen.findByRole("region", { name: "gateway.flow.title" }),
+    ).toBeInTheDocument();
+    // 路由 / 路由组页签已移除，页面只剩流转图。
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "gateway.flow.moreApps" }),
+    );
+    for (const app of ROUTABLE_APP_IDS) {
+      expect(screen.getByText(getAppLabel(app))).toBeInTheDocument();
+    }
+    // System One 是决策协议虚拟应用：应用行在，但路由目标由组推导，没有设置按钮。
+    expect(
+      screen.getAllByRole("button", { name: "gateway.flow.routeSettingsFor" }),
+    ).toHaveLength(ROUTABLE_APP_IDS.length - 1);
+    expect(
+      screen.getByRole("button", { name: "gateway.groups.new" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "gateway.groups.editFor" }),
+    ).toBeInTheDocument();
+  });
+
+  it("restores every app to direct from the routing page", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
+    mount(<RoutingOverviewPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "routingSettings.exitAll" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "routingSettings.exitAllConfirm" }),
+    );
+    await waitFor(() =>
+      expect(proxyApi.stopProxyWithRestore).toHaveBeenCalledTimes(1),
+    );
+  });
+
   it.each(["direct", "route"] as const)(
     "direct-connects a pool supplier from %s mode",
     async (mode) => {
-      const user = userEvent.setup();
-      // 供应商段与供应商页同源：列出池内全部供应商，协议不兼容直连的禁用。
+      // 供应商段与供应商页同源：池内全部供应商都出现，协议不兼容的禁用。
       vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
         ...sharedCatalog,
         suppliers: [
@@ -360,27 +443,19 @@ describe("routing overview", () => {
           },
         ],
         groups: [routeGroup],
+        policies: [
+          ...sharedCatalog.policies,
+          {
+            ...sharedCatalog.policies[0],
+            id: "connection/claude",
+            groupId: "production",
+            candidates: [],
+          },
+        ],
       });
-      vi.mocked(providersApi.getAll).mockImplementation(
-        async (app): ReturnType<typeof providersApi.getAll> =>
-          app === "claude"
-            ? {
-                old: { id: "old", name: "Old supplier", settingsConfig: {} },
-                next: { id: "next", name: "Next supplier", settingsConfig: {} },
-                oauth: {
-                  id: "oauth",
-                  name: "Needs proxy",
-                  settingsConfig: {},
-                  meta: { apiFormat: "openai_chat" },
-                },
-                "gateway-entry:claude": {
-                  id: "gateway-entry:claude",
-                  name: "Internal gateway",
-                  settingsConfig: {},
-                },
-              }
-            : {},
-      );
+      vi.mocked(providersApi.getAll).mockResolvedValue({
+        old: { id: "old", name: "Old supplier", settingsConfig: {} },
+      });
       vi.mocked(proxyApi.getAppMode).mockResolvedValue({
         mode,
         attached: mode !== "direct",
@@ -391,42 +466,26 @@ describe("routing overview", () => {
       vi.mocked(providersApi.switch).mockImplementation(
         () =>
           new Promise((resolve) => {
-            finish = () => {
-              vi.mocked(proxyApi.getAppMode).mockResolvedValue({
-                mode: "direct",
-                attached: false,
-                directProviderId: "gateway-supplier:shared",
-                routeProviderId: "gateway-entry:claude",
-              });
-              resolve({ warnings: [] });
-            };
+            finish = () => resolve({ warnings: [] });
           }),
       );
-      mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-      const row = (await screen.findByText("Claude")).closest("li")!;
-      const select = await within(row).findByRole("combobox");
-      await user.click(select);
-      const groups = within(screen.getByRole("listbox")).getAllByRole("group");
-      expect(groups.map((g) => g.getAttribute("aria-labelledby"))).toHaveLength(
-        2,
+      mount(<RoutingOverviewPage />);
+      const { user, dialog } = await openAppRoute("Claude");
+      expect(
+        within(dialog).getByRole("radio", { name: "Chat relay" }),
+      ).toBeDisabled();
+      if (mode === "direct") {
+        expect(
+          within(dialog).getByRole("radio", { name: "Old supplier" }),
+        ).toHaveAttribute("aria-checked", "true");
+      } else {
+        expect(
+          within(dialog).getByRole("radio", { name: "Production" }),
+        ).toHaveAttribute("aria-checked", "true");
+      }
+      await user.click(
+        within(dialog).getByRole("radio", { name: "Shared provider" }),
       );
-      // 池内全部供应商；直连态下额外把非池内的当前目标作为禁用项展示
-      expect(
-        within(groups[0])
-          .getAllByRole("option")
-          .map((o) => o.textContent),
-      ).toEqual(
-        mode === "direct"
-          ? ["Shared provider", "Chat relay", "Old supplier"]
-          : ["Shared provider", "Chat relay"],
-      );
-      expect(
-        within(groups[0]).getByRole("option", { name: "Chat relay" }),
-      ).toHaveAttribute("aria-disabled", "true");
-      expect(
-        within(groups[1]).getByRole("option", { name: "Production" }),
-      ).toBeInTheDocument();
-      await user.click(screen.getByRole("option", { name: "Shared provider" }));
       await waitFor(() =>
         expect(gatewayApi.materializeSupplierProvider).toHaveBeenCalledWith(
           "claude",
@@ -439,7 +498,9 @@ describe("routing overview", () => {
           "claude",
         ),
       );
-      expect(select).toBeDisabled();
+      expect(within(dialog).getByRole("status")).toHaveTextContent(
+        "gateway.saving",
+      );
       if (mode === "route") {
         expect(proxyApi.setProxyTakeoverForApp).toHaveBeenCalledWith(
           "claude",
@@ -458,16 +519,75 @@ describe("routing overview", () => {
         ).toBeLessThan(
           vi.mocked(providersApi.switch).mock.invocationCallOrder[0],
         );
-      } else expect(proxyApi.setProxyTakeoverForApp).not.toHaveBeenCalled();
+      } else {
+        expect(proxyApi.setProxyTakeoverForApp).not.toHaveBeenCalled();
+      }
       await act(async () => finish());
-      await waitFor(() => expect(select).toHaveTextContent("Shared provider"));
-      expect(select).toBeEnabled();
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
       expect(gatewayApi.connectApp).not.toHaveBeenCalled();
     },
   );
 
+  it("attaches an additive app through a gateway provider row", async () => {
+    const additiveGroup = {
+      ...routeGroup,
+      appIds: [...routeGroup.appIds, "opencode"],
+    };
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
+      ...sharedCatalog,
+      groups: [additiveGroup],
+    });
+    vi.mocked(gatewayApi.getAppStatus).mockResolvedValue({
+      appId: "opencode",
+      attached: false,
+      providerId: "phi-route-opencode",
+      groupId: null,
+      previousProviderId: null,
+      ingress: "/opencode/v1",
+    });
+    mount(<RoutingOverviewPage />);
+    const { user, dialog } = await openAppRoute("OpenCode");
+    expect(
+      within(dialog).getByRole("radio", {
+        name: "gateway.connections.nativeTarget",
+      }),
+    ).toHaveAttribute("aria-checked", "true");
+    await user.click(within(dialog).getByRole("radio", { name: "Production" }));
+    await waitFor(() =>
+      expect(gatewayApi.connectApp).toHaveBeenCalledWith(
+        "opencode",
+        "production",
+        1,
+      ),
+    );
+  });
+
+  it("restores the previous configuration for an attached additive app", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
+    vi.mocked(gatewayApi.getAppStatus).mockResolvedValue({
+      appId: "mcode",
+      attached: true,
+      providerId: "phi-route-mcode",
+      groupId: "production",
+      previousProviderId: "my-own-provider",
+      ingress: "/mcode/v1",
+    });
+    mount(<RoutingOverviewPage />);
+    const { user, dialog } = await openAppRoute("MiniMax Code");
+    await user.click(
+      within(dialog).getByRole("radio", {
+        name: "gateway.connections.nativeTarget",
+      }),
+    );
+    await waitFor(() =>
+      expect(gatewayApi.disconnectApp).toHaveBeenCalledWith("mcode"),
+    );
+    expect(gatewayApi.connectApp).not.toHaveBeenCalled();
+  });
+
   it("maps a materialized supplier provider back to its pool option", async () => {
-    const user = userEvent.setup();
     vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
     vi.mocked(proxyApi.getAppMode).mockResolvedValue({
       mode: "direct",
@@ -475,30 +595,27 @@ describe("routing overview", () => {
       directProviderId: "gateway-supplier:shared",
       routeProviderId: null,
     });
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("li")!;
-    const select = await within(row).findByRole("combobox");
-    expect(select).toHaveTextContent("Shared provider");
-    await user.click(select);
-    // 选中项就是池内供应商本身，不再重复渲染“当前目标”禁用项
-    const options = within(screen.getByRole("listbox")).getAllByRole("option");
-    expect(options.map((o) => o.textContent)).toEqual(["Shared provider"]);
-    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    mount(<RoutingOverviewPage />);
+    const { dialog } = await openAppRoute("Claude");
+    const options = within(dialog).getAllByRole("radio", {
+      name: "Shared provider",
+    });
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveAttribute("aria-checked", "true");
     expect(options[0]).toBeEnabled();
   });
 
   it("does not switch providers when exiting proxy mode fails", async () => {
-    const user = userEvent.setup();
     vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
     vi.mocked(proxyApi.setProxyTakeoverForApp).mockRejectedValue(
       new Error("exit failed"),
     );
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("li")!;
-    const select = await within(row).findByRole("combobox");
-    await user.click(select);
-    await user.click(screen.getByRole("option", { name: "Shared provider" }));
-    expect(await within(row).findByRole("alert")).toHaveTextContent(
+    mount(<RoutingOverviewPage />);
+    const { user, dialog } = await openAppRoute("Claude");
+    await user.click(
+      within(dialog).getByRole("radio", { name: "Shared provider" }),
+    );
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "gateway.errors.generic",
     );
     expect(gatewayApi.materializeSupplierProvider).toHaveBeenCalledWith(
@@ -506,379 +623,9 @@ describe("routing overview", () => {
       "shared",
     );
     expect(providersApi.switch).not.toHaveBeenCalled();
-    expect(select).toHaveTextContent("gateway.connections.legacy");
   });
 
-  it("refreshes the actual direct configuration after a supplier switch fails", async () => {
-    const user = userEvent.setup();
-    vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
-    vi.mocked(providersApi.getAll).mockResolvedValue({
-      old: { id: "old", name: "Old supplier", settingsConfig: {} },
-    });
-    vi.mocked(proxyApi.setProxyTakeoverForApp).mockImplementation(async () => {
-      vi.mocked(proxyApi.getAppMode).mockResolvedValue({
-        mode: "direct",
-        attached: false,
-        directProviderId: "old",
-        routeProviderId: "same",
-      });
-    });
-    vi.mocked(providersApi.switch).mockRejectedValue(
-      new Error("switch failed"),
-    );
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("li")!;
-    const select = await within(row).findByRole("combobox");
-    await user.click(select);
-    await user.click(screen.getByRole("option", { name: "Shared provider" }));
-    expect(await within(row).findByRole("alert")).toHaveTextContent(
-      "gateway.errors.generic",
-    );
-    await waitFor(() => expect(select).toHaveTextContent("Old supplier"));
-  });
-
-  it.each(["opencode", "openclaw", "hermes", "pi", "mcode"] as const)(
-    "shows live %s targets and opens its adapter without invoking proxy takeover",
-    async (app) => {
-      const open = vi.fn();
-      vi.mocked(providersApi.getAll).mockImplementation(async (id) =>
-        id === app
-          ? {
-              live: {
-                id: "live",
-                name: "Configured supplier",
-                settingsConfig: {},
-                meta: { liveConfigManaged: true },
-              },
-              saved: {
-                id: "saved",
-                name: "Saved only",
-                settingsConfig: {},
-                meta: { liveConfigManaged: false },
-              },
-              ...(app === "mcode"
-                ? {
-                    external: {
-                      id: "external",
-                      name: "external",
-                      settingsConfig: {},
-                      meta: { liveConfigManaged: true },
-                    },
-                  }
-                : {}),
-            }
-          : {},
-      );
-      vi.mocked(providersApi.getOpenCodeLiveProviderIds).mockResolvedValue([
-        "live",
-        "external",
-      ]);
-      vi.mocked(providersApi.getOpenClawLiveProviderIds).mockResolvedValue([
-        "live",
-        "external",
-      ]);
-      vi.mocked(providersApi.getHermesLiveProviderIds).mockResolvedValue([
-        "live",
-        "external",
-      ]);
-      vi.mocked(piApi.getCurrentState).mockResolvedValue({
-        enabledProviderIds: ["live", "external"],
-        defaultProviderId: "live",
-      });
-      mount(<RoutingOverviewPage onOpenApp={open} />);
-      const row = (await screen.findByText(getAppLabel(app))).closest("li")!;
-      expect(
-        await within(row).findByText("Configured supplier、external"),
-      ).toBeInTheDocument();
-      expect(within(row).queryByText("Saved only")).not.toBeInTheDocument();
-      expect(
-        within(row).getByText("gateway.connections.appManaged"),
-      ).toBeInTheDocument();
-      expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
-      fireEvent.click(
-        within(row).getByRole("button", {
-          name: "gateway.connections.openApp",
-        }),
-      );
-      expect(open).toHaveBeenCalledWith(app);
-      expect(proxyApi.getAppMode).not.toHaveBeenCalledWith(app);
-      expect(proxyApi.setProxyTakeoverForApp).not.toHaveBeenCalled();
-      expect(gatewayApi.connectApp).not.toHaveBeenCalled();
-    },
-  );
-
-  it("shows Claude Desktop's independent proxy status and flags an incomplete connection", async () => {
-    vi.mocked(providersApi.getCurrent).mockResolvedValue("desktop");
-    vi.mocked(providersApi.getAll).mockResolvedValue({
-      desktop: { id: "desktop", name: "Desktop route", settingsConfig: {} },
-    });
-    vi.mocked(providersApi.getClaudeDesktopStatus).mockResolvedValue({
-      supported: true,
-      configured: true,
-      appliedId: "00000000-0000-4000-8000-000000157210",
-      mode: "proxy",
-      proxyRunning: true,
-      expectedBaseUrl: "http://127.0.0.1:15821/claude-desktop",
-      actualBaseUrl: "https://external.example",
-      staleRawModels: false,
-      missingRouteMappings: false,
-      gatewayTokenConfigured: true,
-    });
-    const open = vi.fn();
-    mount(<RoutingOverviewPage onOpenApp={open} />);
-    const row = (await screen.findByText("Claude Desktop")).closest("li")!;
-    expect(await within(row).findByText("Desktop route")).toBeInTheDocument();
-    expect(
-      within(row).getByText("gateway.connections.proxy"),
-    ).toBeInTheDocument();
-    expect(
-      within(row).getByText("gateway.connections.needsReconnect"),
-    ).toBeInTheDocument();
-    expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
-    fireEvent.click(
-      within(row).getByRole("button", { name: "gateway.connections.openApp" }),
-    );
-    expect(open).toHaveBeenCalledWith("claude-desktop");
-    expect(proxyApi.getAppMode).not.toHaveBeenCalledWith("claude-desktop");
-  });
-
-  it("isolates an unreadable native config and retries without claiming a configured target", async () => {
-    vi.mocked(providersApi.getOpenCodeLiveProviderIds)
-      .mockRejectedValueOnce(new Error("invalid config"))
-      .mockResolvedValue(["recovered"]);
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("OpenCode")).closest("li")!;
-    expect(await within(row).findByRole("alert")).toHaveTextContent(
-      "gateway.loadError",
-    );
-    expect(
-      within(row).queryByText("gateway.connections.appManaged"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("Pi")).toBeInTheDocument();
-    fireEvent.click(within(row).getByRole("button", { name: "gateway.retry" }));
-    expect(await within(row).findByText("recovered")).toBeInTheDocument();
-    expect(within(row).queryByRole("alert")).not.toBeInTheDocument();
-  });
-
-  it("shows all managed apps without the removed gateway details or manual token panel", async () => {
-    vi.mocked(proxyApi.getProxyStatus).mockResolvedValue({
-      running: true,
-      address: "127.0.0.1",
-      port: 15821,
-    } as Awaited<ReturnType<typeof proxyApi.getProxyStatus>>);
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    await screen.findByText("OpenClaw");
-    const rows = screen.getAllByRole("listitem");
-    expect(rows).toHaveLength(APP_IDS.length);
-    APP_IDS.forEach((app, index) => {
-      expect(
-        within(rows[index]).getByText(getAppLabel(app)),
-      ).toBeInTheDocument();
-    });
-    expect(screen.queryByText("127.0.0.1:15821")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("gateway.routingDescription"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("gateway.connections.alwaysOn"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("gateway.connections.settings"),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText("access.advanced")).not.toBeInTheDocument();
-    expect(screen.queryByText("access.create")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "gateway.connections.start" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "gateway.connections.stop" }),
-    ).not.toBeInTheDocument();
-    expect(proxyApi.startProxyServer).not.toHaveBeenCalled();
-    expect(proxyApi.stopProxyWithRestore).not.toHaveBeenCalled();
-  });
-
-  it("uses one connection control per app without column headers", async () => {
-    const open = vi.fn();
-    mount(<RoutingOverviewPage onOpenApp={open} />);
-    await waitFor(() =>
-      expect(screen.getAllByRole("combobox")).toHaveLength(4),
-    );
-    // 路由页不再画三列表格：没有列标题，连接方式只在右侧出现一次
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(screen.queryByRole("columnheader")).not.toBeInTheDocument();
-    // 网关可用性横幅已随启停控件一起移除
-    expect(screen.queryByText("gateway.stopped")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("gateway.connection.stopped"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("OpenClaw")).toBeInTheDocument();
-    const row = screen.getByText("Codex").closest("li")!;
-    expect(within(row).getByRole("combobox")).toHaveTextContent(
-      "gateway.connections.legacy",
-    );
-    expect(
-      screen.queryByRole("button", { name: "gateway.configure" }),
-    ).not.toBeInTheDocument();
-    expect(open).not.toHaveBeenCalled();
-    expect(
-      screen.queryByRole("button", { name: "gateway.connections.connect" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "gateway.connections.disconnect" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("preserves the configured connection and reports a failed gateway read globally", async () => {
-    vi.mocked(proxyApi.getProxyStatus).mockRejectedValue(new Error("offline"));
-    vi.mocked(proxyApi.getAppMode).mockImplementation(async (app) => ({
-      mode: app === "codex" ? "direct" : "route",
-      attached: true,
-      directProviderId: "direct-id",
-      routeProviderId: "route-id",
-    }));
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    await screen.findAllByText("direct-id");
-    const row = screen.getByText("Codex").closest("li")!;
-    expect(within(row).getByRole("combobox")).toHaveTextContent("direct-id");
-    expect(screen.getByRole("alert")).toHaveTextContent("gateway.statusError");
-    expect(screen.queryByText("gateway.stopped")).not.toBeInTheDocument();
-  });
-
-  it("distinguishes native configurations from unconfigured apps without a configure button", async () => {
-    vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
-    vi.mocked(proxyApi.getAppMode).mockImplementation(async (app) => ({
-      mode: "direct",
-      attached: false,
-      directProviderId: null,
-      routeProviderId: null,
-      directConfigured: app === "claude",
-    }));
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const claude = (await screen.findByText("Claude")).closest("li")!;
-    expect(await within(claude).findByRole("combobox")).toHaveTextContent(
-      "gateway.connections.nativeTarget",
-    );
-    const codex = screen.getByText("Codex").closest("li")!;
-    expect(within(codex).getByRole("combobox")).toHaveTextContent(
-      "gateway.connections.unconfigured",
-    );
-    const user = userEvent.setup();
-    await user.click(within(codex).getByRole("combobox"));
-    expect(
-      screen.queryByRole("option", {
-        name: "gateway.connections.nativeTarget",
-      }),
-    ).not.toBeInTheDocument();
-    // codex 直连只认 openai_responses：anthropic 供应商在选项中但被禁用，
-    // 另有“未配置”当前态禁用项
-    expect(screen.getAllByRole("option")).toHaveLength(2);
-    expect(
-      screen.getByRole("option", { name: "Shared provider" }),
-    ).toHaveAttribute("aria-disabled", "true");
-    await user.keyboard("{Escape}");
-    expect(
-      screen.queryByRole("button", { name: "gateway.configure" }),
-    ).not.toBeInTheDocument();
-    expect(gatewayApi.connectApp).not.toHaveBeenCalled();
-  });
-
-  it("does not mistake failed mode reads for an unconfigured app and supports retry", async () => {
-    vi.mocked(proxyApi.getAppMode).mockRejectedValue(new Error("offline"));
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    await waitFor(() =>
-      expect(screen.getAllByText("gateway.loadError")).toHaveLength(4),
-    );
-    expect(
-      within(screen.getByText("Claude").closest("li")!).queryByText(
-        "gateway.connections.unconfigured",
-      ),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
-    vi.mocked(proxyApi.getAppMode).mockResolvedValue({
-      mode: "direct",
-      attached: false,
-      directProviderId: null,
-      routeProviderId: null,
-    });
-    const row = screen.getByText("Claude").closest("li")!;
-    fireEvent.click(within(row).getByRole("button", { name: "gateway.retry" }));
-    expect(await within(row).findByRole("combobox")).toHaveTextContent(
-      "gateway.connections.unconfigured",
-    );
-  });
-
-  it("keeps the previous connection when selecting a group fails", async () => {
-    const user = userEvent.setup();
-    vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
-      ...sharedCatalog,
-      groups: [routeGroup],
-    });
-    vi.mocked(proxyApi.getAppMode).mockResolvedValue({
-      mode: "direct",
-      attached: false,
-      directProviderId: "direct",
-      routeProviderId: "saved-route",
-    });
-    vi.mocked(gatewayApi.connectApp).mockRejectedValue(
-      new Error("switch failed"),
-    );
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("li")!;
-    const select = await within(row).findByRole("combobox");
-    await user.click(select);
-    await user.click(screen.getByRole("option", { name: "Production" }));
-    await waitFor(() =>
-      expect(gatewayApi.connectApp).toHaveBeenCalledWith(
-        "claude",
-        "production",
-        sharedCatalog.revision,
-      ),
-    );
-    expect(await within(row).findByRole("alert")).toHaveTextContent(
-      "gateway.errors.generic",
-    );
-    expect(select).toHaveTextContent("direct");
-    expect(proxyApi.setProxyTakeoverForApp).not.toHaveBeenCalled();
-  });
-
-  it("offers compatible enabled groups without a generic proxy option", async () => {
-    const user = userEvent.setup();
-    vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
-      ...sharedCatalog,
-      groups: [
-        routeGroup,
-        {
-          ...routeGroup,
-          id: "gemini-only",
-          name: "Gemini only",
-          appIds: ["gemini"],
-        },
-        {
-          ...routeGroup,
-          id: "disabled",
-          name: "Disabled group",
-          enabled: false,
-        },
-      ],
-    });
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Codex")).closest("li")!;
-    await user.click(await within(row).findByRole("combobox"));
-    expect(screen.getByRole("option", { name: "Production" })).toBeEnabled();
-    expect(
-      screen.queryByRole("option", { name: "Gemini only" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: "Disabled group" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: "gateway.connections.proxy" }),
-    ).not.toBeInTheDocument();
-    expect(gatewayApi.connectApp).not.toHaveBeenCalled();
-  });
-
-  it("switches an attached application from one group to another", async () => {
-    const user = userEvent.setup();
+  it("connects an app to a route group from its node", async () => {
     const catalog: GatewayCatalog = {
       ...sharedCatalog,
       groups: [routeGroup, { ...routeGroup, id: "backup", name: "Backup" }],
@@ -896,24 +643,15 @@ describe("routing overview", () => {
     vi.mocked(proxyApi.getAppMode).mockResolvedValue({
       mode: "route",
       attached: true,
-      directProviderId: "direct",
+      directProviderId: null,
       routeProviderId: "gateway-entry:claude",
     });
-    vi.mocked(gatewayApi.connectApp).mockImplementation(async () => {
-      vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
-        ...catalog,
-        revision: catalog.revision + 1,
-        policies: catalog.policies.map((p) =>
-          p.id === "connection/claude" ? { ...p, groupId: "backup" } : p,
-        ),
-      });
-    });
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("li")!;
-    const select = await within(row).findByRole("combobox");
-    expect(select).toHaveTextContent("Production");
-    await user.click(select);
-    await user.click(screen.getByRole("option", { name: "Backup" }));
+    mount(<RoutingOverviewPage />);
+    const { user, dialog } = await openAppRoute("Claude");
+    expect(
+      within(dialog).getByRole("radio", { name: "Production" }),
+    ).toHaveAttribute("aria-checked", "true");
+    await user.click(within(dialog).getByRole("radio", { name: "Backup" }));
     await waitFor(() =>
       expect(gatewayApi.connectApp).toHaveBeenCalledWith(
         "claude",
@@ -921,12 +659,9 @@ describe("routing overview", () => {
         catalog.revision,
       ),
     );
-    await waitFor(() => expect(select).toHaveTextContent("Backup"));
-    expect(proxyApi.setProxyTakeoverForApp).not.toHaveBeenCalled();
   });
 
   it("reconnects a detached application by selecting its saved group again", async () => {
-    const user = userEvent.setup();
     const catalog: GatewayCatalog = {
       ...sharedCatalog,
       groups: [routeGroup],
@@ -947,20 +682,15 @@ describe("routing overview", () => {
       directProviderId: "direct",
       routeProviderId: "gateway-entry:claude",
     });
-    vi.mocked(gatewayApi.connectApp).mockImplementation(async () => {
-      vi.mocked(proxyApi.getAppMode).mockResolvedValue({
-        mode: "route",
-        attached: true,
-        directProviderId: "direct",
-        routeProviderId: "gateway-entry:claude",
-      });
-    });
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    const row = (await screen.findByText("Claude")).closest("li")!;
-    const select = await within(row).findByRole("combobox");
-    expect(select).toHaveTextContent("gateway.connections.detachedGroup");
-    await user.click(select);
-    await user.click(screen.getByRole("option", { name: "Production" }));
+    mount(<RoutingOverviewPage />);
+    const { user, dialog } = await openAppRoute("Claude");
+    expect(
+      within(dialog).getByRole("radio", { name: "Production" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      within(dialog).getAllByText("gateway.connections.reconnectGroup").length,
+    ).toBeGreaterThan(0);
+    await user.click(within(dialog).getByRole("radio", { name: "Production" }));
     await waitFor(() =>
       expect(gatewayApi.connectApp).toHaveBeenCalledWith(
         "claude",
@@ -968,14 +698,11 @@ describe("routing overview", () => {
         catalog.revision,
       ),
     );
-    await waitFor(() => expect(select).toHaveTextContent("Production"));
-    expect(proxyApi.setProxyTakeoverForApp).not.toHaveBeenCalled();
   });
 
-  it.each(["disabled", "deleted"])(
+  it.each(["disabled", "deleted"] as const)(
     "does not silently replace a %s group with a different route",
     async (kind) => {
-      const user = userEvent.setup();
       vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
         ...sharedCatalog,
         groups: [
@@ -999,61 +726,176 @@ describe("routing overview", () => {
         directProviderId: "direct",
         routeProviderId: "gateway-entry:claude",
       });
-      mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-      const row = (await screen.findByText("Claude")).closest("li")!;
-      const select = await within(row).findByRole("combobox");
-      expect(select).toHaveTextContent(
-        kind === "deleted"
-          ? "gateway.connections.unconfigured"
-          : "gateway.connections.unavailableGroup",
-      );
-      await user.click(select);
-      expect(screen.getByRole("option", { name: "Backup" })).toBeEnabled();
+      mount(<RoutingOverviewPage />);
+      const { user, dialog } = await openAppRoute("Claude");
+      expect(
+        within(dialog).getByRole("radio", {
+          name:
+            kind === "deleted"
+              ? "gateway.connections.unconfigured"
+              : "gateway.connections.unavailableGroup",
+        }),
+      ).toBeDisabled();
       expect(gatewayApi.connectApp).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole("radio", { name: "Backup" }));
+      await waitFor(() => expect(gatewayApi.connectApp).toHaveBeenCalled());
     },
   );
 
-  it.each(PROXY_APP_IDS)(
-    "shows only the connection picker for %s without a configure button",
-    async (app) => {
-      const open = vi.fn();
-      vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
-      vi.mocked(proxyApi.getAppMode).mockImplementation(async (appId) => ({
+  it("offers compatible enabled groups without a generic proxy option", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
+      ...sharedCatalog,
+      groups: [
+        routeGroup,
+        {
+          ...routeGroup,
+          id: "gemini-only",
+          name: "Gemini only",
+          appIds: ["gemini"],
+        },
+        {
+          ...routeGroup,
+          id: "disabled",
+          name: "Disabled group",
+          enabled: false,
+        },
+      ],
+    });
+    mount(<RoutingOverviewPage />);
+    const { dialog } = await openAppRoute("Codex");
+    expect(
+      within(dialog).getByRole("radio", { name: "Production" }),
+    ).toBeEnabled();
+    expect(
+      within(dialog).queryByRole("radio", { name: "Gemini only" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("radio", { name: "Disabled group" }),
+    ).not.toBeInTheDocument();
+    expect(gatewayApi.connectApp).not.toHaveBeenCalled();
+  });
+
+  it("restores the native configuration from the app route dialog", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
+      ...sharedCatalog,
+      groups: [routeGroup],
+      policies: [
+        ...sharedCatalog.policies,
+        {
+          ...sharedCatalog.policies[0],
+          id: "connection/claude",
+          groupId: "production",
+          candidates: [],
+        },
+      ],
+    });
+    vi.mocked(proxyApi.getAppMode).mockResolvedValue({
+      mode: "direct",
+      attached: false,
+      directProviderId: null,
+      routeProviderId: "gateway-entry:claude",
+      directConfigured: true,
+    });
+    mount(<RoutingOverviewPage />);
+    const { user, dialog } = await openAppRoute("Claude");
+    const native = within(dialog).getByRole("radio", {
+      name: "gateway.connections.nativeTarget",
+    });
+    expect(native).toHaveAttribute("aria-checked", "true");
+    await user.click(native);
+    await waitFor(() =>
+      expect(proxyApi.setProxyTakeoverForApp).toHaveBeenCalledWith(
+        "claude",
+        false,
+      ),
+    );
+    expect(gatewayApi.connectApp).not.toHaveBeenCalled();
+  });
+
+  it("isolates a failed app mode read and retries inside the dialog", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
+      ...sharedCatalog,
+      groups: [routeGroup],
+    });
+    vi.mocked(proxyApi.getAppMode)
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue({
         mode: "route",
         attached: true,
         directProviderId: null,
-        routeProviderId: `gateway-entry:${appId}`,
-        directConfigured: true,
-      }));
-      mount(<RoutingOverviewPage onOpenApp={open} />);
-      const row = (await screen.findByText(getAppLabel(app))).closest("li")!;
-      await within(row).findByRole("combobox");
-      expect(
-        within(row).queryByRole("button", { name: "gateway.configure" }),
-      ).not.toBeInTheDocument();
-      expect(open).not.toHaveBeenCalled();
-      expect(
-        screen.getByRole("tab", { name: "gateway.tabs.connections" }),
-      ).toHaveAttribute("aria-selected", "true");
-    },
-  );
-
-  it("directs a detached proxy to configuration instead of claiming it is attached", async () => {
-    vi.mocked(proxyApi.getProxyStatus).mockResolvedValue({
-      running: true,
-    } as Awaited<ReturnType<typeof proxyApi.getProxyStatus>>);
-    vi.mocked(proxyApi.getAppMode).mockResolvedValue({
-      mode: "route",
-      attached: false,
-      directProviderId: "direct",
-      routeProviderId: "route",
-    });
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    await waitFor(() =>
-      expect(
-        screen.getAllByText("gateway.connections.needsReconnect"),
-      ).toHaveLength(4),
+        routeProviderId: "gateway-entry:claude",
+      });
+    mount(<RoutingOverviewPage />);
+    const { user, dialog } = await openAppRoute("Claude");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "gateway.loadError",
     );
+    await user.click(
+      within(dialog).getByRole("button", { name: "gateway.retry" }),
+    );
+    expect(
+      await within(dialog).findByRole("radio", { name: "Production" }),
+    ).toBeInTheDocument();
+  });
+
+  it("creates, edits and deletes route groups from the flow column", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
+      ...sharedCatalog,
+      groups: [routeGroup],
+    });
+    mount(<RoutingOverviewPage />);
+    const user = userEvent.setup();
+    await screen.findByText("Production");
+    await user.click(
+      screen.getByRole("button", { name: "gateway.groups.editFor" }),
+    );
+    let dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("gateway.pool.name")).toHaveValue(
+      "Production",
+    );
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: "gateway.groups.removeTitle",
+      }),
+    );
+    dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: "common.confirm" }),
+    );
+    await waitFor(() => expect(gatewayApi.saveCatalog).toHaveBeenCalled());
+    expect(vi.mocked(gatewayApi.saveCatalog).mock.calls[0][0].groups).toEqual(
+      [],
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "gateway.groups.new" }),
+    );
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("gateway.groups.new")).toBeInTheDocument();
+    await user.type(
+      within(dialog).getByLabelText("gateway.pool.name"),
+      "New group",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "gateway.groups.addMember" }),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "gateway.save" }),
+    );
+    await waitFor(() =>
+      expect(gatewayApi.saveCatalog).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      vi.mocked(gatewayApi.saveCatalog).mock.calls[1][0].groups,
+    ).toMatchObject([
+      {
+        name: "New group",
+        members: [{ supplierId: "shared", model: "model-a" }],
+      },
+    ]);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("New group")).toBeInTheDocument();
   });
 });
 
@@ -1233,98 +1075,6 @@ describe("gateway resource to request workflow", () => {
     expect(screen.getByText("Shared provider")).toBeInTheDocument();
   });
 
-  // 「路由预览」功能已随 RoutePreview 一起移除，相关用例同步删除。
-
-  it.each([false, true])(
-    "selects a group and restores the native configuration (configured: %s)",
-    async (configured) => {
-      const user = userEvent.setup();
-      vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
-        ...sharedCatalog,
-        groups: [routeGroup],
-      });
-      vi.mocked(proxyApi.getAppMode).mockResolvedValue({
-        mode: "direct",
-        attached: false,
-        directProviderId: null,
-        routeProviderId: null,
-        directConfigured: configured,
-      });
-      vi.mocked(gatewayApi.connectApp).mockImplementation(async () => {
-        vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
-          ...sharedCatalog,
-          revision: sharedCatalog.revision + 1,
-          groups: [routeGroup],
-          policies: [
-            ...sharedCatalog.policies,
-            {
-              ...sharedCatalog.policies[0],
-              id: "connection/claude",
-              groupId: "production",
-              candidates: [],
-            },
-          ],
-        });
-        vi.mocked(proxyApi.getAppMode).mockResolvedValue({
-          mode: "route",
-          attached: true,
-          directProviderId: null,
-          routeProviderId: "gateway-entry:claude",
-          directConfigured: true,
-        });
-      });
-      vi.mocked(proxyApi.setProxyTakeoverForApp).mockImplementation(
-        async () => {
-          vi.mocked(proxyApi.getAppMode).mockResolvedValue({
-            mode: "direct",
-            attached: false,
-            directProviderId: null,
-            routeProviderId: "gateway-entry:claude",
-            directConfigured: true,
-          });
-        },
-      );
-      mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-      const row = (await screen.findByText("Claude")).closest("li")!;
-      const select = await within(row).findByRole("combobox");
-      expect(select).toHaveTextContent(
-        configured
-          ? "gateway.connections.nativeTarget"
-          : "gateway.connections.unconfigured",
-      );
-      await user.click(select);
-      await user.click(screen.getByRole("option", { name: "Production" }));
-      await waitFor(() =>
-        expect(gatewayApi.connectApp).toHaveBeenCalledWith(
-          "claude",
-          "production",
-          sharedCatalog.revision,
-        ),
-      );
-      await waitFor(() => expect(select).toHaveTextContent("Production"));
-      expect(within(row).getByText("Shared provider")).toBeInTheDocument();
-      await user.click(select);
-      await user.click(
-        screen.getByRole("option", {
-          name: "gateway.connections.nativeTarget",
-        }),
-      );
-      await waitFor(() =>
-        expect(proxyApi.setProxyTakeoverForApp).toHaveBeenCalledWith(
-          "claude",
-          false,
-        ),
-      );
-      await waitFor(() =>
-        expect(select).toHaveTextContent("gateway.connections.nativeTarget"),
-      );
-      expect(
-        within(row).getAllByText("gateway.connections.nativeTarget")[0],
-      ).toBeInTheDocument();
-      expect(proxyApi.stopProxyWithRestore).not.toHaveBeenCalled();
-    },
-  );
-
   it("shows historical names, individual failures, usage and a link to the current policy", async () => {
     const open = vi.fn();
     vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
@@ -1427,7 +1177,7 @@ const routeGroup: GatewayRouteGroup = {
 };
 
 describe("route groups and routing data", () => {
-  it("uses three tabs and connects groups to request history without matching rules", async () => {
+  it("keeps group filtering without routing tabs", async () => {
     const user = userEvent.setup();
     const catalog = { ...sharedCatalog, groups: [routeGroup] };
     vi.mocked(gatewayApi.getCatalog).mockResolvedValue(catalog);
@@ -1447,35 +1197,12 @@ describe("route groups and routing data", () => {
         estimatedCost: null,
       },
     ]);
-    mount(<RoutingOverviewPage onOpenApp={vi.fn()} />);
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "gateway.tabs.connections",
-      "gateway.tabs.policies",
-      "gateway.routingStatus.title",
-    ]);
-    await user.click(
-      screen.getByRole("tab", { name: "gateway.tabs.policies" }),
-    );
-    const groups = await screen.findByRole("region", {
-      name: "gateway.groups.title",
-    });
+    mount(<RoutingOverviewPage />);
     expect(
-      screen.queryByRole("region", { name: "gateway.policy.title" }),
-    ).not.toBeInTheDocument();
-    await user.click(
-      within(groups).getByRole("button", {
-        name: "gateway.policy.viewRequests",
-      }),
-    );
-    expect(
-      screen.getByRole("tab", { name: "gateway.routingStatus.title" }),
-    ).toHaveAttribute("aria-selected", "true");
-    await waitFor(() =>
-      expect(gatewayApi.getTracePage).toHaveBeenCalledWith(
-        expect.objectContaining({ groupId: "production", offset: 0 }),
-      ),
-    );
-    // 筛选收进弹层：默认只露出入口，打开后才有窗口下拉
+      await screen.findByRole("region", { name: "gateway.flow.title" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    // 筛选收进弹层：默认只露出入口，打开后才能选择路由组。
     await user.click(
       screen.getByRole("button", { name: /gateway.routingStatus.filter/ }),
     );
@@ -1488,7 +1215,15 @@ describe("route groups and routing data", () => {
     expect(
       screen.getAllByRole("button", { name: "gateway.trace.refresh" }),
     ).toHaveLength(1);
-    expect(gatewayApi.getTracePage).toHaveBeenCalledTimes(1);
+    await user.click(
+      screen.getByRole("combobox", { name: "gateway.groups.group" }),
+    );
+    await user.click(screen.getByRole("option", { name: "Production" }));
+    await waitFor(() =>
+      expect(gatewayApi.getTracePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ groupId: "production", offset: 0 }),
+      ),
+    );
     await user.click(
       screen.getByRole("button", { name: "gateway.trace.clearFilter" }),
     );
@@ -1498,9 +1233,6 @@ describe("route groups and routing data", () => {
         offset: 0,
       }),
     );
-    expect(
-      screen.queryByRole("combobox", { name: "gateway.trace.policy" }),
-    ).not.toBeInTheDocument();
   });
 
   it("shares pagination and filters while keeping runtime details available", async () => {
@@ -1705,7 +1437,23 @@ describe("route groups and routing data", () => {
       groups: [
         {
           name: "My group",
-          appIds: ["claude", "codex", "grokbuild"],
+          appIds: [
+            "claude",
+            "claude-desktop",
+            "codex",
+            "grokbuild",
+            "opencode",
+            "openclaw",
+            "hermes",
+            "pi",
+            "mcode",
+            "commandcode",
+            "crush",
+            "droid",
+            "kimi",
+            "atomcode",
+            "omo",
+          ],
           strategy: "ordered",
           members: [{ supplierId: "shared", model: "model-a" }],
         },
@@ -1768,16 +1516,33 @@ describe("route groups and routing data", () => {
       ],
       groups: [routeGroup],
     };
+    // Chat 入口的应用也接得住 Chat 成员（非 Chat 成员由网关转换）。
     expect(inferGroupApps(routeGroup, catalog)).toEqual([
       "claude",
+      "claude-desktop",
       "codex",
       "grokbuild",
+      "opencode",
+      "openclaw",
+      "hermes",
+      "pi",
+      "mcode",
+      "commandcode",
+      "crush",
+      "droid",
+      "kimi",
+      "atomcode",
+      "omo",
     ]);
     const geminiGroup = {
       ...routeGroup,
       members: [{ ...routeGroup.members[0], supplierId: "gemini" }],
     };
-    expect(inferGroupApps(geminiGroup, catalog)).toEqual(["claude", "gemini"]);
+    expect(inferGroupApps(geminiGroup, catalog)).toEqual([
+      "claude",
+      "claude-desktop",
+      "gemini",
+    ]);
     expect(
       inferGroupApps(
         {

@@ -834,9 +834,7 @@ impl RequestForwarder {
 
         if providers.is_empty() {
             return Err(ForwardError {
-                error: {
-                    ProxyError::NoAvailableProvider
-                },
+                error: { ProxyError::NoAvailableProvider },
                 provider: None,
             });
         }
@@ -938,7 +936,14 @@ impl RequestForwarder {
                 }
                 Err(mut e) => {
                     if super::ledger_observer::is_local_refusal(&e) {
-                        return Err(self.finish_neutral_failure(e, provider, app_type_str, used_half_open_permit).await);
+                        return Err(self
+                            .finish_neutral_failure(
+                                e,
+                                provider,
+                                app_type_str,
+                                used_half_open_permit,
+                            )
+                            .await);
                     }
                     // 检测是否需要触发整流器（仅 Claude/ClaudeAuth 供应商）
                     let provider_type = ProviderType::from_app_type_and_config(app_type, provider);
@@ -1004,7 +1009,14 @@ impl RequestForwarder {
                                 }
                                 Err(retry_err) => {
                                     if super::ledger_observer::is_local_refusal(&retry_err) {
-                                        return Err(self.finish_neutral_failure(retry_err, provider, app_type_str, used_half_open_permit).await);
+                                        return Err(self
+                                            .finish_neutral_failure(
+                                                retry_err,
+                                                provider,
+                                                app_type_str,
+                                                used_half_open_permit,
+                                            )
+                                            .await);
                                     }
                                     log::warn!(
                                         "[{app_type_str}] [Media] Unsupported-image retry still failed: {retry_err}"
@@ -1098,7 +1110,14 @@ impl RequestForwarder {
                                 // 决定是否计入熔断、是否换下一家。
                                 Err(retry_err) => {
                                     if super::ledger_observer::is_local_refusal(&retry_err) {
-                                        return Err(self.finish_neutral_failure(retry_err, provider, app_type_str, used_half_open_permit).await);
+                                        return Err(self
+                                            .finish_neutral_failure(
+                                                retry_err,
+                                                provider,
+                                                app_type_str,
+                                                used_half_open_permit,
+                                            )
+                                            .await);
                                     }
                                     log::warn!(
                                         "[{app_type_str}] [RECT-022] 密文整流重试仍失败: {retry_err}"
@@ -1204,9 +1223,16 @@ impl RequestForwarder {
                                             .await);
                                     }
                                     Err(retry_err) => {
-                                    if super::ledger_observer::is_local_refusal(&retry_err) {
-                                        return Err(self.finish_neutral_failure(retry_err, provider, app_type_str, used_half_open_permit).await);
-                                    }
+                                        if super::ledger_observer::is_local_refusal(&retry_err) {
+                                            return Err(self
+                                                .finish_neutral_failure(
+                                                    retry_err,
+                                                    provider,
+                                                    app_type_str,
+                                                    used_half_open_permit,
+                                                )
+                                                .await);
+                                        }
                                         log::warn!(
                                             "[{app_type_str}] [RECT-003] 整流重试仍失败: {retry_err}"
                                         );
@@ -1307,7 +1333,14 @@ impl RequestForwarder {
                                 }
                                 Err(retry_err) => {
                                     if super::ledger_observer::is_local_refusal(&retry_err) {
-                                        return Err(self.finish_neutral_failure(retry_err, provider, app_type_str, used_half_open_permit).await);
+                                        return Err(self
+                                            .finish_neutral_failure(
+                                                retry_err,
+                                                provider,
+                                                app_type_str,
+                                                used_half_open_permit,
+                                            )
+                                            .await);
                                     }
                                     log::warn!(
                                         "[{app_type_str}] [RECT-012] budget 整流重试仍失败: {retry_err}"
@@ -1394,9 +1427,7 @@ impl RequestForwarder {
             self.record_failed_request("所有供应商暂时不可用（熔断器限制）".to_string())
                 .await;
             return Err(ForwardError {
-                error: {
-                    ProxyError::NoAvailableProvider
-                },
+                error: { ProxyError::NoAvailableProvider },
                 provider: None,
             });
         }
@@ -1552,6 +1583,13 @@ impl RequestForwarder {
         // GitHub Copilot API 使用 /chat/completions（无 /v1 前缀）
         let is_copilot = is_managed_copilot_request(app_type, provider, &base_url);
 
+        // Chat 入口的应用（OpenCode / OpenClaw / Hermes / Pi / MCode）经本地网关
+        // 接非 Chat 上游时，请求先被归一成 Responses，再走既有的 Responses →
+        // Anthropic 转换；详见 `proxy::chat_upstream`。
+        let chat_upstream = crate::gateway::apps::chat_ingress(app_type)
+            .then(|| super::chat_upstream::upstream_for(provider))
+            .filter(|upstream| *upstream != super::chat_upstream::Upstream::Chat);
+
         // Codex upstream conversion mode — computed early because the [1m]-suffix strip
         // below must be skipped on the Anthropic path (the marker has to survive to
         // catalog matching and to the transform's own strip+beta detection).
@@ -1561,7 +1599,8 @@ impl RequestForwarder {
             matches!(app_type, AppType::Codex | AppType::GrokBuild)
                 && super::providers::should_convert_codex_responses_to_anthropic(
                     provider, endpoint,
-                );
+                )
+                || chat_upstream == Some(super::chat_upstream::Upstream::Anthropic);
         let mut copilot_endpoint_override: Option<String> = None;
         let codex_official_auth_passthrough = matches!(app_type, AppType::Codex)
             && super::providers::is_codex_official_provider(provider);
@@ -1892,6 +1931,8 @@ impl RequestForwarder {
                 rewrite_codex_responses_endpoint_to_chat(endpoint)
             } else if codex_responses_to_anthropic {
                 rewrite_codex_responses_endpoint_to_anthropic(endpoint)
+            } else if chat_upstream == Some(super::chat_upstream::Upstream::Responses) {
+                rewrite_chat_endpoint_to_responses(endpoint)
             } else if needs_transform && adapter.name() == "Claude" {
                 let api_format = resolved_claude_api_format
                     .as_deref()
@@ -1970,6 +2011,19 @@ impl RequestForwarder {
         // suffix and add the context-1m beta header.
         let mut codex_anthropic_one_m = false;
 
+        // Chat 入口的应用经本地网关接非 Chat 上游时：Anthropic 上游直接走
+        // Chat → Anthropic 一跳；Responses 上游仍先归一成 Responses。
+        // 回包在 handler 里转回 Chat（见 `proxy::chat_upstream`）。
+        let chat_to_anthropic = matches!(
+            chat_upstream,
+            Some(super::chat_upstream::Upstream::Anthropic)
+        );
+        let mapped_body = if chat_upstream.is_some() && !chat_to_anthropic {
+            super::chat_bridge::gateway_request_to_responses(&mapped_body)?
+        } else {
+            mapped_body
+        };
+
         // 转换请求体（如果需要）
         let mut request_body = if codex_responses_to_chat {
             let mut mapped_body = mapped_body;
@@ -1991,7 +2045,7 @@ impl RequestForwarder {
             }
             let reasoning_config =
                 super::providers::resolve_codex_chat_reasoning_config(provider, &mapped_body);
-            let mut chat_body = super::providers::transform_codex_chat::responses_to_chat_completions_with_reasoning(
+            let mut chat_body = super::protocol::responses_to_chat_completions_with_reasoning(
                 mapped_body,
                 reasoning_config.as_ref(),
             )?;
@@ -2022,7 +2076,11 @@ impl RequestForwarder {
                 .and_then(|meta| meta.max_output_tokens)
                 .filter(|v| *v > 0)
             {
-                mapped_body["max_output_tokens"] = Value::from(max_out);
+                if chat_to_anthropic {
+                    mapped_body["max_completion_tokens"] = Value::from(max_out);
+                } else {
+                    mapped_body["max_output_tokens"] = Value::from(max_out);
+                }
             }
             // Anthropic requires max_tokens; fall back to this default only when the
             // Codex request omits max_output_tokens (rare — Codex normally sends it).
@@ -2031,11 +2089,17 @@ impl RequestForwarder {
             // accepted by every current Claude model and virtually all gateways. The
             // transform clamps any thinking budget below this value.
             const DEFAULT_CODEX_ANTHROPIC_MAX_TOKENS: u64 = 8192;
-            let mut anthropic_body =
-                super::providers::transform_codex_anthropic::responses_request_to_anthropic(
+            let mut anthropic_body = if chat_to_anthropic {
+                super::protocol::chat_request_to_anthropic(
                     mapped_body,
                     DEFAULT_CODEX_ANTHROPIC_MAX_TOKENS,
-                )?;
+                )?
+            } else {
+                super::protocol::responses_request_to_anthropic(
+                    mapped_body,
+                    DEFAULT_CODEX_ANTHROPIC_MAX_TOKENS,
+                )?
+            };
             // Handle the 1M-context marker [1m]: strip the model-name suffix (the
             // gateway doesn't recognize it) and set the flag so the beta header is
             // added. apply_codex_upstream_model may have just written back a model
@@ -2877,7 +2941,8 @@ impl RequestForwarder {
         );
 
         // 发送请求
-        let ledger_model = outbound_model.clone()
+        let ledger_model = outbound_model
+            .clone()
             .or_else(|| super::handler_context::extract_gemini_model_from_path(&effective_endpoint))
             .unwrap_or_else(|| "unknown".into());
         super::ledger_observer::begin(provider, &ledger_model)?;
@@ -3645,6 +3710,18 @@ fn strip_beta_query(query: Option<&str>) -> Option<String> {
 
 fn is_claude_messages_path(path: &str) -> bool {
     matches!(path, "/v1/messages" | "/claude/v1/messages")
+}
+
+/// Chat 入口转给 Responses 上游：`/chat/completions` → `/responses`，保留 query。
+fn rewrite_chat_endpoint_to_responses(endpoint: &str) -> (String, Option<String>) {
+    let (_path, query) = split_endpoint_and_query(endpoint);
+    let passthrough_query = query.map(ToString::to_string);
+    let rewritten = match passthrough_query.as_deref() {
+        Some(query) if !query.is_empty() => format!("/responses?{query}"),
+        _ => "/responses".to_string(),
+    };
+
+    (rewritten, passthrough_query)
 }
 
 fn rewrite_codex_responses_endpoint_to_chat(endpoint: &str) -> (String, Option<String>) {

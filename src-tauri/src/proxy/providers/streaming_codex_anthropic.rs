@@ -3,20 +3,20 @@
 //! The opposite direction of `streaming_responses.rs` (Responses SSE → Anthropic SSE):
 //! here the Codex client speaks Responses, while the upstream gateway speaks the native
 //! Anthropic Messages protocol. The Responses events emitted here have the same shape as
-//! those in `streaming_codex_chat.rs` (Chat → Responses); the Codex client only recognizes
+//! those in `streaming_responses_to_chat.rs` (Chat → Responses); the Responses client only recognizes
 //! this set of events.
 
 use super::codex_compaction;
 use super::codex_responses_sse as sse;
-use super::transform_codex_anthropic::{
+use super::responses_to_anthropic::{
     build_responses_usage_from_anthropic, map_anthropic_stop_reason_to_status,
     responses_reasoning_item_from_anthropic_block,
 };
 #[cfg(test)]
-use super::transform_codex_anthropic::{
+use super::responses_to_anthropic::{
     decode_anthropic_thinking_block, ANTHROPIC_THINKING_ENCRYPTED_PREFIX,
 };
-use super::transform_codex_chat::{
+use super::responses_to_chat::{
     response_tool_call_item_from_chat_name, response_tool_call_item_id_from_chat_name,
     CodexToolContext,
 };
@@ -361,7 +361,7 @@ impl AnthropicToResponsesState {
             BlockKind::Tool => {
                 // Prefer streamed input_json_delta; fall back to the input carried on
                 // content_block_start when the gateway emitted no deltas (mirrors the
-                // non-streaming aggregator's precedence in transform_codex_anthropic).
+                // non-streaming aggregator's precedence in responses_to_anthropic).
                 let raw_input = if text.trim().is_empty() {
                     block.start_input.clone()
                 } else {

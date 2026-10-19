@@ -10,8 +10,8 @@
 use rusqlite::Connection;
 use std::path::PathBuf;
 
-use crate::session_manager::{SessionMessage, SessionMeta};
 use crate::session_manager::providers::opencode::parse_sqlite_source;
+use crate::session_manager::{SessionMessage, SessionMeta};
 
 pub fn zcode_db_dir() -> PathBuf {
     dirs::home_dir()
@@ -26,11 +26,8 @@ pub fn zcode_db_path() -> PathBuf {
 }
 
 fn open_read_only(path: &PathBuf) -> Result<Connection, String> {
-    Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .map_err(|e| format!("Failed to open ZCode database: {e}"))
+    Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("Failed to open ZCode database: {e}"))
 }
 
 /// 会话列表：只取根会话（parent_id 为空），标题缺失时回退首条用户消息
@@ -95,11 +92,7 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
                 created_at: created.map(|ms| ms / 1000),
                 last_active_at: last_active.map(|ms| ms / 1000),
                 // SQLite 源用 "sqlite:<db>#<id>" 形式（与 opencode/hermes 一致）
-                source_path: Some(format!(
-                    "sqlite:{}#{}",
-                    db_path.display(),
-                    id
-                )),
+                source_path: Some(format!("sqlite:{}#{}", db_path.display(), id)),
                 resume_command: None, // 桌面应用无 resume 命令
             });
         }
@@ -162,7 +155,11 @@ pub fn load_messages_sqlite(source: &str) -> Result<Vec<SessionMessage>, String>
                 .pointer("/time/created")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
-            let ts = if created_ms > 0 { Some(created_ms / 1000) } else { None };
+            let ts = if created_ms > 0 {
+                Some(created_ms / 1000)
+            } else {
+                None
+            };
             // 内容投影：取 parts 里第一段 text（与 project_content 的简化口径一致）
             let content = value
                 .pointer("/parts/0/text")

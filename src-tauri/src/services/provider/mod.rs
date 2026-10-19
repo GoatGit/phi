@@ -5328,6 +5328,49 @@ wire_api = "responses"
             );
         });
     }
+    #[test]
+    #[serial]
+    fn codex_direct_supplier_row_publishes_every_declared_model() {
+        with_test_home(|state, _home| {
+            crate::settings::reload_settings().expect("reload settings");
+            let created = state
+                .db
+                .create_gateway_supplier(crate::gateway::SupplierUpsert {
+                    revision: Some(0),
+                    name: Some("Aggregate".into()),
+                    endpoint: Some(crate::gateway::Endpoint {
+                        protocol: "openai_responses".into(),
+                        base_url: "https://relay.example/v1".into(),
+                    }),
+                    models: Some(vec!["model-a".into(), "model-b".into()]),
+                    api_key: Some("sk-test".into()),
+                    auth_field: Some("OPENAI_API_KEY".into()),
+                })
+                .expect("create supplier");
+            let supplier_id = created.suppliers[0].id.clone();
+            let id = state
+                .db
+                .materialize_supplier_provider("codex", &supplier_id)
+                .expect("materialize supplier row");
+            ProviderService::switch(state, AppType::Codex, &id).expect("switch to supplier row");
+
+            let live = fs::read_to_string(crate::codex_config::get_codex_config_path())
+                .expect("read Codex config.toml");
+            assert!(live.contains("model_catalog_json"), "live: {live}");
+            let catalog: Value =
+                read_json_file(&crate::codex_config::get_codex_model_catalog_path())
+                    .expect("read generated catalog");
+            let slugs: Vec<&str> = catalog["models"]
+                .as_array()
+                .expect("catalog models")
+                .iter()
+                .filter_map(|model| model["slug"].as_str())
+                .collect();
+            // 供应商直连行发布整个名单：只写一个模型时 Codex 选不到其余模型，还会退回拉
+            // 上游 `/models`（聚合网关常常不支持，返回 401）。
+            assert_eq!(slugs, vec!["model-a", "model-b"]);
+        });
+    }
 }
 
 impl ProviderService {
@@ -7928,8 +7971,7 @@ impl ProviderService {
 
                 Ok((api_key, base_url))
             }
-            AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode
-            | AppType::Zcode => {
+            AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode | AppType::Zcode => {
                 // These native formats use apiKey and baseUrl directly on the object.
                 let api_key = provider
                     .settings_config

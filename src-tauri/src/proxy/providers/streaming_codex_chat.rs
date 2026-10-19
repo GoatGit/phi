@@ -5,7 +5,7 @@ use super::{
     codex_chat_common::extract_reasoning_field_text,
     codex_compaction,
     inline_think::InlineThinkSplitter,
-    transform_codex_chat::{
+    responses_to_chat::{
         chat_usage_to_responses_usage, custom_tool_input_from_chat_arguments,
         response_id_from_chat_id, response_status_from_finish_reason,
         response_tool_call_item_from_chat_name, response_tool_call_item_id_from_chat_name,

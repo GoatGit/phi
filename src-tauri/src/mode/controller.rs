@@ -1754,6 +1754,8 @@ pub async fn resync_routes(state: &AppState) -> Result<(), String> {
             failures.push(format!("{}: {error}", app.as_str()));
         }
     }
+    // 累加式应用的路由供应商行也写着旧地址和旧令牌，同样按新地址重写。
+    failures.extend(crate::gateway::attach::refresh_all(state).await);
     if failures.is_empty() {
         Ok(())
     } else {
@@ -1820,6 +1822,8 @@ pub async fn startup(state: &AppState) {
             log::error!("启动时恢复 {} 的模式失败: {error}", app.as_str());
         }
     }
+    // 累加式路由应用的接入配置里带着本进程的本地令牌：按新令牌和网关地址重写一次。
+    crate::gateway::attach::refresh_all(state).await;
     ensure_desktop_mapping_service(state).await;
     // 记一次新启动的 Codex 会读到的目录：兜住启动时补完的操作和 PHI 没开时的外部修改。
     codex_client_catalog::observe(&DeviceStore::for_device());
@@ -5584,6 +5588,7 @@ model_provider = "c"
                 app_id: app.as_str().into(),
                 enabled: true,
                 match_model: "client-alias".into(),
+                request_model: String::new(),
                 priority: 1,
                 failover: false,
                 candidates: vec![crate::gateway::RouteCandidate {

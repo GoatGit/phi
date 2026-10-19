@@ -118,7 +118,9 @@ impl RequestContext {
         let session_result = extract_session_id(headers, body, app_type_str);
         let session_id = session_result.session_id.clone();
         super::ledger_observer::context(
-            body.get("model").and_then(serde_json::Value::as_str).unwrap_or("unknown"),
+            body.get("model")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown"),
             &session_id,
         )?;
 
@@ -131,7 +133,10 @@ impl RequestContext {
         );
 
         let is_stack = stack.is_some();
-        if is_stack { super::ledger_observer::authorize_group(None).map_err(|e|ProxyError::AuthError(e.to_string()))?; }
+        if is_stack {
+            super::ledger_observer::authorize_group(None)
+                .map_err(|e| ProxyError::AuthError(e.to_string()))?;
+        }
         let planned_gateway = if is_stack {
             None
         } else {
@@ -191,9 +196,16 @@ impl RequestContext {
                 )
             }
             None => {
-                let current_provider = crate::mode::current::provider_in_use(&state.db, &app_type)
-                    .ok()
-                    .flatten();
+                let current_provider = if crate::gateway::local_apps::spec(app_type_str).is_some() {
+                    // 路由专用应用没有模式控制器：当前供应商就是它自己的供应商行。
+                    crate::mode::current::local_app_in_use(&state.db, app_type_str)
+                        .ok()
+                        .flatten()
+                } else {
+                    crate::mode::current::provider_in_use(&state.db, &app_type)
+                        .ok()
+                        .flatten()
+                };
                 let current_provider_id = current_provider
                     .as_ref()
                     .map(|provider| provider.id.clone())
@@ -216,8 +228,7 @@ impl RequestContext {
                     app_config.max_retries = route.providers.len().saturating_sub(1) as u32;
                     // 组驱动的路由用自己的故障转移超时策略；策略直连（无组）沿用应用配置
                     if let Some(timeouts) = &route.timeouts {
-                        app_config.streaming_first_byte_timeout =
-                            timeouts.streaming_first_byte;
+                        app_config.streaming_first_byte_timeout = timeouts.streaming_first_byte;
                         app_config.streaming_idle_timeout = timeouts.streaming_idle;
                         app_config.non_streaming_timeout = timeouts.non_streaming;
                     }

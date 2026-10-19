@@ -1565,6 +1565,11 @@ const CODEX_CLI_FIXED_CANDIDATES: &[&str] = &[
     "/home/linuxbrew/.linuxbrew/bin/codex", // Linux Homebrew
 ];
 
+/// `codex debug models --bundled` 只读本地内置表，正常应在几百毫秒内退出。
+/// 外部 CLI 卡住（例如它的启动 shell 或守护进程不返回）时不能拖着启动流程和
+/// 网关一起等：超时就杀掉、退回静态目录。
+const BUNDLED_MODELS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// macOS 桌面版的 bundle 名，新的在前：改名前叫 Codex.app，改名迁移有时会两份都留着
 /// （openai/codex#48052），这时 ChatGPT.app 是新的那份。
 const CODEX_DESKTOP_APP_BUNDLES: &[&str] = &["ChatGPT.app", "Codex.app"];
@@ -1855,8 +1860,20 @@ fn first_bundled_catalog<T>(
     let mut failure = None;
     for candidate in candidates {
         let candidate_label = candidate.to_string_lossy();
-        let output = match codex_bundled_models_command(&candidate).output() {
-            Ok(output) => output,
+        let mut command = codex_bundled_models_command(&candidate);
+        let output = match crate::process_output::output_with_timeout(
+            &mut command,
+            BUNDLED_MODELS_TIMEOUT,
+        ) {
+            Ok(Some(output)) => output,
+            Ok(None) => {
+                log::warn!(
+                    "`{candidate_label} debug models --bundled` 超过 {}s 未退出，已终止",
+                    BUNDLED_MODELS_TIMEOUT.as_secs()
+                );
+                failure = Some(format!("`{candidate_label} debug models --bundled` 超时"));
+                continue;
+            }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
             Err(err) => {
                 log::debug!("failed to run `{candidate_label} debug models --bundled`: {err}");
@@ -2186,7 +2203,8 @@ fn codex_model_catalog_from_settings(
 }
 
 /// Codex 自带的 OpenAI 官方模型列表（`codex debug models --bundled`），给第三方的 GPT
-/// 行按模型名找官方条目用。只缓存成功读到的列表：Codex 升级后要重启 PHI 才换新。
+/// 行按模型名找官方条目用。结果（包括读不到时退回的静态目录）只算一次：Codex 升级后
+/// 要重启 PHI 才换新。缓存失败结果也能避免每次生成目录都重跑一遍可能卡住的 CLI。
 #[cfg(not(test))]
 static CODEX_OPENAI_OFFICIAL_MODELS_CACHE: OnceCell<Vec<Value>> = OnceCell::new();
 
@@ -2207,14 +2225,13 @@ fn codex_static_official_models() -> Vec<Value> {
 #[cfg(not(test))]
 fn codex_openai_official_models() -> Vec<Value> {
     CODEX_OPENAI_OFFICIAL_MODELS_CACHE
-        .get_or_try_init(|| {
+        .get_or_init(|| {
             load_codex_bundled_models()
                 .ok()
                 .and_then(normalize_codex_native_rows)
-                .ok_or(())
+                .unwrap_or_else(codex_static_official_models)
         })
-        .cloned()
-        .unwrap_or_else(|_| codex_static_official_models())
+        .clone()
 }
 
 #[cfg(test)]

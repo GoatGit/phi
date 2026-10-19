@@ -1,5 +1,5 @@
-mod app_config;
 mod access;
+mod app_config;
 mod app_store;
 mod auto_launch;
 mod claude_desktop_config;
@@ -13,16 +13,16 @@ mod commands;
 mod config;
 mod database;
 mod deeplink;
+mod diagnostics;
 mod error;
 mod gateway;
-mod ledger;
-mod diagnostics;
 mod gemini_config;
 mod gemini_mcp;
 mod grok_config;
 pub mod hermes_config;
 mod init_status;
 mod jsonc_document;
+mod ledger;
 mod lightweight;
 #[cfg(target_os = "linux")]
 mod linux_fix;
@@ -35,6 +35,7 @@ mod openclaw_config;
 mod opencode_config;
 mod panic_hook;
 mod pi_config;
+mod process_output;
 mod prompt;
 mod prompt_files;
 mod provider;
@@ -44,11 +45,11 @@ mod session_manager;
 mod settings;
 mod store;
 
+mod terminal;
 mod tray;
 mod usage_events;
 mod usage_script;
 mod window_bounds;
-mod terminal;
 
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
 pub use codex_config::{
@@ -410,7 +411,9 @@ pub fn run() {
             if webview.label() == "main"
                 && payload.event() == tauri::webview::PageLoadEvent::Started
             {
-                let _ = webview.app_handle().run_on_main_thread(terminal::hide_main_thread);
+                let _ = webview
+                    .app_handle()
+                    .run_on_main_thread(terminal::hide_main_thread);
             }
         });
     }
@@ -1472,6 +1475,8 @@ pub fn run() {
             commands::fetch_gateway_models,
             commands::preview_gateway_route,
             commands::connect_gateway_app,
+            commands::get_gateway_app_status,
+            commands::disconnect_gateway_app,
             commands::materialize_gateway_supplier_provider,
             commands::get_providers,
             commands::get_current_provider,

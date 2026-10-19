@@ -99,6 +99,17 @@ pub fn direct_provider(db: &Database, app: &AppType) -> Result<Option<Provider>,
     }
 }
 
+/// 路由专用应用的「正在用的那家」。
+///
+/// 它们没有模式控制器，也没有代理路由：`attach` 写进应用的供应商行就是它自己的
+/// 当前指针（用途等同 [`Purpose::InUse`]）。
+pub fn local_app_in_use(db: &Database, app_id: &str) -> Result<Option<Provider>, AppError> {
+    match db.get_current_provider(app_id)? {
+        Some(id) => db.get_provider_by_id(&id, app_id),
+        None => Ok(None),
+    }
+}
+
 /// 设备本地记录的直连指针（不验证是否存在、不回落到 DB）。只给切换失败时的回滚用：
 /// 回滚要把本地记录恢复成原样。
 pub fn local_direct_pointer(app: &AppType) -> Option<String> {

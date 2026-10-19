@@ -23,7 +23,9 @@ use crate::database::{lock_conn, Database};
 use crate::error::AppError;
 use crate::proxy::usage::calculator::CostCalculator;
 use crate::proxy::usage::parser::TokenUsage;
-use crate::services::session_usage::{metadata_modified_nanos, update_sync_state, SessionSyncResult};
+use crate::services::session_usage::{
+    metadata_modified_nanos, update_sync_state, SessionSyncResult,
+};
 use crate::services::usage_stats::{find_model_pricing, should_skip_session_insert, DedupKey};
 use rust_decimal::Decimal;
 
@@ -128,8 +130,7 @@ pub fn sync_zcode_usage(db: &Database) -> Result<SessionSyncResult, AppError> {
         match query_assistant_messages(&zcode_conn, session_id) {
             Ok(messages) => {
                 for (message_id, msg_data) in &messages {
-                    let request_id =
-                        format!("zcode_session:{session_id}:{message_id}");
+                    let request_id = format!("zcode_session:{session_id}:{message_id}");
 
                     match insert_zcode_message(db, &request_id, msg_data, session_id) {
                         Ok(true) => result.imported += 1,
@@ -184,9 +185,7 @@ pub fn sync_zcode_usage(db: &Database) -> Result<SessionSyncResult, AppError> {
 }
 
 /// 查询所有会话的 (id, sync_watermark)
-fn query_sessions(
-    conn: &rusqlite::Connection,
-) -> Result<Vec<(String, i64)>, AppError> {
+fn query_sessions(conn: &rusqlite::Connection) -> Result<Vec<(String, i64)>, AppError> {
     let sql = "SELECT s.id, \
                MAX(s.time_updated, COALESCE(MAX(m.time_updated), s.time_updated)) AS sync_watermark \
                FROM session s \
@@ -244,10 +243,7 @@ fn query_assistant_messages(
         }
 
         // 未完成的消息：进行中只有半截 token，且 INSERT OR IGNORE 无法回填
-        let is_completed = value
-            .get("time")
-            .and_then(|t| t.get("completed"))
-            .is_some();
+        let is_completed = value.get("time").and_then(|t| t.get("completed")).is_some();
         if !is_completed {
             continue;
         }
@@ -291,8 +287,8 @@ fn parse_message_data(value: &serde_json::Value) -> Option<ZcodeMessageData> {
     }
 
     // AI SDK 口径：input 已含缓存读写，换算为 fresh input
-    let input_tokens = (input_total - cache_read_tokens as i64 - cache_write_tokens as i64)
-        .max(0) as u32;
+    let input_tokens =
+        (input_total - cache_read_tokens as i64 - cache_write_tokens as i64).max(0) as u32;
 
     let model_id = value
         .get("modelID")
@@ -365,12 +361,8 @@ fn insert_zcode_message(
                     model: Some(msg.model_id.clone()),
                     message_id: None,
                 };
-                let cost = CostCalculator::calculate_for_app(
-                    "zcode",
-                    &usage,
-                    &pricing,
-                    Decimal::from(1),
-                );
+                let cost =
+                    CostCalculator::calculate_for_app("zcode", &usage, &pricing, Decimal::from(1));
                 (
                     cost.input_cost.to_string(),
                     cost.output_cost.to_string(),

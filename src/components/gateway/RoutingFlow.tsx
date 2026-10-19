@@ -8,8 +8,13 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import type { GatewayCatalog, GatewayTracePage } from "@/lib/api/gateway";
-import { getAppLabel } from "@/config/appConfig";
+import { ChevronDown, Pencil, Plus, Settings2 } from "lucide-react";
+import type {
+  GatewayCatalog,
+  GatewayRouteGroup,
+  GatewayTracePage,
+} from "@/lib/api/gateway";
+import { getAppLabel, isRoutableAppId } from "@/config/appConfig";
 import phiLogoLight from "@/assets/icons/phi/phi-logo-light.png";
 import phiLogoDark from "@/assets/icons/phi/phi-logo-dark.png";
 import { Button } from "@/components/ui/button";
@@ -21,9 +26,22 @@ import {
   laneColor,
   laneFinalState,
   lanePlayback,
+  type FlowGroupNode,
   type FlowLane,
   type FlowState,
+  type RouteAppRequest,
 } from "./routingFlowModel";
+import {
+  AppRouteSettingsDialog,
+  type AppRouteDialogAppId,
+} from "./AppRouteSettingsDialog";
+import { createGroupDraft, GroupDialog } from "./GroupEditorDialog";
+import {
+  catalogWithoutGroup,
+  useGatewayErrorMessage,
+  useSaveGatewayCatalog,
+} from "./useGatewayCatalog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 function PhiFlowLogo() {
   return (
@@ -43,6 +61,10 @@ function PhiFlowLogo() {
     </span>
   );
 }
+
+/** 默认展开的应用行数。应用变多以后，靠后的应用折叠起来，图不会被拉得
+ *  很长；任何一个还在传输中的应用都不受折叠影响。 */
+const VISIBLE_APP_LIMIT = 6;
 
 /** A node's real on-screen box, relative to the flow stage. Wires are drawn
  *  from these measured values, so they always touch the rendered nodes no
@@ -131,19 +153,112 @@ function sameGeometry(a: FlowGeometry | null, b: FlowGeometry) {
   return true;
 }
 
+/** 连线在节点边缘上的落点与节点圆角之间保留的余量：扇出再大也不会画到
+ *  节点外面去。 */
+const WIRE_EDGE_INSET = 8;
+
+/** 平行线之间的间距。 */
+const WIRE_FAN_GAP = 5;
+
+type WireEnd = Pick<NodeBox, "cy"> & Partial<Pick<NodeBox, "top" | "bottom">>;
+
+/** 线在节点上的落点：节点纵轴中心加上这条线的扇出偏移，并收在节点边缘
+ *  之内。偏移一旦超出节点高度，线就会飘到节点上下的空白处。 */
+function edgeY(box: WireEnd, offset: number): number {
+  const y = box.cy + offset;
+  if (box.top == null || box.bottom == null) return round1(y);
+  const inset = Math.min(WIRE_EDGE_INSET, (box.bottom - box.top) / 4);
+  return round1(Math.min(Math.max(y, box.top + inset), box.bottom - inset));
+}
+
 /** Horizontal cubic that leaves the source's right edge and lands exactly
  *  on the target's left edge. Pure function so the shape stays testable. */
 export function wirePath(
-  from: Pick<NodeBox, "right" | "cy">,
-  to: Pick<NodeBox, "left" | "cy">,
+  from: Pick<NodeBox, "right"> & WireEnd,
+  to: Pick<NodeBox, "left"> & WireEnd,
   offset = 0,
 ): string {
   const x1 = round1(from.right);
-  const y1 = round1(from.cy + offset);
+  const y1 = edgeY(from, offset);
   const x2 = round1(to.left);
-  const y2 = round1(to.cy + offset);
+  const y2 = edgeY(to, offset);
   const bend = round1(Math.max(18, (x2 - x1) * 0.45));
   return `M ${x1} ${y1} C ${round1(x1 + bend)} ${y1}, ${round1(x2 - bend)} ${y2}, ${x2} ${y2}`;
+}
+
+type GroupDraft = {
+  group: GatewayRouteGroup;
+  revision: number;
+  isNew: boolean;
+};
+
+/** 路由组编辑器的沙箱：只在弹窗打开时挂载，因此可以安全使用目录缓存。 */
+function GroupEditorHost({
+  catalog,
+  draft,
+  onClose,
+  onDeleteRequest,
+}: {
+  catalog: GatewayCatalog;
+  draft: GroupDraft;
+  onClose: () => void;
+  onDeleteRequest: (group: GatewayRouteGroup) => void;
+}) {
+  const describeError = useGatewayErrorMessage();
+  const save = useSaveGatewayCatalog();
+  const groups = catalog.groups ?? [];
+  return (
+    <GroupDialog
+      catalog={catalog}
+      group={draft.group}
+      isNew={draft.isNew}
+      pending={save.isPending}
+      error={save.isError ? describeError(save.error) : null}
+      stale={draft.revision !== catalog.revision}
+      onClose={onClose}
+      onDeleteRequest={() => onDeleteRequest(draft.group)}
+      onSave={(group) =>
+        save.mutate(
+          {
+            ...catalog,
+            revision: draft.revision,
+            groups: draft.isNew
+              ? [...groups, group]
+              : groups.map((item) => (item.id === group.id ? group : item)),
+          },
+          { onSuccess: onClose },
+        )
+      }
+    />
+  );
+}
+
+/** 删除确认从编辑器拆出来，避免编辑器关闭时一起卸载确认弹窗。 */
+function GroupDeleteDialog({
+  catalog,
+  group,
+  onClose,
+}: {
+  catalog: GatewayCatalog;
+  group: GatewayRouteGroup;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const save = useSaveGatewayCatalog();
+  return (
+    <ConfirmDialog
+      isOpen
+      title={t("gateway.groups.removeTitle")}
+      message={t("gateway.groups.removeMessage", { name: group.name })}
+      pending={save.isPending}
+      onCancel={onClose}
+      onConfirm={() =>
+        save.mutate(catalogWithoutGroup(catalog, group.id), {
+          onSuccess: onClose,
+        })
+      }
+    />
+  );
 }
 
 /** Shares the status page's filtered query; the catalog only supplies the
@@ -152,21 +267,57 @@ export function wirePath(
 export function RoutingFlow({
   data,
   catalog,
+  routeAppRequest,
+  onRouteAppRequestHandled,
 }: {
   data: GatewayTracePage;
   catalog?: GatewayCatalog;
+  /** 侧栏点了某个应用：进来后直接打开它的「设置应用路由」 */
+  routeAppRequest?: RouteAppRequest | null;
+  onRouteAppRequestHandled?: () => void;
 }) {
   const { t } = useTranslation();
   const titleId = useId();
   const [step, setStep] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [focus, setFocus] = useState<string | null>(null);
+  const [routeApp, setRouteApp] = useState<AppRouteDialogAppId | null>(null);
+  const [groupDraft, setGroupDraft] = useState<GroupDraft | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<GatewayRouteGroup | null>(
+    null,
+  );
+  // 侧栏点进来的应用：高亮它，并打开路由设置；请求只消费一次。
+  useEffect(() => {
+    if (!catalog || !routeAppRequest) return;
+    if (
+      isRoutableAppId(routeAppRequest.appId) &&
+      routeAppRequest.appId !== "typesafe"
+    ) {
+      setRouteApp(routeAppRequest.appId);
+      setFocus(routeAppRequest.appId);
+    }
+    onRouteAppRequestHandled?.();
+  }, [catalog, routeAppRequest, onRouteAppRequestHandled]);
   const { apps, lanes, groups, outlets, liveCount } = useMemo(
     () => buildRoutingFlow(data, catalog),
     [data, catalog],
   );
   const timeline = useMemo(() => buildTimeline(lanes), [lanes]);
   const total = timeline.length;
+  // 默认只列优先级最高的几行；展开后仍是同一份优先级顺序。
+  const [appsExpanded, setAppsExpanded] = useState(false);
+  const shownApps = useMemo(() => {
+    if (appsExpanded || apps.length <= VISIBLE_APP_LIMIT) return apps;
+    const pinned = new Set(
+      apps.slice(0, VISIBLE_APP_LIMIT).map((entry) => entry.appId),
+    );
+    for (const entry of apps) {
+      // 进行中的应用和用户高亮的应用永远留在图上，折叠不能把它们藏掉。
+      if (entry.lane?.live || entry.appId === focus) pinned.add(entry.appId);
+    }
+    return apps.filter((entry) => pinned.has(entry.appId));
+  }, [apps, appsExpanded, focus]);
+  const hiddenAppCount = apps.length - shownApps.length;
 
   // The stage grows with its tallest column; every node reports its real
   // box back so wires stay glued to the nodes at any size.
@@ -197,7 +348,7 @@ export function RoutingFlow({
       observer?.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [apps, groups, outlets, measure]);
+  }, [shownApps, groups, outlets, measure]);
 
   useEffect(() => {
     setStep((current) =>
@@ -234,40 +385,38 @@ export function RoutingFlow({
     }
   }
 
-  // Wires sharing both endpoints would overlap exactly; fan parallel wires
-  // out symmetrically so every wire keeps its own visible line. The gray
-  // configured base layer and the colored traffic lanes share the offset
-  // pools so neither sits exactly on top of the other.
-  const fanOut = (keys: string[]): Map<string, number> => {
+  // 同一对节点之间的线会完全重叠，所以按出现顺序给每条线一个槽位：第一条
+  // 居中，其余左右对称铺开。只有流量线参与扇出——配置层的灰线跨应用共享
+  // 同一对节点，画的是同一条拓扑边，按应用各偏几个像素只会在节点边缘画出
+  // 一束落在节点之外的错位线缆。
+  const fanOut = (
+    wires: { id: string; key: string }[],
+  ): Map<string, number> => {
     const counts = new Map<string, number>();
-    const offsets = new Map<string, number>();
-    for (const key of keys) {
-      const index = counts.get(key) ?? 0;
-      counts.set(key, index + 1);
-      offsets.set(key, index);
+    for (const wire of wires) {
+      counts.set(wire.key, (counts.get(wire.key) ?? 0) + 1);
     }
-    for (const [key, index] of offsets) {
-      offsets.set(key, (index - (counts.get(key)! - 1) / 2) * 5);
+    const seen = new Map<string, number>();
+    const offsets = new Map<string, number>();
+    for (const wire of wires) {
+      const index = seen.get(wire.key) ?? 0;
+      seen.set(wire.key, index + 1);
+      const count = counts.get(wire.key) ?? 1;
+      offsets.set(wire.id, (index - (count - 1) / 2) * WIRE_FAN_GAP);
     }
     return offsets;
   };
-  const groupWireOffset = fanOut([
-    ...lanes.map((lane) => `g:${lane.groupKey}`),
-    ...apps.flatMap((app) =>
-      app.staticGroupKey ? [`g:${app.staticGroupKey}`] : [],
+  const laneGroupOffset = fanOut(
+    lanes.map((lane) => ({ id: lane.appId, key: `g:${lane.groupKey}` })),
+  );
+  const laneAttemptOffset = fanOut(
+    lanes.flatMap((lane) =>
+      lane.attempts.map((attempt) => ({
+        id: `${lane.appId}:${attempt.key}`,
+        key: `a:${lane.groupKey}:${attempt.supplierId}|${attempt.model}`,
+      })),
     ),
-  ]);
-  const attemptWireOffset = fanOut([
-    ...lanes.flatMap((lane) =>
-      lane.attempts.map(
-        (attempt) =>
-          `a:${lane.groupKey}:${attempt.supplierId}|${attempt.model}`,
-      ),
-    ),
-    ...apps.flatMap((app) =>
-      app.staticOutletKeys.map((key) => `a:${app.staticGroupKey}:${key}`),
-    ),
-  ]);
+  );
   const trafficGroups = new Set(lanes.map((lane) => lane.groupKey));
 
   const laneStyle = (
@@ -275,7 +424,7 @@ export function RoutingFlow({
     state: FlowState,
   ): { "data-state": string; style: { stroke: string } } => ({
     "data-state": state,
-    style: { stroke: laneColor(lane.appId, apps) },
+    style: { stroke: laneColor(lane.appId) },
   });
   const dimmed = (appId: string): { "data-dimmed": "true" } | {} =>
     focus && focus !== appId ? { "data-dimmed": "true" } : {};
@@ -284,6 +433,26 @@ export function RoutingFlow({
   const appBox = (appId: string) => geometry?.apps.get(appId);
   const groupBox = (key: string) => geometry?.groups.get(key);
   const modelBox = (key: string) => geometry?.models.get(key);
+  const catalogGroup = (node: FlowGroupNode) =>
+    node.groupId
+      ? catalog?.groups?.find((group) => group.id === node.groupId)
+      : undefined;
+  const openNewGroup = () => {
+    if (!catalog) return;
+    setGroupDraft({
+      group: createGroupDraft(),
+      revision: catalog.revision,
+      isNew: true,
+    });
+  };
+  const openGroup = (group: GatewayRouteGroup) => {
+    if (!catalog) return;
+    setGroupDraft({
+      group: structuredClone(group),
+      revision: catalog.revision,
+      isNew: false,
+    });
+  };
 
   return (
     <Card role="region" aria-label={t("gateway.flow.title")}>
@@ -343,63 +512,109 @@ export function RoutingFlow({
             <div className="phi-flow-stage" ref={stageRef}>
               {/* Column 1 · apps — configured apps are always present; the
                   latest request adds the colored lane overlay on top. */}
-              <ol className="phi-flow-col" aria-label={t("gateway.flow.apps")}>
-                {apps.map((entry) => {
-                  const lane = entry.lane;
-                  const playback = lane
-                    ? lanePlayback(lane, timeline, step)
-                    : null;
-                  return (
-                    <li
-                      key={entry.appId}
-                      className="phi-flow-node"
-                      data-flow="app"
-                      data-flow-key={entry.appId}
-                      data-kind="app"
-                      data-state={
-                        lane
-                          ? playback!.visible
-                            ? laneFinalState(lane)
-                            : "dimmed"
-                          : "idle"
-                      }
-                      data-dimmed={
-                        focus && focus !== entry.appId ? "true" : undefined
-                      }
-                    >
-                      <button
-                        type="button"
-                        className="phi-flow-hit"
-                        aria-label={t("gateway.flow.focusApp", {
-                          app: getAppLabel(entry.appId),
-                        })}
-                        aria-pressed={focus === entry.appId}
-                        onClick={() =>
-                          setFocus((current) =>
-                            current === entry.appId ? null : entry.appId,
-                          )
+              <div className="phi-flow-col phi-flow-app-col">
+                <ol
+                  id={`${titleId}-apps`}
+                  className="phi-flow-app-list"
+                  aria-label={t("gateway.flow.apps")}
+                >
+                  {shownApps.map((entry) => {
+                    const lane = entry.lane;
+                    const playback = lane
+                      ? lanePlayback(lane, timeline, step)
+                      : null;
+                    // System One 是决策协议的虚拟应用：路由目标由组推导，
+                    // 没有可写的应用配置，因此不提供「设置应用路由」。
+                    const routableAppId =
+                      isRoutableAppId(entry.appId) && entry.appId !== "typesafe"
+                        ? entry.appId
+                        : null;
+                    return (
+                      <li
+                        key={entry.appId}
+                        className="phi-flow-node"
+                        data-flow="app"
+                        data-flow-key={entry.appId}
+                        data-kind="app"
+                        data-has-action={
+                          catalog && routableAppId ? "true" : undefined
+                        }
+                        data-state={
+                          lane
+                            ? playback!.visible
+                              ? laneFinalState(lane)
+                              : "dimmed"
+                            : "idle"
+                        }
+                        data-dimmed={
+                          focus && focus !== entry.appId ? "true" : undefined
                         }
                       >
-                        <strong>{getAppLabel(entry.appId)}</strong>
-                        <span
-                          className="truncate font-mono text-xs text-fg-3"
-                          title={
-                            lane
-                              ? `${lane.trace.requestModel || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
-                              : undefined
+                        <button
+                          type="button"
+                          className="phi-flow-hit"
+                          aria-label={t("gateway.flow.focusApp", {
+                            app: getAppLabel(entry.appId),
+                          })}
+                          aria-pressed={focus === entry.appId}
+                          onClick={() =>
+                            setFocus((current) =>
+                              current === entry.appId ? null : entry.appId,
+                            )
                           }
                         >
-                          {lane
-                            ? `${lane.trace.requestModel || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
-                            : entry.staticGroupKey
-                              ? t("gateway.flow.idle")
-                              : t("gateway.flow.noGroup")}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ol>
+                          <strong>{getAppLabel(entry.appId)}</strong>
+                          <span
+                            className="truncate font-mono text-xs text-fg-3"
+                            title={
+                              lane
+                                ? `${lane.trace.requestModel || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
+                                : undefined
+                            }
+                          >
+                            {lane
+                              ? `${lane.trace.requestModel || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
+                              : entry.staticGroupKey
+                                ? t("gateway.flow.idle")
+                                : t("gateway.flow.noGroup")}
+                          </span>
+                        </button>
+                        {catalog && routableAppId && (
+                          <button
+                            type="button"
+                            className="phi-flow-action"
+                            aria-label={t("gateway.flow.routeSettingsFor", {
+                              app: getAppLabel(entry.appId),
+                            })}
+                            title={t("gateway.flow.routeSettings")}
+                            onClick={() => setRouteApp(routableAppId)}
+                          >
+                            <Settings2 aria-hidden />
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+                {apps.length > VISIBLE_APP_LIMIT &&
+                  (appsExpanded || hiddenAppCount > 0) && (
+                    <button
+                      type="button"
+                      className="phi-flow-more"
+                      aria-expanded={appsExpanded}
+                      aria-controls={`${titleId}-apps`}
+                      onClick={() => setAppsExpanded((value) => !value)}
+                    >
+                      <ChevronDown
+                        aria-hidden
+                        className={appsExpanded ? "rotate-180" : undefined}
+                      />
+                      {appsExpanded
+                        ? t("gateway.flow.fewerApps")
+                        : t("gateway.flow.moreApps", { count: hiddenAppCount })}
+                    </button>
+                  )}
+              </div>
               {/* Column 2 · PHI */}
               <div className="phi-flow-col phi-flow-hub-wrap">
                 <div className="phi-flow-node phi-flow-hub" data-flow="hub">
@@ -415,39 +630,84 @@ export function RoutingFlow({
                   )}
                 </div>
               </div>
-              {/* Column 3 · route groups */}
-              <ol
-                className="phi-flow-col"
-                aria-label={t("gateway.flow.groups")}
-              >
-                {groups.map((group) => (
-                  <li
-                    key={group.key}
-                    className="phi-flow-node"
-                    data-flow="group"
-                    data-flow-key={group.key}
-                    data-kind="group"
-                    data-static={
-                      trafficGroups.has(group.key) ? undefined : "true"
-                    }
+              {/* Column 3 · route groups — every catalog group lives here so a
+                  new or not-yet-connected group can still be edited. */}
+              <div className="phi-flow-col">
+                {catalog && (
+                  <button
+                    type="button"
+                    className="phi-flow-add"
+                    onClick={openNewGroup}
                   >
-                    <strong className="w-full truncate" title={group.name}>
-                      {group.name}
-                    </strong>
-                    {group.strategy ? (
-                      <span className="text-xs text-fg-3">
-                        {t(`gateway.groups.strategies.${group.strategy}`, {
-                          defaultValue: group.strategy,
-                        })}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-fg-3">
-                        {t("gateway.flow.legacyPolicy")}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ol>
+                    <Plus aria-hidden />
+                    {t("gateway.groups.new")}
+                  </button>
+                )}
+                <ol
+                  className="phi-flow-group-list"
+                  aria-label={t("gateway.flow.groups")}
+                >
+                  {groups.map((group) => {
+                    const editable = catalogGroup(group);
+                    return (
+                      <li
+                        key={group.key}
+                        className="phi-flow-node"
+                        data-flow="group"
+                        data-flow-key={group.key}
+                        data-kind="group"
+                        data-disabled={
+                          group.enabled === false ? "true" : undefined
+                        }
+                        data-has-action={editable ? "true" : undefined}
+                        data-static={
+                          trafficGroups.has(group.key) ? undefined : "true"
+                        }
+                      >
+                        <div className="phi-flow-node-text">
+                          <strong
+                            className="w-full truncate"
+                            title={group.name}
+                          >
+                            {group.name}
+                          </strong>
+                          {group.enabled === false ? (
+                            <span className="text-xs text-fg-3">
+                              {t("gateway.groups.off")}
+                            </span>
+                          ) : group.strategy ? (
+                            <span className="text-xs text-fg-3">
+                              {t(
+                                `gateway.groups.strategies.${group.strategy}`,
+                                {
+                                  defaultValue: group.strategy,
+                                },
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-fg-3">
+                              {t("gateway.flow.legacyPolicy")}
+                            </span>
+                          )}
+                        </div>
+                        {editable && (
+                          <button
+                            type="button"
+                            className="phi-flow-action"
+                            aria-label={t("gateway.groups.editFor", {
+                              name: group.name,
+                            })}
+                            title={t("gateway.groups.edit")}
+                            onClick={() => openGroup(editable)}
+                          >
+                            <Pencil aria-hidden />
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
               {/* Column 4 · models — configured members without traffic keep
                   a neutral idle state. */}
               <ol
@@ -544,12 +804,10 @@ export function RoutingFlow({
                         return null;
                       const target = groupBox(entry.staticGroupKey);
                       if (!target) return null;
-                      const offset =
-                        groupWireOffset.get(`g:${entry.staticGroupKey}`) ?? 0;
                       return (
                         <path
                           key={`static:${entry.appId}`}
-                          d={wirePath(hub, target, offset)}
+                          d={wirePath(hub, target)}
                           data-state="static"
                           {...dimmed(entry.appId)}
                         />
@@ -564,8 +822,7 @@ export function RoutingFlow({
                       const state = playback.done
                         ? laneFinalState(lane)
                         : "active";
-                      const offset =
-                        groupWireOffset.get(`g:${lane.groupKey}`) ?? 0;
+                      const offset = laneGroupOffset.get(lane.appId) ?? 0;
                       return (
                         <path
                           key={lane.appId}
@@ -586,14 +843,10 @@ export function RoutingFlow({
                       const from = groupBox(entry.staticGroupKey!);
                       const to = modelBox(key);
                       if (!from || !to) return null;
-                      const offset =
-                        attemptWireOffset.get(
-                          `a:${entry.staticGroupKey}:${key}`,
-                        ) ?? 0;
                       return (
                         <path
                           key={`static:${entry.appId}:${key}`}
-                          d={wirePath(from, to, offset)}
+                          d={wirePath(from, to)}
                           data-state="static"
                           {...dimmed(entry.appId)}
                         />
@@ -609,9 +862,8 @@ export function RoutingFlow({
                       const to = modelBox(outletKey);
                       if (!from || !to) return null;
                       const offset =
-                        attemptWireOffset.get(
-                          `a:${lane.groupKey}:${outletKey}`,
-                        ) ?? 0;
+                        laneAttemptOffset.get(`${lane.appId}:${attempt.key}`) ??
+                        0;
                       const state: FlowState =
                         playback.headAttempt === attempt.key
                           ? "active"
@@ -692,7 +944,7 @@ export function RoutingFlow({
               {t("gateway.flow.configured")}
             </span>
             {lanes.map((lane) => {
-              const color = laneColor(lane.appId, apps);
+              const color = laneColor(lane.appId);
               return (
                 <span
                   key={lane.appId}
@@ -714,6 +966,34 @@ export function RoutingFlow({
               );
             })}
           </div>
+        )}
+        {routeApp && catalog && (
+          <AppRouteSettingsDialog
+            app={routeApp}
+            catalog={catalog}
+            open
+            onOpenChange={(open) => {
+              if (!open) setRouteApp(null);
+            }}
+          />
+        )}
+        {groupDraft && catalog && (
+          <GroupEditorHost
+            catalog={catalog}
+            draft={groupDraft}
+            onClose={() => setGroupDraft(null)}
+            onDeleteRequest={(group) => {
+              setDeletingGroup(group);
+              setGroupDraft(null);
+            }}
+          />
+        )}
+        {deletingGroup && catalog && (
+          <GroupDeleteDialog
+            catalog={catalog}
+            group={deletingGroup}
+            onClose={() => setDeletingGroup(null)}
+          />
         )}
       </CardContent>
     </Card>

@@ -60,6 +60,16 @@ export interface GatewayRoutePolicy {
 }
 
 /** 资源池 + 策略的整份目录，revision 做乐观锁。 */
+/** 累加式应用的路由接入状态（后端 gateway::attach::AttachmentStatus）。 */
+export interface GatewayAppStatus {
+  appId: string;
+  attached: boolean;
+  providerId: string;
+  groupId?: string | null;
+  previousProviderId?: string | null;
+  ingress: string;
+}
+
 export interface GatewayCatalog {
   revision: number;
   suppliers: GatewaySupplier[];
@@ -277,6 +287,14 @@ export const gatewayApi = {
     revision?: number,
   ): Promise<void> {
     return invoke("connect_gateway_app", { appId, groupId, revision });
+  },
+  /** 累加式应用的路由接入状态；代理模式应用返回 null。 */
+  async getAppStatus(appId: string): Promise<GatewayAppStatus | null> {
+    return invoke("get_gateway_app_status", { appId });
+  },
+  /** 退出累加式应用的路由接入，切回接入前的供应商。 */
+  async disconnectApp(appId: string): Promise<void> {
+    return invoke("disconnect_gateway_app", { appId });
   },
   /**
    * 把资源池供应商落成该应用的直连供应商行（幂等），返回 provider id。

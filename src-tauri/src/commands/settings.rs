@@ -206,7 +206,9 @@ pub async fn restore_codex_unified_history() -> Result<CodexUnifyHistoryRestoreR
 /// 重启应用程序（当 app_config_dir 变更后使用）
 #[tauri::command]
 pub async fn restart_app(app: AppHandle) -> Result<bool, String> {
-    if !crate::terminal::prepare_restart(&app).await? { return Ok(false); }
+    if !crate::terminal::prepare_restart(&app).await? {
+        return Ok(false);
+    }
     crate::save_window_state_before_exit(&app);
 
     // 在后台延迟重启，让函数有时间返回响应
@@ -292,7 +294,9 @@ pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> 
             .install(bytes)
             .map_err(|e| format!("安装更新失败: {e}"))?;
 
-        if !crate::terminal::prepare_restart(&app).await? { return Ok(false); }
+        if !crate::terminal::prepare_restart(&app).await? {
+            return Ok(false);
+        }
 
         crate::save_window_state_before_exit(&app);
         crate::cleanup_before_exit(&app).await;

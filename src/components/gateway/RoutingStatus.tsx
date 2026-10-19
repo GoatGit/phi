@@ -11,6 +11,7 @@ import { getAppLabel } from "@/config/appConfig";
 import { RefreshCw, SlidersHorizontal } from "lucide-react";
 import { TraceSection } from "./TraceSection";
 import { RoutingFlow } from "./RoutingFlow";
+import type { RouteAppRequest } from "./routingFlowModel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Notice } from "@/components/ui/notice";
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useGlobalProxyConfig } from "@/lib/query/proxy";
-import { GatewaySelect } from "./GroupSection";
+import { GatewaySelect } from "./GatewaySelect";
 import { GATEWAY_APPS, useGatewayErrorMessage } from "./useGatewayCatalog";
 
 export interface RoutingFilters {
@@ -284,11 +285,16 @@ export function RoutingStatus({
   policyId,
   groupId,
   onOpenPolicy,
+  routeAppRequest,
+  onRouteAppRequestHandled,
 }: {
   catalog: GatewayCatalog;
   policyId?: string | null;
   groupId?: string | null;
   onOpenPolicy?: (id: string) => void;
+  /** 侧栏发来的“打开应用路由设置”请求 */
+  routeAppRequest?: RouteAppRequest | null;
+  onRouteAppRequestHandled?: () => void;
 }) {
   const { t } = useTranslation();
   const describeError = useGatewayErrorMessage();
@@ -366,6 +372,8 @@ export function RoutingStatus({
             key={JSON.stringify([filters, offset])}
             data={query.data}
             catalog={catalog}
+            routeAppRequest={routeAppRequest}
+            onRouteAppRequestHandled={onRouteAppRequestHandled}
           />
           <RoutingSummary summary={query.data.summary} />
           {!!query.data.active.length && (
