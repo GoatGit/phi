@@ -21,6 +21,10 @@ GEMINI.md
 vitest-report.json
 nul
 
+# Cloudflare Pages 本地状态与凭据缓存，不入库
+/.wrangler/
+.dev.vars
+
 # Flatpak build artifacts
 flatpak/cc-switch.deb
 flatpak-build/
