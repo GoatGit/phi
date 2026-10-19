@@ -109,3 +109,5 @@ For frontend work alone, use `pnpm dev:renderer`; a browser cannot provide real 
 PHI is [MIT licensed](LICENSE), preserving the copyright notice of upstream CC Switch author Jason Young. Thank you to everyone contributing to PHI.
 
 The macOS terminal uses [Ghostty](scripts/ghostty/README.md). Its [MIT license](scripts/ghostty/GHOSTTY-LICENSE) and dependency notices are retained in the packaged resources. Third-party components remain subject to their respective licenses.
+
+Third-party app names and logos shown in PHI (the app connection list, the `src/icons/extracted/` icon set, and the supported-apps section of the website) are trademarks of their respective owners. They identify which apps PHI works with and do not imply endorsement, sponsorship, or partnership.

@@ -109,3 +109,5 @@ pnpm dev
 PHI 使用 [MIT 许可证](LICENSE)，保留上游 CC Switch 作者 Jason Young 的版权声明，并感谢 PHI 的所有贡献者。
 
 macOS 内嵌终端基于 [Ghostty](scripts/ghostty/README.md)，其 [MIT 许可证](scripts/ghostty/GHOSTTY-LICENSE)与依赖许可随打包资源保留。各第三方组件仍遵循各自的许可证。
+
+界面里出现的第三方应用名称与图标（应用连接列表、图标资源 `src/icons/extracted/`，以及官网的「支持的应用」板块）是各自所有者的商标，仅用于说明 PHI 兼容哪些应用，不代表任何形式的官方背书、赞助或合作。
