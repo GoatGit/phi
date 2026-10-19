@@ -1,0 +1,33 @@
+{
+  "version": "1.0.1",
+  "items": [
+    {
+      "type": "improve",
+      "zh": "路由页改成一行一个应用，点开就能设路由、建组",
+      "zh-TW": "路由頁改成一行一個應用，點開就能設路由、建組",
+      "en": "The routing page is now one row per app; open a row to set its route",
+      "ja": "ルーティング画面はアプリごとに 1 行に。開いてルートを設定できます"
+    },
+    {
+      "type": "new",
+      "zh": "路由组可以混装不同协议的模型，任何应用都能直接用",
+      "zh-TW": "路由組可以混裝不同協議的模型，任何應用都能直接用",
+      "en": "Route groups can mix models from different protocols, usable from any app",
+      "ja": "ルートグループに異なるプロトコルのモデルを混在でき、どのアプリからも使えます"
+    },
+    {
+      "type": "improve",
+      "zh": "侧边栏列出全部可路由应用，靠后的默认折叠",
+      "zh-TW": "側邊欄列出全部可路由應用，靠後的自動收合",
+      "en": "The sidebar lists every routable app and folds the less-used ones",
+      "ja": "サイドバーに全ての対応アプリを並べ、優先度の低いものは畳みます"
+    },
+    {
+      "type": "fix",
+      "zh": "终端启动时就套用你的主题，不再先闪一帧默认配色",
+      "zh-TW": "終端啟動時就套用你的主題，不再先閃一幀預設配色",
+      "en": "Terminal sessions start with your theme instead of flashing defaults",
+      "ja": "ターミナルは起動時からテーマを適用し、既定色が一瞬出なくなりました"
+    }
+  ]
+}

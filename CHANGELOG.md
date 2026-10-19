@@ -8,6 +8,37 @@ PHI 的所有显著变更将记录在本文件。
 > 本项目从 CC Switch v4.0.8（MIT，© Jason Young）的一次性源码快照独立发展而来。
 > 上游历史变更见上游仓库的 CHANGELOG；本文件自 PHI v1.0.0 起独立记录。
 
+## [1.0.1] - 2026-10-19
+
+### Added / 新增
+
+- 统一网关应用目录（`gateway/apps.rs`）：网关、ingress 与前端流程图共用一份应用清单，
+  不再由各调用点各自判断某个应用能否接入
+- 累加式应用接入（`gateway/attach.rs`）：没有代理模式的应用以一行「PHI」供应商写进
+  自身原生配置，进程启动时按新令牌刷新，避免上一进程的令牌换来 401
+- System One 路由身份（`gateway/typesafe.rs`）：仅由全 System One 成员的组推导，
+  请求经 `/typesafe/v1/systemone` 原样转发，不参与聊天协议互转
+- 侧边栏应用列表按优先级排序，靠后项默认折叠并保留展开入口
+
+### Changed / 变更
+
+- 协议转换改走中性中间表示（`proxy/protocol`）：IR 加按协议划分的 codec，转换器按
+  「协议 A → 协议 B」命名而不是按应用入口命名；路由组因此可以混合 OpenAI、
+  Anthropic、Gemini 成员，并由任意应用使用
+- 路由页重做：一行一个应用，供应商、路由组与路由设置改为弹窗；移除 `AppRouteRow`
+  与 `NativeAppConnectionRow`，`GroupSection`、`ResourcePoolSection` 大幅精简
+
+### Fixed / 修复
+
+- 终端会话在启动前应用主题，不再先渲染一帧默认配色
+- 前端构建链路依赖升级，修复已公布的 Toolchain 安全告警
+
+### Docs / 文档
+
+- 新增中英已知限制，覆盖安装包签名状态与各平台真机验证范围
+- 中英 README 与官网声明第三方应用名称与图标仅用于说明兼容性
+- 忽略 Cloudflare 本地状态目录与 `.dev.vars`，避免误提交
+
 ## [1.0.0] - 2026-10-14
 
 自 CC Switch v4.0.8 快照独立演进的首个公开版本。相对上游的主要变化：
