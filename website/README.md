@@ -1,6 +1,6 @@
 # PHI 官网
 
-PHI 的产品官网，暖白纸色、墨线描边与珊瑚色的轻快贴纸式页面，支持简体中文、英文和日文。发布物为纯静态 HTML / CSS，无外部字体、外部脚本或运行时依赖。
+PHI 的产品官网，暖白纸色、墨线描边与珊瑚色的轻快贴纸式页面，配樱花粉高亮与糖果色应用墙，支持简体中文、英文和日文。发布物为纯静态 HTML / CSS，无外部字体、外部脚本或运行时依赖。
 
 - 线上地址：<https://phi.semibot.ai>
 - 中文：`index.html`（`/`）；英文：`en/index.html`（`/en/`）；日文：`ja/index.html`（`/ja/`）。
@@ -54,5 +54,5 @@ npx wrangler pages deploy website --project-name phi-website --branch main
 - `.workspace-preview`、`.terminal-shot`、`.flow`、`.route-map`、`.session-stack` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。
 - 文案围绕用户的具体工作，少用术语堆叠；维持章节、列表、留白的阅读节奏。
 - 常见问题使用原生 `details` / `summary`，无 JavaScript 依赖，需检查鼠标和键盘展开。
-- 修改 CSS 后递增页面样式 URL 版本参数（当前 `pop-1`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
+- 修改 CSS 后递增页面样式 URL 版本参数（当前 `pastel-1`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
 - 检查窄屏、桌面端、键盘焦点、锚点定位及减少动态效果偏好。不要引入外部字体、脚本或统计服务。
