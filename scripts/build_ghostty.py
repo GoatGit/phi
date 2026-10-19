@@ -13,6 +13,7 @@ import platform
 import shutil
 import subprocess
 import tarfile
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "tmp/ghostty-build"
@@ -31,6 +32,51 @@ def download(url, path, checksum):
         partial.replace(path)
     if hashlib.sha256(path.read_bytes()).hexdigest() != checksum:
         raise RuntimeError(f"Checksum mismatch: {path}; remove this download and retry")
+
+
+# Zig resolves Ghostty's git dependencies while building. codeberg.org
+# occasionally drops the capability probe (EndOfStream), which is transient and
+# unrelated to the source: retry only those failures, not compile errors.
+TRANSIENT_FETCH_ERRORS = (
+    "unable to discover remote git server capabilities",
+    "endofstream",
+    "failed to fetch",
+    "unable to fetch",
+    "connection reset",
+    "connection timed out",
+    "could not resolve host",
+    "temporary failure in name resolution",
+    "network is unreachable",
+)
+
+
+def run_zig_build(command, cwd, environment, attempts=3):
+    for attempt in range(1, attempts + 1):
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        print(result.stdout, end="", flush=True)
+        if result.returncode == 0:
+            return
+        output = result.stdout.lower()
+        transient = any(marker in output for marker in TRANSIENT_FETCH_ERRORS)
+        if not transient or attempt == attempts:
+            raise subprocess.CalledProcessError(
+                result.returncode, command, output=result.stdout
+            )
+        delay = 10 * attempt
+        print(
+            f"Ghostty dependency download failed (attempt {attempt}/{attempts}); "
+            f"retrying in {delay}s",
+            flush=True,
+        )
+        time.sleep(delay)
 
 
 def main():
@@ -87,7 +133,8 @@ def main():
     # panics on a tag that does not equal its own ("tagged releases must be in
     # vX.Y.Z format matching build.zig"). Building from PHI's release tag would
     # hit that on every release, so pin the version explicitly.
-    subprocess.run([str(zig), "build", f"-Dtarget={target_arch}-macos.13.0", f"-Dversion-string={VERSION}", "-Doptimize=ReleaseFast", "-Dapp-runtime=none", "-Demit-xcframework=false", "-Demit-macos-app=false", "-Demit-docs=false", "-Demit-webdata=false", "-Demit-helpgen=false", "-Demit-themes=false", "-Dsentry=false", "-Dstrip=true", "-j4", "--prefix", str(ROOT / "src-tauri/ghostty-sdk")], cwd=source, env=environment, check=True)
+    command = [str(zig), "build", f"-Dtarget={target_arch}-macos.13.0", f"-Dversion-string={VERSION}", "-Doptimize=ReleaseFast", "-Dapp-runtime=none", "-Demit-xcframework=false", "-Demit-macos-app=false", "-Demit-docs=false", "-Demit-webdata=false", "-Demit-helpgen=false", "-Demit-themes=false", "-Dsentry=false", "-Dstrip=true", "-j4", "--prefix", str(ROOT / "src-tauri/ghostty-sdk")]
+    run_zig_build(command, source, environment)
     subprocess.run(["python3", str(ROOT / "scripts/ghostty/collect_licenses.py"), str(source), str(zig)], check=True)
     print(f"Ghostty {VERSION} ({target_arch}) SDK ready: src-tauri/ghostty-sdk")
 
