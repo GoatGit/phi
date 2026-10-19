@@ -46,7 +46,11 @@ python3 scripts/build_changelog.py --check
 
 ## 部署
 
-Cloudflare Pages 项目为 `phi-website`，发布目录为 `website/`。使用已授权的 Cloudflare 登录态执行生产部署：
+Cloudflare Pages 项目为 `phi-website`，发布目录为 `website/`。
+
+改动落在 `website/**`、生成脚本或三语数据上并推送到 `main` 后，`.github/workflows/deploy-website.yml` 会自动校验生成物并部署生产分支；也可以在该 workflow 上手动触发 `workflow_dispatch`。凭据存放在仓库级 `CLOUDFLARE_API_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID`，不要写进仓库或提交到工作树。
+
+需要手工部署（例如验证一个还没推送的改动）时，使用已授权的 Cloudflare 登录态：
 
 ```sh
 npx wrangler pages deploy website --project-name phi-website --branch main
