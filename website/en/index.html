@@ -20,9 +20,9 @@
   <meta property="og:locale:alternate" content="zh_CN">
   <meta property="og:locale:alternate" content="ja_JP">
   <link rel="icon" type="image/svg+xml" href="../assets/phi-app.svg">
-  <link rel="stylesheet" href="../css/style.css?v=pastel-2">
+  <link rel="stylesheet" href="../css/style.css?v=flow-3">
   <script type="application/ld+json">
-  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI connects Claude Code, Codex, Gemini CLI and other tools to one local gateway. It translates between OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini (System One coming soon), picks models through direct connections or route groups, runs CLIs in a built-in terminal, and records usage.", "url": "https://phi.semibot.ai/en/", "inLanguage": "en", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
+  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI connects Claude Code, Codex, Gemini CLI and other apps to one local gateway. It translates between OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini (System One coming soon), picks models through direct connections or route groups, runs CLIs in a built-in terminal, and records usage.", "url": "https://phi.semibot.ai/en/", "inLanguage": "en", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
   </script>
 </head>
 <body>
@@ -49,12 +49,7 @@
   <main id="main">
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <div class="hero-mark" aria-hidden="true">
-          <span class="mark-ring"></span>
-          <img src="../assets/phi-app.svg" width="84" height="84" alt="">
-          <svg class="spark spark-a" viewbox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"></path></svg>
-          <svg class="spark spark-b" viewbox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"></path></svg>
-        </div>
+        <img class="hero-mark" src="../assets/phi-app.svg" width="84" height="84" alt="" aria-hidden="true">
         <p class="hero-kicker">Gateway · Routing · Terminal</p>
         <h1 id="hero-title">One gateway.<br><span class="h1-mark">Your AI stack, unified.</span></h1>
         <p class="lede">
@@ -85,27 +80,12 @@
       </div>
     </section>
 
-    <section class="story wrap" aria-labelledby="story-title">
-      <h2 id="story-title">Three tools, three setups.<br>You just want to code.</h2>
-      <div class="story-body">
-        <p>
-          You probably use Claude Code, Codex and Gemini CLI at the same time. Each speaks its own protocol and keeps its own configuration. Changing providers means editing three or four places; changing a route means remembering which file you touched last time.
-        </p>
-        <p>
-          PHI puts all of this in one window: the gateway translates protocols, route groups assign the line, and the terminal lives in the same app. Set up a provider once and use it across tools. No PHI account; settings and stats stay on your machine, and model access still uses your own account or API key.
-        </p>
-        <p class="aside">
-          An independent fork of <a href="https://github.com/farion1231/cc-switch">CC Switch</a>, built with Tauri 2, Rust and React.
-        </p>
-      </div>
-    </section>
-
     <section class="chapter wrap" id="gateway" aria-labelledby="gateway-title">
       <div class="chapter-intro">
         <h2 id="gateway-title">Let the middle layer handle protocols.</h2>
         <div class="chapter-copy">
           <p>
-            Claude Code speaks Anthropic Messages, Codex speaks OpenAI Responses, Gemini CLI speaks native Gemini; your provider may speak something else. PHI detects the protocol and passes it through or translates it, so each tool doesn't need a separate connection per provider. The fifth is System One, a decision protocol built around questions and answers. It's on the way.
+            Claude Code speaks Anthropic Messages, Codex speaks OpenAI Responses, Gemini CLI speaks native Gemini; your provider may speak something else. PHI detects the protocol and passes it through or translates it, so each app doesn't need a separate connection per provider. The fifth is System One, a decision protocol built around questions and answers. It's on the way.
           </p>
         </div>
       </div>
@@ -144,23 +124,31 @@
 
     <section class="chapter chapter-center wrap" id="apps" aria-labelledby="apps-title">
       <div class="chapter-intro">
-        <h2 id="apps-title">The tools you already use are in there.</h2>
+        <h2 id="apps-title">The apps you already use are in there.</h2>
         <div class="chapter-copy">
-          <p>Ten tools, one setup. Take over existing configuration or coexist with it; either way, one set of providers and routes.</p>
+          <p>Seventeen apps, one setup. Take over existing configuration or coexist with it; either way, one set of providers and routes.</p>
         </div>
       </div>
       <ul class="app-grid">
-        <li class="app-card"><img src="../assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Code</strong></li>
-        <li class="app-card"><img src="../assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Desktop</strong></li>
-        <li class="app-card"><img src="../assets/apps/openai.svg" width="30" height="30" alt=""><strong>Codex</strong></li>
-        <li class="app-card"><img src="../assets/apps/gemini.svg" width="30" height="30" alt=""><strong>Gemini CLI</strong></li>
-        <li class="app-card"><img src="../assets/apps/grok.svg" width="30" height="30" alt=""><strong>Grok Build</strong></li>
-        <li class="app-card"><img src="../assets/apps/opencode.svg" width="30" height="30" alt=""><strong>OpenCode</strong></li>
-        <li class="app-card"><img src="../assets/apps/claw.svg" width="30" height="30" alt=""><strong>OpenClaw</strong></li>
-        <li class="app-card"><img src="../assets/apps/hermes.png" width="30" height="30" alt=""><strong>Hermes</strong></li>
-        <li class="app-card"><img src="../assets/apps/pi.svg" width="30" height="30" alt=""><strong>Pi</strong></li>
-        <li class="app-card"><img src="../assets/apps/minimax.svg" width="30" height="30" alt=""><strong>MiniMax Code</strong></li>
+        <li class="app-card"><img src="../assets/apps/claude.svg" width="26" height="26" alt=""><strong>Claude</strong></li>
+        <li class="app-card"><img src="../assets/apps/claude.svg" width="26" height="26" alt=""><strong>Claude Desktop</strong></li>
+        <li class="app-card"><img src="../assets/apps/openai.svg" width="26" height="26" alt=""><strong>Codex</strong></li>
+        <li class="app-card"><img src="../assets/apps/gemini.svg" width="26" height="26" alt=""><strong>Gemini</strong></li>
+        <li class="app-card"><img src="../assets/apps/grok.svg" width="26" height="26" alt=""><strong>Grok Build</strong></li>
+        <li class="app-card"><img src="../assets/apps/opencode.svg" width="26" height="26" alt=""><strong>OpenCode</strong></li>
+        <li class="app-card"><img src="../assets/apps/claw.svg" width="26" height="26" alt=""><strong>OpenClaw</strong></li>
+        <li class="app-card"><img src="../assets/apps/hermes.png" width="26" height="26" alt=""><strong>Hermes</strong></li>
+        <li class="app-card"><img src="../assets/apps/pi.svg" width="26" height="26" alt=""><strong>Pi</strong></li>
+        <li class="app-card"><img src="../assets/apps/minimax.svg" width="26" height="26" alt=""><strong>MiniMax Code</strong></li>
+        <li class="app-card"><img src="../assets/apps/commandcode.svg" width="26" height="26" alt=""><strong>Command Code</strong></li>
+        <li class="app-card"><img src="../assets/apps/crush.png" width="26" height="26" alt=""><strong>Crush</strong></li>
+        <li class="app-card"><img src="../assets/apps/droid.svg" width="26" height="26" alt=""><strong>Droid</strong></li>
+        <li class="app-card"><img src="../assets/apps/kimi.svg" width="26" height="26" alt=""><strong>Kimi Code</strong></li>
+        <li class="app-card"><img src="../assets/apps/atomcode.png" width="26" height="26" alt=""><strong>AtomCode</strong></li>
+        <li class="app-card"><img src="../assets/apps/omo.svg" width="26" height="26" alt=""><strong>OmO</strong></li>
+        <li class="app-card"><img src="../assets/apps/typesafe.svg" width="26" height="26" alt=""><strong>System One</strong></li>
       </ul>
+      <p class="app-note">System One is on the way; the other 16 apps work today.</p>
     </section>
 
     <section class="chapter wrap" id="routing" aria-labelledby="routing-title">
@@ -173,41 +161,101 @@
         </div>
       </div>
 
-      <div class="route-layout">
-        <div class="route-map" role="img" aria-label="Diagram: apps go through a route group, which assigns requests to provider members by strategy">
-          <div class="route-layer">
-            <div class="route-chips"><span>Claude Code</span><span>Codex</span><span>Gemini CLI</span><span>OpenCode</span></div>
+      <figure class="flow-board" aria-labelledby="flow-caption">
+        <div class="flow-board-top">
+          <span class="flow-live"><i aria-hidden="true"></i>Latest request</span>
+          <span class="flow-board-title">Routing flow</span>
+          <span class="flow-replay" aria-hidden="true">Replay</span>
+        </div>
+        <div class="flow-board-grid">
+          <span class="flow-col-head flow-head-apps">Apps</span>
+          <span class="flow-col-head flow-head-hub">PHI</span>
+          <span class="flow-col-head flow-head-groups">Route group</span>
+          <span class="flow-col-head flow-head-outlets">Provider · Model</span>
+
+          <div class="flow-app is-active flow-row-2"><span class="flow-app-name">Codex<i class="flow-dot" aria-hidden="true"></i></span><span class="flow-app-meta">gpt-6.1-sol · 20:58:52</span></div>
+          <div class="flow-app flow-row-3"><span class="flow-app-name">Claude</span><span class="flow-app-meta">Idle</span></div>
+          <div class="flow-app flow-row-4"><span class="flow-app-name">Claude Desktop</span><span class="flow-app-meta">Idle</span></div>
+          <div class="flow-app flow-row-5"><span class="flow-app-name">Grok Build</span><span class="flow-app-meta">Idle</span></div>
+          <div class="flow-app flow-row-6"><span class="flow-app-name">OpenCode</span><span class="flow-app-meta">Idle</span></div>
+          <div class="flow-app flow-row-7"><span class="flow-app-name">OpenClaw</span><span class="flow-app-meta">Idle</span></div>
+          <div class="flow-more flow-row-8"><span aria-hidden="true">＋</span>Show 11 more apps</div>
+
+          <div class="flow-wire-cell flow-col-wire-1" aria-hidden="true">
+            <svg class="flow-wire" viewbox="0 0 34 440" preserveaspectratio="none">
+              <path class="wire-base" d="M0 63 C17 63 17 237 34 237"></path>
+              <path class="wire-base" d="M0 121 C17 121 17 237 34 237"></path>
+              <path class="wire-base" d="M0 179 C17 179 17 237 34 237"></path>
+              <path class="wire-base" d="M0 237 L34 237"></path>
+              <path class="wire-base" d="M0 295 C17 295 17 237 34 237"></path>
+              <path class="wire-base" d="M0 353 C17 353 17 237 34 237"></path>
+              <path class="wire-base" d="M0 411 C17 411 17 237 34 237"></path>
+              <path class="wire-done" d="M0 63 C17 63 17 237 34 237"></path>
+            </svg>
           </div>
-          <p class="route-join" aria-hidden="true">↓</p>
-          <div class="route-layer">
-            <div class="route-group-line"><strong>Primary route</strong><span>Least used first · fail over automatically</span></div>
+
+          <div class="flow-hub flow-col-hub">
+            <img src="../assets/phi-app.svg" width="30" height="30" alt="">
+            <strong>PHI</strong>
+            <span>17 apps</span>
           </div>
-          <p class="route-join" aria-hidden="true">↓</p>
-          <div class="route-layer">
-            <div class="route-members">
-              <span><b>Provider A</b>Anthropic</span>
-              <span><b>Provider B</b>OpenAI Chat</span>
-              <span><b>Provider C</b>Gemini</span>
-            </div>
+
+          <span class="flow-down" aria-hidden="true">↓</span>
+
+          <div class="flow-ghost flow-col-group flow-row-4">＋ New route group</div>
+          <div class="flow-group flow-col-group flow-row-5"><strong>Primary route</strong><span>Least used first · fail over automatically</span></div>
+
+          <span class="flow-down flow-down-2" aria-hidden="true">↓</span>
+
+          <div class="flow-wire-cell flow-col-wire-2" aria-hidden="true">
+            <svg class="flow-wire" viewbox="0 0 34 440" preserveaspectratio="none">
+              <path class="wire-base" d="M0 237 L34 237"></path>
+              <path class="wire-done" d="M0 237 L34 237"></path>
+            </svg>
+          </div>
+
+          <div class="flow-outlet is-done flow-col-outlet flow-row-3"><i aria-hidden="true"></i><div><strong>Provider A</strong><span>claude-sonnet</span></div></div>
+          <div class="flow-outlet is-failed flow-col-outlet flow-row-4"><i aria-hidden="true"></i><div><strong>Provider B</strong><span>gpt-6.1-sol</span></div></div>
+          <div class="flow-outlet is-unknown flow-col-outlet flow-row-6"><i aria-hidden="true"></i><div><strong>Provider C</strong><span>gemini-2.5-pro</span></div></div>
+          <div class="flow-outlet is-idle flow-col-outlet flow-row-7"><i aria-hidden="true"></i><div><strong>Provider D</strong><span>glm-5.3</span></div></div>
+
+          <div class="flow-wire-cell flow-col-wire-3" aria-hidden="true">
+            <svg class="flow-wire" viewbox="0 0 34 440" preserveaspectratio="none">
+              <path class="wire-base" d="M0 237 C17 237 17 121 34 121"></path>
+              <path class="wire-base" d="M0 237 C17 237 17 179 34 179"></path>
+              <path class="wire-base" d="M0 237 C17 237 17 295 34 295"></path>
+              <path class="wire-base" d="M0 237 C17 237 17 353 34 353"></path>
+              <path class="wire-done" d="M0 237 C17 237 17 121 34 121"></path>
+              <path class="wire-fail" d="M0 237 C17 237 17 179 34 179"></path>
+              <path class="wire-unknown" d="M0 237 C17 237 17 295 34 295"></path>
+            </svg>
           </div>
         </div>
 
-        <dl class="strategies">
-          <div><dt>Ordered</dt><dd>Try members in your order; use the first one that works.</dd></div>
-          <div><dt>Round robin</dt><dd>Requests go to members in turn, so several lines share the load.</dd></div>
-          <div><dt>Least used first</dt><dd>Members with lower concurrency and recent usage come first.</dd></div>
-          <div><dt>Weighted</dt><dd>Distribute by weight so the primary line takes more.</dd></div>
-          <div><dt>Manual</dt><dd>Pin one member until you change it.</dd></div>
-          <div><dt>Decision model</dt><dd>A model reads the latest user message, picks one of your rules, and hands the request to that member. The model chooses a rule only; it cannot name a provider or read credentials.</dd></div>
-        </dl>
-      </div>
+        <ul class="flow-legend" aria-label="Legend">
+          <li><i class="flow-key key-base" aria-hidden="true"></i>Light gray dashes · configured topology</li>
+          <li><i class="flow-key key-done" aria-hidden="true"></i>Solid · completed</li>
+          <li><i class="flow-key key-fail" aria-hidden="true"></i>Dashed · failed</li>
+          <li><i class="flow-key key-unknown" aria-hidden="true"></i>Dotted · unconfirmed</li>
+          <li><i class="flow-key key-app" aria-hidden="true"></i>Color · by app</li>
+        </ul>
+        <figcaption id="flow-caption">Illustration: light gray is the configured topology; color is the path of the latest request. While a request is running, the line flows.</figcaption>
+      </figure>
 
-      <ul class="route-notes">
-        <li><h3>Session affinity</h3><p>A conversation stays on the same member where possible, so context doesn't move back and forth.</p></li>
-        <li><h3>Failover</h3><p>Matching errors move to the next line; a member that keeps failing cools down and returns when it recovers.</p></li>
-        <li><h3>Timeouts and retries</h3><p>Set limits for first byte, streaming idle time and total time, so a slow line can't hang.</p></li>
+      <ul class="flow-notes">
+        <li>
+          <h3>One map, two layers</h3>
+          <p>The light gray dashes are the configured topology, always there. The colored line is the latest request, and only the newest one stays. No jumping between a settings page and a log page.</p>
+        </li>
+        <li>
+          <h3>Line style is the result</h3>
+          <p>Color follows the app; line style shows the state: solid is completed, dashed is failed, dotted is unconfirmed. While a request is running, the line flows.</p>
+        </li>
+        <li>
+          <h3>The map is the control panel</h3>
+          <p>Click an app to set its route, click a group to change members and strategy, or create a group right here. Members are providers or models; groups stay one level deep.</p>
+        </li>
       </ul>
-      <p class="footnote">Route groups can nest: a member can be a provider, a model or another group. Direct mode skips the PHI gateway and keeps the app's original connection.</p>
     </section>
 
     <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
@@ -237,7 +285,7 @@
         <h2 id="cli-title">The terminal opens right here.</h2>
         <div class="chapter-copy">
           <p>
-            Click “+” at the top right of an app page, or press <kbd>⌘T</kbd>, pick a folder and go. PHI checks that the CLI is installed first. Nine tools open this way, including Claude Code, Codex and Gemini CLI, with your providers and route groups applied.
+            Click “+” at the top right of an app page, or press <kbd>⌘T</kbd>, pick a folder and go. PHI checks that the CLI is installed first. Nine apps open this way, including Claude Code, Codex and Gemini CLI, with your providers and route groups applied.
             <span class="inline-note">Currently available on macOS 13+ only. If a CLI is missing, PHI shows installation guidance.</span>
           </p>
         </div>
@@ -302,7 +350,7 @@
         </div>
         <div>
           <dt>MCP and Skills</dt>
-          <dd>One list of servers and skills shows which tools they are installed in and whether they are enabled.</dd>
+          <dd>One list of servers and skills shows which apps they are installed in and whether they are enabled.</dd>
         </div>
         <div>
           <dt>Prompts</dt>
@@ -321,13 +369,13 @@
 
     <section class="chapter wrap" id="start" aria-labelledby="start-title">
       <div class="chapter-intro">
-        <h2 id="start-title">Start with a tool you know.</h2>
+        <h2 id="start-title">Start with an app you know.</h2>
         <div class="chapter-copy">
-          <p>You don't need to configure everything at once. Connect one tool, then build out your workspace at your own pace.</p>
+          <p>You don't need to configure everything at once. Connect one app, then build out your workspace at your own pace.</p>
         </div>
       </div>
       <ol class="start-steps">
-        <li><span class="step-glyph" aria-hidden="true">Set</span><div><h3>Install PHI and your CLI</h3><p>PHI manages and launches tools; install each CLI as its own docs say, or keep using the copy you already have.</p></div></li>
+        <li><span class="step-glyph" aria-hidden="true">Set</span><div><h3>Install PHI and your CLI</h3><p>PHI manages and launches apps; install each CLI as its own docs say, or keep using the copy you already have.</p></div></li>
         <li><span class="step-glyph" aria-hidden="true">Link</span><div><h3>Add a provider and choose a connection</h3><p>Fill in a model service, then choose direct or a route group on the Routing page; pick a strategy for the group if you need one.</p></div></li>
         <li><span class="step-glyph" aria-hidden="true">Go</span><div><h3>Open a project and get to work</h3><p>Click “+” on an app page and pick a folder — on macOS 13+ the terminal opens right there — or open the project in your usual terminal.</p></div></li>
       </ol>
@@ -338,7 +386,7 @@
         <h2 id="faq-title">A few things before you download.</h2>
       </div>
       <div class="faq-list">
-        <details><summary>Does PHI include models or free credits?</summary><p>PHI is an open-source desktop tool and does not include model credits. Bring a provider API key or a subscription account your tool supports; the provider bills for model usage.</p></details>
+        <details><summary>Does PHI include models or free credits?</summary><p>PHI is an open-source desktop tool and does not include model credits. Bring a provider API key or a subscription account your app supports; the provider bills for model usage.</p></details>
         <details><summary>What's the difference between direct and a route group?</summary><p>Direct mode skips the gateway and keeps the app's existing connection to one provider. A route group puts several providers or models together, PHI picks one by strategy, and moves on when one fails. Members can use different protocols.</p></details>
         <details><summary>Where do my keys and requests go?</summary><p>Main configuration and usage data stay on this machine; subscription OAuth tokens go to the system keychain. Through the local gateway, requests reach PHI first and are then forwarded to the provider you configured; in direct mode the app connects to the provider itself. Either way, request content and the credentials it needs go to the provider you chose.</p></details>
         <details><summary>Are unified sessions and long-term memory available now?</summary><p>Session browsing works: records the tools keep on this machine land in one list, where you can view them by project or time, search, and copy a resume command. Continuous sessions across tools and long-term memory are still in planning.</p></details>

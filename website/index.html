@@ -20,9 +20,9 @@
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="ja_JP">
   <link rel="icon" type="image/svg+xml" href="assets/phi-app.svg">
-  <link rel="stylesheet" href="css/style.css?v=pastel-2">
+  <link rel="stylesheet" href="css/style.css?v=flow-3">
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"SoftwareApplication","name":"PHI","operatingSystem":"macOS, Windows, Linux","applicationCategory":"DeveloperApplication","description":"PHI 把 Claude Code、Codex、Gemini CLI 等工具接到同一套本地网关：在 OpenAI Chat、OpenAI Responses、Anthropic Messages 与 Gemini 之间转换（System One 即将支持），用直连或路由组选择模型，内嵌终端运行 CLI，并记录用量。","url":"https://phi.semibot.ai/","inLanguage":"zh-CN","downloadUrl":"https://github.com/GoatGit/phi/releases/latest","codeRepository":"https://github.com/GoatGit/phi","license":"https://opensource.org/licenses/MIT"}
+  {"@context":"https://schema.org","@type":"SoftwareApplication","name":"PHI","operatingSystem":"macOS, Windows, Linux","applicationCategory":"DeveloperApplication","description":"PHI 把 Claude Code、Codex、Gemini CLI 等应用接到同一套本地网关：在 OpenAI Chat、OpenAI Responses、Anthropic Messages 与 Gemini 之间转换（System One 即将支持），用直连或路由组选择模型，内嵌终端运行 CLI，并记录用量。","url":"https://phi.semibot.ai/","inLanguage":"zh-CN","downloadUrl":"https://github.com/GoatGit/phi/releases/latest","codeRepository":"https://github.com/GoatGit/phi","license":"https://opensource.org/licenses/MIT"}
   </script>
 </head>
 <body>
@@ -49,12 +49,7 @@
   <main id="main">
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <div class="hero-mark" aria-hidden="true">
-          <span class="mark-ring"></span>
-          <img src="assets/phi-app.svg" width="84" height="84" alt="">
-          <svg class="spark spark-a" viewBox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"/></svg>
-          <svg class="spark spark-b" viewBox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"/></svg>
-        </div>
+        <img class="hero-mark" src="assets/phi-app.svg" width="84" height="84" alt="" aria-hidden="true">
         <p class="hero-kicker">统一网关 · 统一路由 · 统一终端</p>
         <h1 id="hero-title">一个网关，<br><span class="h1-mark">统一你的 AI 开发栈。</span></h1>
         <p class="lede">
@@ -85,27 +80,12 @@
       </div>
     </section>
 
-    <section class="story wrap" aria-labelledby="story-title">
-      <h2 id="story-title">三个工具，三份配置。<br>你只想写代码。</h2>
-      <div class="story-body">
-        <p>
-          你可能同时在用 Claude Code、Codex 和 Gemini CLI。它们各说各的协议，各记一份配置。换个供应商，要在三四个地方各改一遍；想换条线路，还得先想起上次改的是哪个文件。
-        </p>
-        <p>
-          PHI 把这几件事收进同一个窗口：协议在网关里转，线路由路由组分配，终端也在同一个应用里。供应商填一次，几个工具一起用。不需要注册 PHI 账号，配置和统计留在本机；模型服务仍用你自己的账号或 API Key。
-        </p>
-        <p class="aside">
-          它从 <a href="https://github.com/farion1231/cc-switch">CC Switch</a> 独立开发而来，用 Tauri 2、Rust 和 React 写成。
-        </p>
-      </div>
-    </section>
-
     <section class="chapter wrap" id="gateway" aria-labelledby="gateway-title">
       <div class="chapter-intro">
         <h2 id="gateway-title">协议的事，交给中间那层。</h2>
         <div class="chapter-copy">
           <p>
-            Claude Code 说 Anthropic Messages，Codex 说 OpenAI Responses，Gemini CLI 说 Gemini 原生；供应商那边可能是另一种。PHI 在中间识别、直通或转换，工具不必为每家供应商各接一次。第五种是 System One，按问题和答案组织的决策协议，正在接入。
+            Claude Code 说 Anthropic Messages，Codex 说 OpenAI Responses，Gemini CLI 说 Gemini 原生；供应商那边可能是另一种。PHI 在中间识别、直通或转换，应用不必为每家供应商各接一次。第五种是 System One，按问题和答案组织的决策协议，正在接入。
           </p>
         </div>
       </div>
@@ -144,23 +124,31 @@
 
     <section class="chapter chapter-center wrap" id="apps" aria-labelledby="apps-title">
       <div class="chapter-intro">
-        <h2 id="apps-title">你常用的工具，已经在里面。</h2>
+        <h2 id="apps-title">你常用的应用，已经在里面。</h2>
         <div class="chapter-copy">
-          <p>十个工具，一份配置。接管原有配置或与它共存，都走同一套供应商和路由。</p>
+          <p>十七个应用，一份配置。接管原有配置或与它共存，都走同一套供应商和路由。</p>
         </div>
       </div>
       <ul class="app-grid">
-        <li class="app-card"><img src="assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Code</strong></li>
-        <li class="app-card"><img src="assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Desktop</strong></li>
-        <li class="app-card"><img src="assets/apps/openai.svg" width="30" height="30" alt=""><strong>Codex</strong></li>
-        <li class="app-card"><img src="assets/apps/gemini.svg" width="30" height="30" alt=""><strong>Gemini CLI</strong></li>
-        <li class="app-card"><img src="assets/apps/grok.svg" width="30" height="30" alt=""><strong>Grok Build</strong></li>
-        <li class="app-card"><img src="assets/apps/opencode.svg" width="30" height="30" alt=""><strong>OpenCode</strong></li>
-        <li class="app-card"><img src="assets/apps/claw.svg" width="30" height="30" alt=""><strong>OpenClaw</strong></li>
-        <li class="app-card"><img src="assets/apps/hermes.png" width="30" height="30" alt=""><strong>Hermes</strong></li>
-        <li class="app-card"><img src="assets/apps/pi.svg" width="30" height="30" alt=""><strong>Pi</strong></li>
-        <li class="app-card"><img src="assets/apps/minimax.svg" width="30" height="30" alt=""><strong>MiniMax Code</strong></li>
+        <li class="app-card"><img src="assets/apps/claude.svg" width="26" height="26" alt=""><strong>Claude</strong></li>
+        <li class="app-card"><img src="assets/apps/claude.svg" width="26" height="26" alt=""><strong>Claude Desktop</strong></li>
+        <li class="app-card"><img src="assets/apps/openai.svg" width="26" height="26" alt=""><strong>Codex</strong></li>
+        <li class="app-card"><img src="assets/apps/gemini.svg" width="26" height="26" alt=""><strong>Gemini</strong></li>
+        <li class="app-card"><img src="assets/apps/grok.svg" width="26" height="26" alt=""><strong>Grok Build</strong></li>
+        <li class="app-card"><img src="assets/apps/opencode.svg" width="26" height="26" alt=""><strong>OpenCode</strong></li>
+        <li class="app-card"><img src="assets/apps/claw.svg" width="26" height="26" alt=""><strong>OpenClaw</strong></li>
+        <li class="app-card"><img src="assets/apps/hermes.png" width="26" height="26" alt=""><strong>Hermes</strong></li>
+        <li class="app-card"><img src="assets/apps/pi.svg" width="26" height="26" alt=""><strong>Pi</strong></li>
+        <li class="app-card"><img src="assets/apps/minimax.svg" width="26" height="26" alt=""><strong>MiniMax Code</strong></li>
+        <li class="app-card"><img src="assets/apps/commandcode.svg" width="26" height="26" alt=""><strong>Command Code</strong></li>
+        <li class="app-card"><img src="assets/apps/crush.png" width="26" height="26" alt=""><strong>Crush</strong></li>
+        <li class="app-card"><img src="assets/apps/droid.svg" width="26" height="26" alt=""><strong>Droid</strong></li>
+        <li class="app-card"><img src="assets/apps/kimi.svg" width="26" height="26" alt=""><strong>Kimi Code</strong></li>
+        <li class="app-card"><img src="assets/apps/atomcode.png" width="26" height="26" alt=""><strong>AtomCode</strong></li>
+        <li class="app-card"><img src="assets/apps/omo.svg" width="26" height="26" alt=""><strong>OmO</strong></li>
+        <li class="app-card"><img src="assets/apps/typesafe.svg" width="26" height="26" alt=""><strong>System One</strong></li>
       </ul>
+      <p class="app-note">System One 还在接入，其余十六个应用现在就能用。</p>
     </section>
 
     <section class="chapter wrap" id="routing" aria-labelledby="routing-title">
@@ -173,41 +161,101 @@
         </div>
       </div>
 
-      <div class="route-layout">
-        <div class="route-map" role="img" aria-label="示意图：应用经过路由组，按策略把请求分给不同的供应商成员">
-          <div class="route-layer">
-            <div class="route-chips"><span>Claude Code</span><span>Codex</span><span>Gemini CLI</span><span>OpenCode</span></div>
+      <figure class="flow-board" aria-labelledby="flow-caption">
+        <div class="flow-board-top">
+          <span class="flow-live"><i aria-hidden="true"></i>最近一次请求</span>
+          <span class="flow-board-title">路由流转图</span>
+          <span class="flow-replay" aria-hidden="true">回放</span>
+        </div>
+        <div class="flow-board-grid">
+          <span class="flow-col-head flow-head-apps">应用</span>
+          <span class="flow-col-head flow-head-hub">PHI</span>
+          <span class="flow-col-head flow-head-groups">路由组</span>
+          <span class="flow-col-head flow-head-outlets">供应商 · 模型</span>
+
+          <div class="flow-app is-active flow-row-2"><span class="flow-app-name">Codex<i class="flow-dot" aria-hidden="true"></i></span><span class="flow-app-meta">gpt-6.1-sol · 20:58:52</span></div>
+          <div class="flow-app flow-row-3"><span class="flow-app-name">Claude</span><span class="flow-app-meta">未运行</span></div>
+          <div class="flow-app flow-row-4"><span class="flow-app-name">Claude Desktop</span><span class="flow-app-meta">未运行</span></div>
+          <div class="flow-app flow-row-5"><span class="flow-app-name">Grok Build</span><span class="flow-app-meta">未运行</span></div>
+          <div class="flow-app flow-row-6"><span class="flow-app-name">OpenCode</span><span class="flow-app-meta">未运行</span></div>
+          <div class="flow-app flow-row-7"><span class="flow-app-name">OpenClaw</span><span class="flow-app-meta">未运行</span></div>
+          <div class="flow-more flow-row-8"><span aria-hidden="true">＋</span>展开其余 11 个应用</div>
+
+          <div class="flow-wire-cell flow-col-wire-1" aria-hidden="true">
+            <svg class="flow-wire" viewBox="0 0 34 440" preserveAspectRatio="none">
+              <path class="wire-base" d="M0 63 C17 63 17 237 34 237"/>
+              <path class="wire-base" d="M0 121 C17 121 17 237 34 237"/>
+              <path class="wire-base" d="M0 179 C17 179 17 237 34 237"/>
+              <path class="wire-base" d="M0 237 L34 237"/>
+              <path class="wire-base" d="M0 295 C17 295 17 237 34 237"/>
+              <path class="wire-base" d="M0 353 C17 353 17 237 34 237"/>
+              <path class="wire-base" d="M0 411 C17 411 17 237 34 237"/>
+              <path class="wire-done" d="M0 63 C17 63 17 237 34 237"/>
+            </svg>
           </div>
-          <p class="route-join" aria-hidden="true">↓</p>
-          <div class="route-layer">
-            <div class="route-group-line"><strong>主力线路</strong><span>低用量优先 · 失败自动换下一条</span></div>
+
+          <div class="flow-hub flow-col-hub">
+            <img src="assets/phi-app.svg" width="30" height="30" alt="">
+            <strong>PHI</strong>
+            <span>17 个应用</span>
           </div>
-          <p class="route-join" aria-hidden="true">↓</p>
-          <div class="route-layer">
-            <div class="route-members">
-              <span><b>供应商 A</b>Anthropic</span>
-              <span><b>供应商 B</b>OpenAI Chat</span>
-              <span><b>供应商 C</b>Gemini</span>
-            </div>
+
+          <span class="flow-down" aria-hidden="true">↓</span>
+
+          <div class="flow-ghost flow-col-group flow-row-4">＋ 新建路由组</div>
+          <div class="flow-group flow-col-group flow-row-5"><strong>主力线路</strong><span>低用量优先 · 失败自动换下一单</span></div>
+
+          <span class="flow-down flow-down-2" aria-hidden="true">↓</span>
+
+          <div class="flow-wire-cell flow-col-wire-2" aria-hidden="true">
+            <svg class="flow-wire" viewBox="0 0 34 440" preserveAspectRatio="none">
+              <path class="wire-base" d="M0 237 L34 237"/>
+              <path class="wire-done" d="M0 237 L34 237"/>
+            </svg>
+          </div>
+
+          <div class="flow-outlet is-done flow-col-outlet flow-row-3"><i aria-hidden="true"></i><div><strong>供应商 A</strong><span>claude-sonnet</span></div></div>
+          <div class="flow-outlet is-failed flow-col-outlet flow-row-4"><i aria-hidden="true"></i><div><strong>供应商 B</strong><span>gpt-6.1-sol</span></div></div>
+          <div class="flow-outlet is-unknown flow-col-outlet flow-row-6"><i aria-hidden="true"></i><div><strong>供应商 C</strong><span>gemini-2.5-pro</span></div></div>
+          <div class="flow-outlet is-idle flow-col-outlet flow-row-7"><i aria-hidden="true"></i><div><strong>供应商 D</strong><span>glm-5.3</span></div></div>
+
+          <div class="flow-wire-cell flow-col-wire-3" aria-hidden="true">
+            <svg class="flow-wire" viewBox="0 0 34 440" preserveAspectRatio="none">
+              <path class="wire-base" d="M0 237 C17 237 17 121 34 121"/>
+              <path class="wire-base" d="M0 237 C17 237 17 179 34 179"/>
+              <path class="wire-base" d="M0 237 C17 237 17 295 34 295"/>
+              <path class="wire-base" d="M0 237 C17 237 17 353 34 353"/>
+              <path class="wire-done" d="M0 237 C17 237 17 121 34 121"/>
+              <path class="wire-fail" d="M0 237 C17 237 17 179 34 179"/>
+              <path class="wire-unknown" d="M0 237 C17 237 17 295 34 295"/>
+            </svg>
           </div>
         </div>
 
-        <dl class="strategies">
-          <div><dt>顺序</dt><dd>按你排的顺序试，第一条能走就用第一条。</dd></div>
-          <div><dt>轮询</dt><dd>请求依次分给组内成员，几条线路一起分担。</dd></div>
-          <div><dt>低用量优先</dt><dd>并发和近期用量更低的成员排在前面。</dd></div>
-          <div><dt>加权</dt><dd>按权重分配，让主力线路多接一些。</dd></div>
-          <div><dt>手动</dt><dd>固定由一个成员接，直到你改掉。</dd></div>
-          <div><dt>决策模型</dt><dd>先让一个模型读最近一条用户消息，在你配好的规则里选一条，再交给对应成员。模型只能选规则，不能指定供应商，也读不到密钥。</dd></div>
-        </dl>
-      </div>
+        <ul class="flow-legend" aria-label="图例">
+          <li><i class="flow-key key-base" aria-hidden="true"></i>浅灰虚线 · 配置拓扑</li>
+          <li><i class="flow-key key-done" aria-hidden="true"></i>实线 · 完成</li>
+          <li><i class="flow-key key-fail" aria-hidden="true"></i>虚线 · 失败</li>
+          <li><i class="flow-key key-unknown" aria-hidden="true"></i>点状 · 结果未确认</li>
+          <li><i class="flow-key key-app" aria-hidden="true"></i>颜色 · 按应用</li>
+        </ul>
+        <figcaption id="flow-caption">示意图：浅灰是配置好的拓扑，彩色是最近一次请求走过的路径。请求还在跑时，线会流动。</figcaption>
+      </figure>
 
-      <ul class="route-notes">
-        <li><h3>会话粘性</h3><p>同一段对话尽量落在同一个成员上，上下文不用来回搬。</p></li>
-        <li><h3>故障转移</h3><p>符合条件的错误会换下一条线路；持续失败的成员先冷却，恢复后再接。</p></li>
-        <li><h3>超时与重试</h3><p>首字节、流式静默、总时长分别设上限，慢线路不会一直挂着。</p></li>
+      <ul class="flow-notes">
+        <li>
+          <h3>一张图，两层信息</h3>
+          <p>浅灰虚线是配置好的拓扑，一直在；彩色的线是最近一次请求，只留最新的那一条。不用在配置页和日志页之间来回对照。</p>
+        </li>
+        <li>
+          <h3>线型说明结果</h3>
+          <p>颜色跟着应用走，线型说明状态：实线完成，虚线失败，点状是结果未确认。请求还在跑时，线会流动。</p>
+        </li>
+        <li>
+          <h3>图也是入口</h3>
+          <p>点应用设它的路由，点路由组改成员和策略，也可以直接新建组。成员是供应商或模型，组只有一层。</p>
+        </li>
       </ul>
-      <p class="footnote">路由组可以嵌套，成员可以是供应商、模型，也可以是另一个组。直连不经过 PHI 网关，保持应用原来的连接方式。</p>
     </section>
 
     <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
@@ -237,7 +285,7 @@
         <h2 id="cli-title">终端就开在这个窗口里。</h2>
         <div class="chapter-copy">
           <p>
-            应用页右上角点「＋」，或者按一下 <kbd>⌘T</kbd>，选个目录就能启动。PHI 会先确认本机的 CLI 装好没有。Claude Code、Codex、Gemini CLI 等 9 种工具都能这样打开，配好的供应商和路由组一起生效。
+            应用页右上角点「＋」，或者按一下 <kbd>⌘T</kbd>，选个目录就能启动。PHI 会先确认本机的 CLI 装好没有。Claude Code、Codex、Gemini CLI 等 9 个应用都能这样打开，配好的供应商和路由组一起生效。
             <span class="inline-note">目前仅 macOS 13+ 可用；未安装的 CLI 会显示安装提示。</span>
           </p>
         </div>
@@ -302,7 +350,7 @@
         </div>
         <div>
           <dt>MCP 与 Skills</dt>
-          <dd>统一的服务器与技能列表，装到哪些工具、有没有生效，一眼能对上。</dd>
+          <dd>统一的服务器与技能列表，装到哪些应用、有没有生效，一眼能对上。</dd>
         </div>
         <div>
           <dt>提示词</dt>
@@ -321,13 +369,13 @@
 
     <section class="chapter wrap" id="start" aria-labelledby="start-title">
       <div class="chapter-intro">
-        <h2 id="start-title">从你熟悉的工具开始。</h2>
+        <h2 id="start-title">从你熟悉的应用开始。</h2>
         <div class="chapter-copy">
-          <p>不用一次配好所有东西。先连通一个工具，再慢慢整理自己的工作台。</p>
+          <p>不用一次配好所有东西。先连通一个应用，再慢慢整理自己的工作台。</p>
         </div>
       </div>
       <ol class="start-steps">
-        <li><span class="step-glyph" aria-hidden="true">装</span><div><h3>装好 PHI 和你要用的 CLI</h3><p>PHI 管理和启动工具，CLI 仍按各自的官方说明安装；已经装好的可以直接用。</p></div></li>
+        <li><span class="step-glyph" aria-hidden="true">装</span><div><h3>装好 PHI 和你要用的 CLI</h3><p>PHI 管理和启动应用，CLI 仍按各自的官方说明安装；已经装好的可以直接用。</p></div></li>
         <li><span class="step-glyph" aria-hidden="true">连</span><div><h3>添加供应商，选好连接方式</h3><p>填好模型服务，在「路由」页决定直连还是加入路由组；需要时给组挑一个策略。</p></div></li>
         <li><span class="step-glyph" aria-hidden="true">开</span><div><h3>打开项目，开始做事</h3><p>在应用页点「＋」选个目录，macOS 13+ 可以就地开终端；或者在你常用的终端里打开项目。</p></div></li>
       </ol>
@@ -338,7 +386,7 @@
         <h2 id="faq-title">下载前，再说清几件事。</h2>
       </div>
       <div class="faq-list">
-        <details><summary>PHI 自带模型或免费额度吗？</summary><p>PHI 是开源桌面工具，不提供模型额度。你需要自行准备供应商的 API Key 或对应工具支持的订阅账号；模型费用由所选服务商收取。</p></details>
+        <details><summary>PHI 自带模型或免费额度吗？</summary><p>PHI 是开源桌面工具，不提供模型额度。你需要自行准备供应商的 API Key 或对应应用支持的订阅账号；模型费用由所选服务商收取。</p></details>
         <details><summary>直连和路由组有什么区别？</summary><p>直连不经过网关，应用按原来的方式连一个供应商。路由组把几个供应商或模型放在一起，由 PHI 按策略挑，失败时换下一条；组内可以是不同协议。</p></details>
         <details><summary>我的密钥和请求会经过哪里？</summary><p>主要配置与用量数据保存在本机，订阅类 OAuth Token 存入系统钥匙串。走本地网关时，请求先到 PHI，再转给你配置的供应商；直连时由应用直接连接供应商。两种方式下，请求内容和必要凭据都会交给你选择的供应商。</p></details>
         <details><summary>会话和长期记忆现在能用吗？</summary><p>会话浏览能用：各工具留在本机的记录会收进一个列表，按项目或时间查看、搜索并复制恢复命令。跨工具的连续会话和长期记忆仍在规划中。</p></details>

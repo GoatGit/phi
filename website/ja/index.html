@@ -20,9 +20,9 @@
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="zh_CN">
   <link rel="icon" type="image/svg+xml" href="../assets/phi-app.svg">
-  <link rel="stylesheet" href="../css/style.css?v=pastel-2">
+  <link rel="stylesheet" href="../css/style.css?v=flow-3">
   <script type="application/ld+json">
-  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI は Claude Code、Codex、Gemini CLI などのツールをひとつのローカルゲートウェイにつなぎます。OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini の間を変換し（System One は近日対応）、直接接続またはルートグループでモデルを選び、内蔵ターミナルで CLI を実行し、利用量を記録します。", "url": "https://phi.semibot.ai/ja/", "inLanguage": "ja", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
+  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI は Claude Code、Codex、Gemini CLI などのアプリをひとつのローカルゲートウェイにつなぎます。OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini の間を変換し（System One は近日対応）、直接接続またはルートグループでモデルを選び、内蔵ターミナルで CLI を実行し、利用量を記録します。", "url": "https://phi.semibot.ai/ja/", "inLanguage": "ja", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
   </script>
 </head>
 <body>
@@ -49,12 +49,7 @@
   <main id="main">
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <div class="hero-mark" aria-hidden="true">
-          <span class="mark-ring"></span>
-          <img src="../assets/phi-app.svg" width="84" height="84" alt="">
-          <svg class="spark spark-a" viewbox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"></path></svg>
-          <svg class="spark spark-b" viewbox="0 0 24 24"><path d="M12 0l2.8 9.2L24 12l-9.2 2.8L12 24l-2.8-9.2L0 12l9.2-2.8Z"></path></svg>
-        </div>
+        <img class="hero-mark" src="../assets/phi-app.svg" width="84" height="84" alt="" aria-hidden="true">
         <p class="hero-kicker">ゲートウェイ・ルーティング・ターミナル</p>
         <h1 id="hero-title">ゲートウェイ 1 つで、<br><span class="h1-mark">AI 開発をまとめる。</span></h1>
         <p class="lede">
@@ -85,27 +80,12 @@
       </div>
     </section>
 
-    <section class="story wrap" aria-labelledby="story-title">
-      <h2 id="story-title">ツール 3 つ、設定も 3 つ。<br>書きたいのはコードだけ。</h2>
-      <div class="story-body">
-        <p>
-          Claude Code、Codex、Gemini CLI を同時に使っているかもしれません。それぞれ違うプロトコルで話し、設定も別々に持っています。プロバイダーを変えるには三、四か所を直し、ルートを変えるには前回どのファイルを触ったかを思い出す必要があります。
-        </p>
-        <p>
-          PHI はこれらを同じウィンドウにまとめます。プロトコルはゲートウェイで変換し、回線はルートグループが割り当て、ターミナルも同じアプリの中にあります。プロバイダーは一度設定すれば、複数のツールで使えます。PHI アカウントは不要で、設定と統計はこのマシンに残ります。モデルの利用には、ご自身のアカウントまたは API キーを使います。
-        </p>
-        <p class="aside">
-          開発の出発点は <a href="https://github.com/farion1231/cc-switch">CC Switch</a> 。独立したフォークとして、Tauri 2、Rust、React で開発しています。
-        </p>
-      </div>
-    </section>
-
     <section class="chapter wrap" id="gateway" aria-labelledby="gateway-title">
       <div class="chapter-intro">
         <h2 id="gateway-title">プロトコルのことは、真ん中の層に任せる。</h2>
         <div class="chapter-copy">
           <p>
-            Claude Code は Anthropic Messages、Codex は OpenAI Responses、Gemini CLI は Gemini ネイティブで話します。接続先のプロバイダーは別のプロトコルでもかまいません。PHI が判別し、そのまま通すか変換するので、ツールごとにプロバイダーへ接続し直す必要はありません。5 つ目は System One。質問と回答で構成される判断プロトコルで、近日対応予定です。
+            Claude Code は Anthropic Messages、Codex は OpenAI Responses、Gemini CLI は Gemini ネイティブで話します。接続先のプロバイダーは別のプロトコルでもかまいません。PHI が判別し、そのまま通すか変換するので、アプリごとにプロバイダーへ接続し直す必要はありません。5 つ目は System One。質問と回答で構成される判断プロトコルで、近日対応予定です。
           </p>
         </div>
       </div>
@@ -144,23 +124,31 @@
 
     <section class="chapter chapter-center wrap" id="apps" aria-labelledby="apps-title">
       <div class="chapter-intro">
-        <h2 id="apps-title">いつものツールは、もう中に。</h2>
+        <h2 id="apps-title">いつものアプリは、もう中に。</h2>
         <div class="chapter-copy">
-          <p>10 のツールを、ひとつの設定で。既存の設定を引き継ぐか共存させるか。どちらも同じプロバイダー群と同じルートを使います。</p>
+          <p>17 のアプリを、ひとつの設定で。既存の設定を引き継ぐか共存させるか。どちらも同じプロバイダー群と同じルートを使います。</p>
         </div>
       </div>
       <ul class="app-grid">
-        <li class="app-card"><img src="../assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Code</strong></li>
-        <li class="app-card"><img src="../assets/apps/claude.svg" width="30" height="30" alt=""><strong>Claude Desktop</strong></li>
-        <li class="app-card"><img src="../assets/apps/openai.svg" width="30" height="30" alt=""><strong>Codex</strong></li>
-        <li class="app-card"><img src="../assets/apps/gemini.svg" width="30" height="30" alt=""><strong>Gemini CLI</strong></li>
-        <li class="app-card"><img src="../assets/apps/grok.svg" width="30" height="30" alt=""><strong>Grok Build</strong></li>
-        <li class="app-card"><img src="../assets/apps/opencode.svg" width="30" height="30" alt=""><strong>OpenCode</strong></li>
-        <li class="app-card"><img src="../assets/apps/claw.svg" width="30" height="30" alt=""><strong>OpenClaw</strong></li>
-        <li class="app-card"><img src="../assets/apps/hermes.png" width="30" height="30" alt=""><strong>Hermes</strong></li>
-        <li class="app-card"><img src="../assets/apps/pi.svg" width="30" height="30" alt=""><strong>Pi</strong></li>
-        <li class="app-card"><img src="../assets/apps/minimax.svg" width="30" height="30" alt=""><strong>MiniMax Code</strong></li>
+        <li class="app-card"><img src="../assets/apps/claude.svg" width="26" height="26" alt=""><strong>Claude</strong></li>
+        <li class="app-card"><img src="../assets/apps/claude.svg" width="26" height="26" alt=""><strong>Claude Desktop</strong></li>
+        <li class="app-card"><img src="../assets/apps/openai.svg" width="26" height="26" alt=""><strong>Codex</strong></li>
+        <li class="app-card"><img src="../assets/apps/gemini.svg" width="26" height="26" alt=""><strong>Gemini</strong></li>
+        <li class="app-card"><img src="../assets/apps/grok.svg" width="26" height="26" alt=""><strong>Grok Build</strong></li>
+        <li class="app-card"><img src="../assets/apps/opencode.svg" width="26" height="26" alt=""><strong>OpenCode</strong></li>
+        <li class="app-card"><img src="../assets/apps/claw.svg" width="26" height="26" alt=""><strong>OpenClaw</strong></li>
+        <li class="app-card"><img src="../assets/apps/hermes.png" width="26" height="26" alt=""><strong>Hermes</strong></li>
+        <li class="app-card"><img src="../assets/apps/pi.svg" width="26" height="26" alt=""><strong>Pi</strong></li>
+        <li class="app-card"><img src="../assets/apps/minimax.svg" width="26" height="26" alt=""><strong>MiniMax Code</strong></li>
+        <li class="app-card"><img src="../assets/apps/commandcode.svg" width="26" height="26" alt=""><strong>Command Code</strong></li>
+        <li class="app-card"><img src="../assets/apps/crush.png" width="26" height="26" alt=""><strong>Crush</strong></li>
+        <li class="app-card"><img src="../assets/apps/droid.svg" width="26" height="26" alt=""><strong>Droid</strong></li>
+        <li class="app-card"><img src="../assets/apps/kimi.svg" width="26" height="26" alt=""><strong>Kimi Code</strong></li>
+        <li class="app-card"><img src="../assets/apps/atomcode.png" width="26" height="26" alt=""><strong>AtomCode</strong></li>
+        <li class="app-card"><img src="../assets/apps/omo.svg" width="26" height="26" alt=""><strong>OmO</strong></li>
+        <li class="app-card"><img src="../assets/apps/typesafe.svg" width="26" height="26" alt=""><strong>System One</strong></li>
       </ul>
+      <p class="app-note">System One は近日対応。残り 16 のアプリは今すぐ使えます。</p>
     </section>
 
     <section class="chapter wrap" id="routing" aria-labelledby="routing-title">
@@ -173,41 +161,101 @@
         </div>
       </div>
 
-      <div class="route-layout">
-        <div class="route-map" role="img" aria-label="図：アプリがルートグループを通り、戦略に従って各プロバイダーメンバーへリクエストを振り分ける">
-          <div class="route-layer">
-            <div class="route-chips"><span>Claude Code</span><span>Codex</span><span>Gemini CLI</span><span>OpenCode</span></div>
+      <figure class="flow-board" aria-labelledby="flow-caption">
+        <div class="flow-board-top">
+          <span class="flow-live"><i aria-hidden="true"></i>直近のリクエスト</span>
+          <span class="flow-board-title">ルーティングフロー</span>
+          <span class="flow-replay" aria-hidden="true">再生</span>
+        </div>
+        <div class="flow-board-grid">
+          <span class="flow-col-head flow-head-apps">アプリ</span>
+          <span class="flow-col-head flow-head-hub">PHI</span>
+          <span class="flow-col-head flow-head-groups">ルートグループ</span>
+          <span class="flow-col-head flow-head-outlets">プロバイダー · モデル</span>
+
+          <div class="flow-app is-active flow-row-2"><span class="flow-app-name">Codex<i class="flow-dot" aria-hidden="true"></i></span><span class="flow-app-meta">gpt-6.1-sol · 20:58:52</span></div>
+          <div class="flow-app flow-row-3"><span class="flow-app-name">Claude</span><span class="flow-app-meta">未実行</span></div>
+          <div class="flow-app flow-row-4"><span class="flow-app-name">Claude Desktop</span><span class="flow-app-meta">未実行</span></div>
+          <div class="flow-app flow-row-5"><span class="flow-app-name">Grok Build</span><span class="flow-app-meta">未実行</span></div>
+          <div class="flow-app flow-row-6"><span class="flow-app-name">OpenCode</span><span class="flow-app-meta">未実行</span></div>
+          <div class="flow-app flow-row-7"><span class="flow-app-name">OpenClaw</span><span class="flow-app-meta">未実行</span></div>
+          <div class="flow-more flow-row-8"><span aria-hidden="true">＋</span>残り 11 アプリを表示</div>
+
+          <div class="flow-wire-cell flow-col-wire-1" aria-hidden="true">
+            <svg class="flow-wire" viewbox="0 0 34 440" preserveaspectratio="none">
+              <path class="wire-base" d="M0 63 C17 63 17 237 34 237"></path>
+              <path class="wire-base" d="M0 121 C17 121 17 237 34 237"></path>
+              <path class="wire-base" d="M0 179 C17 179 17 237 34 237"></path>
+              <path class="wire-base" d="M0 237 L34 237"></path>
+              <path class="wire-base" d="M0 295 C17 295 17 237 34 237"></path>
+              <path class="wire-base" d="M0 353 C17 353 17 237 34 237"></path>
+              <path class="wire-base" d="M0 411 C17 411 17 237 34 237"></path>
+              <path class="wire-done" d="M0 63 C17 63 17 237 34 237"></path>
+            </svg>
           </div>
-          <p class="route-join" aria-hidden="true">↓</p>
-          <div class="route-layer">
-            <div class="route-group-line"><strong>メインルート</strong><span>低使用量優先 · 失敗時は自動で次へ</span></div>
+
+          <div class="flow-hub flow-col-hub">
+            <img src="../assets/phi-app.svg" width="30" height="30" alt="">
+            <strong>PHI</strong>
+            <span>17 アプリ</span>
           </div>
-          <p class="route-join" aria-hidden="true">↓</p>
-          <div class="route-layer">
-            <div class="route-members">
-              <span><b>プロバイダー A</b>Anthropic</span>
-              <span><b>プロバイダー B</b>OpenAI Chat</span>
-              <span><b>プロバイダー C</b>Gemini</span>
-            </div>
+
+          <span class="flow-down" aria-hidden="true">↓</span>
+
+          <div class="flow-ghost flow-col-group flow-row-4">＋ ルートグループを作成</div>
+          <div class="flow-group flow-col-group flow-row-5"><strong>メインルート</strong><span>低使用量優先 · 失敗時は自動で次へ</span></div>
+
+          <span class="flow-down flow-down-2" aria-hidden="true">↓</span>
+
+          <div class="flow-wire-cell flow-col-wire-2" aria-hidden="true">
+            <svg class="flow-wire" viewbox="0 0 34 440" preserveaspectratio="none">
+              <path class="wire-base" d="M0 237 L34 237"></path>
+              <path class="wire-done" d="M0 237 L34 237"></path>
+            </svg>
+          </div>
+
+          <div class="flow-outlet is-done flow-col-outlet flow-row-3"><i aria-hidden="true"></i><div><strong>プロバイダー A</strong><span>claude-sonnet</span></div></div>
+          <div class="flow-outlet is-failed flow-col-outlet flow-row-4"><i aria-hidden="true"></i><div><strong>プロバイダー B</strong><span>gpt-6.1-sol</span></div></div>
+          <div class="flow-outlet is-unknown flow-col-outlet flow-row-6"><i aria-hidden="true"></i><div><strong>プロバイダー C</strong><span>gemini-2.5-pro</span></div></div>
+          <div class="flow-outlet is-idle flow-col-outlet flow-row-7"><i aria-hidden="true"></i><div><strong>プロバイダー D</strong><span>glm-5.3</span></div></div>
+
+          <div class="flow-wire-cell flow-col-wire-3" aria-hidden="true">
+            <svg class="flow-wire" viewbox="0 0 34 440" preserveaspectratio="none">
+              <path class="wire-base" d="M0 237 C17 237 17 121 34 121"></path>
+              <path class="wire-base" d="M0 237 C17 237 17 179 34 179"></path>
+              <path class="wire-base" d="M0 237 C17 237 17 295 34 295"></path>
+              <path class="wire-base" d="M0 237 C17 237 17 353 34 353"></path>
+              <path class="wire-done" d="M0 237 C17 237 17 121 34 121"></path>
+              <path class="wire-fail" d="M0 237 C17 237 17 179 34 179"></path>
+              <path class="wire-unknown" d="M0 237 C17 237 17 295 34 295"></path>
+            </svg>
           </div>
         </div>
 
-        <dl class="strategies">
-          <div><dt>順序</dt><dd>並べた順に試し、使える最初のメンバーを使います。</dd></div>
-          <div><dt>ラウンドロビン</dt><dd>リクエストを順番にメンバーへ渡し、複数の回線で負荷を分担します。</dd></div>
-          <div><dt>低使用量優先</dt><dd>同時実行数と直近の使用量が少ないメンバーを優先します。</dd></div>
-          <div><dt>重み付け</dt><dd>重みに応じて配分し、メイン回線に多めに任せます。</dd></div>
-          <div><dt>手動</dt><dd>ひとつのメンバーに固定し、変更するまでそのまま。</dd></div>
-          <div><dt>判断モデル</dt><dd>モデルが直近のユーザーメッセージを読み、設定済みのルールからひとつ選んで、そのメンバーにリクエストを渡します。モデルが選べるのはルールだけで、プロバイダーの指定や認証情報の読み取りはできません。</dd></div>
-        </dl>
-      </div>
+        <ul class="flow-legend" aria-label="凡例">
+          <li><i class="flow-key key-base" aria-hidden="true"></i>薄い灰の破線 · 設定トポロジ</li>
+          <li><i class="flow-key key-done" aria-hidden="true"></i>実線 · 完了</li>
+          <li><i class="flow-key key-fail" aria-hidden="true"></i>破線 · 失敗</li>
+          <li><i class="flow-key key-unknown" aria-hidden="true"></i>点線 · 結果未確認</li>
+          <li><i class="flow-key key-app" aria-hidden="true"></i>色 · アプリごと</li>
+        </ul>
+        <figcaption id="flow-caption">図：薄い灰は設定済みのトポロジ、色は直近のリクエストが通った経路です。リクエストの実行中は線が流れます。</figcaption>
+      </figure>
 
-      <ul class="route-notes">
-        <li><h3>セッション親和性</h3><p>同じ会話はできるだけ同じメンバーに留まり、文脈を往復させずに済みます。</p></li>
-        <li><h3>フェイルオーバー</h3><p>条件に合うエラーでは次の回線へ切り替えます。失敗が続くメンバーは一時的に冷却し、回復後に戻ります。</p></li>
-        <li><h3>タイムアウトと再試行</h3><p>初回バイト、ストリーミングの無通信時間、総時間に上限を設け、遅い回線がぶら下がり続けないようにします。</p></li>
+      <ul class="flow-notes">
+        <li>
+          <h3>1 枚の図に、2 つの層</h3>
+          <p>薄い灰の破線は設定済みのトポロジで、常に表示されます。色の線は直近のリクエストで、最新の 1 本だけが残ります。設定ページとログページを行き来する必要はありません。</p>
+        </li>
+        <li>
+          <h3>線の種類が結果を表す</h3>
+          <p>色はアプリごとに固定し、線の種類が状態を表します。実線は完了、破線は失敗、点線は結果未確認です。リクエストの実行中は線が流れます。</p>
+        </li>
+        <li>
+          <h3>図がそのまま操作パネル</h3>
+          <p>アプリをクリックしてルートを設定し、ルートグループをクリックしてメンバーと戦略を変更できます。ここで新しいグループも作れます。メンバーはプロバイダーまたはモデルで、グループは 1 階層だけです。</p>
+        </li>
       </ul>
-      <p class="footnote">ルートグループは入れ子にでき、メンバーにはプロバイダー、モデル、別のグループを指定できます。直接接続は PHI ゲートウェイを通らず、アプリ本来の接続方法を保ちます。</p>
     </section>
 
     <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
@@ -237,7 +285,7 @@
         <h2 id="cli-title">ターミナルは、このウィンドウの中で。</h2>
         <div class="chapter-copy">
           <p>
-            アプリページ右上の「＋」をクリックするか、 <kbd>⌘T</kbd>を押してディレクトリを選べば起動します。まず CLI がインストールされているか確認します。Claude Code、Codex、Gemini CLI など 9 つのツールをこの方法で開け、設定済みのプロバイダーとルートグループも反映されます。
+            アプリページ右上の「＋」をクリックするか、 <kbd>⌘T</kbd>を押してディレクトリを選べば起動します。まず CLI がインストールされているか確認します。Claude Code、Codex、Gemini CLI など 9 つのアプリをこの方法で開け、設定済みのプロバイダーとルートグループも反映されます。
             <span class="inline-note">現在は macOS 13 以降のみ対応。CLI が見つからない場合は、インストール案内を表示します。</span>
           </p>
         </div>
@@ -302,7 +350,7 @@
         </div>
         <div>
           <dt>MCP と Skills</dt>
-          <dd>サーバーとスキルを一覧で管理。どのツールに導入したか、有効になっているかを確認できます。</dd>
+          <dd>サーバーとスキルを一覧で管理。どのアプリに導入したか、有効になっているかを確認できます。</dd>
         </div>
         <div>
           <dt>プロンプト</dt>
@@ -321,13 +369,13 @@
 
     <section class="chapter wrap" id="start" aria-labelledby="start-title">
       <div class="chapter-intro">
-        <h2 id="start-title">使い慣れたツールから、始めよう。</h2>
+        <h2 id="start-title">使い慣れたアプリから、始めよう。</h2>
         <div class="chapter-copy">
-          <p>最初からすべて設定する必要はありません。まずひとつのツールを接続して、少しずつ自分の作業環境を整えていきましょう。</p>
+          <p>最初からすべて設定する必要はありません。まずひとつのアプリを接続して、少しずつ自分の作業環境を整えていきましょう。</p>
         </div>
       </div>
       <ol class="start-steps">
-        <li><span class="step-glyph" aria-hidden="true">入</span><div><h3>PHI と使いたい CLI をインストール</h3><p>PHI はツールの管理と起動を担当します。CLI は各ツールの公式手順でインストールしてください。すでに入っているものはそのまま使えます。</p></div></li>
+        <li><span class="step-glyph" aria-hidden="true">入</span><div><h3>PHI と使いたい CLI をインストール</h3><p>PHI はアプリの管理と起動を担当します。CLI は各ツールの公式手順でインストールしてください。すでに入っているものはそのまま使えます。</p></div></li>
         <li><span class="step-glyph" aria-hidden="true">接</span><div><h3>プロバイダーと接続方法を設定</h3><p>モデルサービスを入力し、「ルート」ページで直接接続かルートグループかを選びます。必要ならグループの戦略も選びます。</p></div></li>
         <li><span class="step-glyph" aria-hidden="true">開</span><div><h3>プロジェクトを開いて、作業開始</h3><p>アプリページの「＋」からディレクトリを選ぶと、macOS 13 以降ではその場でターミナルが開きます。いつものターミナルでプロジェクトを開いてもかまいません。</p></div></li>
       </ol>
@@ -338,7 +386,7 @@
         <h2 id="faq-title">ダウンロードの前に。</h2>
       </div>
       <div class="faq-list">
-        <details><summary>モデルや無料利用枠は付いていますか？</summary><p>PHI はオープンソースのデスクトップツールで、モデルの利用枠は提供しません。プロバイダーの API キー、または使うツールが対応するサブスクリプションアカウントを用意してください。モデルの利用料は選択したサービスから請求されます。</p></details>
+        <details><summary>モデルや無料利用枠は付いていますか？</summary><p>PHI はオープンソースのデスクトップツールで、モデルの利用枠は提供しません。プロバイダーの API キー、または使うアプリが対応するサブスクリプションアカウントを用意してください。モデルの利用料は選択したサービスから請求されます。</p></details>
         <details><summary>直接接続とルートグループは何が違いますか？</summary><p>直接接続はゲートウェイを通らず、アプリ従来の方法でひとつのプロバイダーにつなぎます。ルートグループは複数のプロバイダーやモデルをまとめ、PHI が戦略に従って選び、失敗時は次へ切り替えます。メンバーは別プロトコルでもかまいません。</p></details>
         <details><summary>キーやリクエストはどこに送られますか？</summary><p>主な設定と使用量データはこのマシンに保存し、サブスクリプションの OAuth トークンはシステムキーチェーンに預けます。ローカルゲートウェイ経由では、リクエストはまず PHI に届き、設定したプロバイダーへ転送されます。直接接続ではアプリがプロバイダーに直接つなぎます。どちらも、リクエスト内容と必要な認証情報は選んだプロバイダーに渡ります。</p></details>
         <details><summary>セッション統合と長期記憶は今使えますか？</summary><p>セッション閲覧は利用できます。各ツールがこのマシンに残した記録がひとつの一覧に集まり、プロジェクト別または時系列で表示し、検索し、再開コマンドをコピーできます。ツールをまたぐ継続セッションと長期記憶は計画中です。</p></details>

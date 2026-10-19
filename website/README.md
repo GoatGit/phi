@@ -1,12 +1,12 @@
 # PHI 官网
 
-PHI 的产品官网，暖白纸色、墨线描边与珊瑚色的轻快贴纸式页面，配樱花粉高亮与糖果色应用墙，支持简体中文、英文和日文。发布物为纯静态 HTML / CSS，无外部字体、外部脚本或运行时依赖。
+PHI 的产品官网，暖白纸色、墨线描边与墨绿强调的轻快贴纸式页面，配糖果色应用墙与路由流转图，支持简体中文、英文和日文。发布物为纯静态 HTML / CSS，无外部字体、外部脚本或运行时依赖。
 
 - 线上地址：<https://phi.semibot.ai>
 - 中文：`index.html`（`/`）；英文：`en/index.html`（`/en/`）；日文：`ja/index.html`（`/ja/`）。
 - 共用样式：`css/style.css`；语言切换收在原生下拉选择框中，使用内联 `onchange` 跳转，并提供 `noscript` 链接兜底；不强制按浏览器语言跳转。
 - `assets/phi-app.svg` 内嵌应用原始 PNG，保留现有资源路径。
-- `assets/apps/*` 为「支持的应用」板块使用的应用标志，取自桌面端 `src/icons/extracted`（Hermes 导出为 128px PNG）。图标是装饰性的，名称由相邻文本提供，`alt` 留空。
+- `assets/apps/*` 为「支持的应用」板块使用的应用标志，取自桌面端 `src/icons/extracted`（Hermes 导出为 128px PNG；System One 使用站点自绘的决策节点图标）。图标是装饰性的，名称由相邻文本提供，`alt` 留空。
 
 ## 本地预览
 
@@ -43,16 +43,17 @@ npx wrangler pages deploy website --project-name phi-website --branch main
 
 ## 内容与样式维护
 
-- 页面结构：悬浮图标与工作台示意 → 三个工具的故事 → 网关 → 支持的应用 → 路由 → 会话 → CLI 终端 → 配置、用量与本地数据 → 上手步骤 → 常见问题 → 下载。顶部只保留品牌标志与语言切换，不用分节编号。
+- 页面结构：悬浮图标与工作台示意 → 网关 → 支持的应用 → 路由流转图 → 会话 → CLI 终端 → 配置、用量与本地数据 → 上手步骤 → 常见问题 → 下载。顶部只保留品牌标志与语言切换，不用分节编号。
 - 所有用户可见品牌文案统一为 PHI；域名、仓库地址、文件名与资源路径保持原值。
 - 内容以当前源码和实际配置为依据，README 作为补充。平台说明需同时检查 `src-tauri/tauri.conf.json`、`src-tauri/tauri.macos.conf.json` 和发布工作流；不凭文档承诺未核验的最低系统版本。
 - 网关协议以 `src-tauri/src/proxy/protocol/mod.rs` 为准：四种聊天协议（OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini 原生）已经可用；System One 只能写成「即将支持」，并说明它是按问题和答案组织的决策协议，不走聊天中转。实现接入后再改为已支持。
-- 路由策略以 `src-tauri/src/gateway/routing.rs` 的 `Strategy` 与 `classifier` 为准；会话与记忆章节必须保留“规划中”标记，现有会话浏览只描述本地记录读取。
+- 路由策略以 `src-tauri/src/gateway/routing.rs` 的 `Strategy` 与 `classifier` 为准；页面只在流转图的分组标签里保留一句策略示意，不展开策略清单。会话与记忆章节必须保留“规划中”标记，现有会话浏览只描述本地记录读取。路由组只有一层，成员是供应商或模型；不要写“路由组可以嵌套”。
+- 「支持的应用」须与 `src-tauri/src/gateway/apps.rs` 的 `ROUTING_APPS`、`src-tauri/src/gateway/local_apps/mod.rs` 的 `LOCAL_APPS` 以及 `typesafe` 合计 17 项保持一致，并标明 System One 仍在接入。
 - 内嵌终端目前仅 macOS 13+ 可用，需要用户自行安装 CLI。支持列表见 `src-tauri/src/terminal/launch.rs`；分屏是同一工具的多个会话。
 - 不写“密钥绝不离开本机”等绝对承诺：模型请求及所需凭据会发送至用户选择的供应商。
 - 下载入口指向 <https://github.com/GoatGit/phi/releases/latest>；三个系统入口均前往同一发布页，不伪装成直接下载。版本、包格式与架构以实际 Release 为准。
-- `.workspace-preview`、`.terminal-shot`、`.flow`、`.route-map`、`.session-stack` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。
+- `.workspace-preview`、`.terminal-shot`、`.flow`、`.flow-board`、`.session-stack` 均是静态示意，须保留文字说明，不使用未经核实的产品截图或虚构用量。路由流转图的浅灰虚线表示配置拓扑，彩色线表示最近一次请求，线型（实线、虚线、点状）表示结果；颜色按应用区分。
 - 文案围绕用户的具体工作，少用术语堆叠；维持章节、列表、留白的阅读节奏。
 - 常见问题使用原生 `details` / `summary`，无 JavaScript 依赖，需检查鼠标和键盘展开。
-- 修改 CSS 后递增页面样式 URL 版本参数（当前 `pastel-2`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
+- 修改 CSS 后递增页面样式 URL 版本参数（当前 `flow-3`）；新增资源如采用长期缓存，也需更新文件名或版本参数。
 - 检查窄屏、桌面端、键盘焦点、锚点定位及减少动态效果偏好。不要引入外部字体、脚本或统计服务。
