@@ -93,6 +93,10 @@ tauri-plugin-single-instance = "2"
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0.1", features = ["v2_16"] }
 gtk = "0.18"
+# tauri-plugin-deep-link 2.6.2 仍在用旧的 `ini::ParseOption` 结构体字面量，
+# rust-ini 0.21.3 给它加了两个必填字段，Linux 构建会报 E0063。
+# deep-link 目前没有修好的 2.x 版本，所以在这里钉住最后一个可用的 rust-ini。
+rust-ini = "=0.21.1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2"

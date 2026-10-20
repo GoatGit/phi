@@ -94,6 +94,14 @@ jobs:
         with:
           node-version: '20'
 
+      # 订阅引擎（subscriptions/bridge）是 Go 侧车，tauri build 的 beforeBuildCommand
+      # 会用 go build 出 src-tauri/binaries 里的二进制；CI runner 默认没有 Go。
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: subscriptions/bridge/go.mod
+          cache-dependency-path: subscriptions/bridge/go.sum
+
       # rust-toolchain.toml 是编译器版本的唯一来源：直接装它，免得先装 stable 再被 rustup 换掉
       - name: Read pinned Rust toolchain
         id: rust-toolchain
@@ -380,6 +388,14 @@ jobs:
         with:
           node-version: '20'
 
+      # 订阅引擎（subscriptions/bridge）是 Go 侧车，tauri build 的 beforeBuildCommand
+      # 会用 go build 出 src-tauri/binaries 里的二进制；CI runner 默认没有 Go。
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: subscriptions/bridge/go.mod
+          cache-dependency-path: subscriptions/bridge/go.sum
+
       # rust-toolchain.toml 是编译器版本的唯一来源：直接装它，免得先装 stable 再被 rustup 换掉
       - name: Read pinned Rust toolchain
         id: rust-toolchain
@@ -467,6 +483,14 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '20'
+
+      # 订阅引擎（subscriptions/bridge）是 Go 侧车，tauri build 的 beforeBuildCommand
+      # 会用 go build 出 src-tauri/binaries 里的二进制；CI runner 默认没有 Go。
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: subscriptions/bridge/go.mod
+          cache-dependency-path: subscriptions/bridge/go.sum
 
       # rust-toolchain.toml 是编译器版本的唯一来源：直接装它，免得先装 stable 再被 rustup 换掉
       - name: Read pinned Rust toolchain
