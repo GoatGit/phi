@@ -455,7 +455,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: macos-binary-${{ matrix.target }}
-          path: src-tauri/target/${{ matrix.target }}/release/phi
+          # 主程序和订阅引擎 sidecar 都要传：universal 打包时两者都得 lipo 合并。
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/phi
+            src-tauri/binaries/phi-subscriptions-${{ matrix.target }}
           if-no-files-found: error
           retention-days: 1
 
@@ -591,6 +594,8 @@ jobs:
 
       # tauri bundle 只读这个 universal 二进制（和 tauri build --target universal-apple-darwin
       # 的 lipo 结果相同），不需要各架构的 target 目录。
+      # externalBin 也一样：打包时找的是 binaries/phi-subscriptions-universal-apple-darwin，
+      # 各架构 job 只产出自己的那份，所以 sidecar 也要在这里合并一份。
       - name: Merge universal binary
         shell: bash
         run: |
@@ -602,6 +607,15 @@ jobs:
             macos-binaries/macos-binary-x86_64-apple-darwin/phi
           chmod +x "$out/phi"
           lipo -info "$out/phi"
+
+          # 订阅引擎 sidecar：先合并，再放到 Tauri 打包时查找的外部二进制路径。
+          sidecar=phi-subscriptions-universal-apple-darwin
+          mkdir -p src-tauri/binaries
+          lipo -create -output "src-tauri/binaries/$sidecar" \
+            macos-binaries/macos-binary-aarch64-apple-darwin/phi-subscriptions-aarch64-apple-darwin \
+            macos-binaries/macos-binary-x86_64-apple-darwin/phi-subscriptions-x86_64-apple-darwin
+          chmod +x "src-tauri/binaries/$sidecar"
+          lipo -info "src-tauri/binaries/$sidecar"
 
       # 只打 .app（连同 updater 的 .app.tar.gz 和 .sig）：发布用的 DMG 在下面由 create-dmg 制作，
       # Tauri 自己的 DMG 从来不上传。失败只重试这一步，不会重编。
