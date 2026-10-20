@@ -1,11 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { ResourcePoolSection } from "@/components/gateway/ResourcePoolSection";
 import { RoutingStatus } from "@/components/gateway/RoutingStatus";
 import type { RouteAppRequest } from "@/components/gateway/routingFlowModel";
@@ -69,20 +66,10 @@ export function ProviderCatalogPage({
       <AppPageHeader
         leading={onBack && <PageHeaderBackButton onClick={onBack} />}
         title={t("gateway.providers")}
-        actions={
-          <Button
-            variant="solid"
-            size="regular"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="h-4 w-4" aria-hidden />
-            {t("gateway.pool.create")}
-          </Button>
-        }
       />
       <div
         id="main-content"
-        className="min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-5"
+        className="min-h-0 flex-1 overflow-y-auto scroll-stable px-6 pb-10 pt-4"
       >
         <div className="mx-auto flex max-w-5xl flex-col gap-6">
           <GatewayCatalogGate>
@@ -119,27 +106,15 @@ export function RoutingOverviewPage({
   onRouteAppRequestHandled?: () => void;
 }) {
   const { t } = useTranslation();
-  const { stopWithRestore, isPending } = useProxyStatus();
-  const [confirmExitAll, setConfirmExitAll] = useState(false);
   return (
     <>
       <AppPageHeader
         leading={onBack && <PageHeaderBackButton onClick={onBack} />}
         title={t("gateway.routing")}
-        actions={
-          <Button
-            variant="neutral"
-            size="compact"
-            disabled={isPending}
-            onClick={() => setConfirmExitAll(true)}
-          >
-            {t("routingSettings.exitAll")}
-          </Button>
-        }
       />
       <div
         id="main-content"
-        className="min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-5"
+        className="min-h-0 flex-1 overflow-y-auto scroll-stable px-6 pb-10 pt-4"
       >
         <GatewayCatalogGate>
           {(catalog) => (
@@ -152,19 +127,6 @@ export function RoutingOverviewPage({
           )}
         </GatewayCatalogGate>
       </div>
-      {/* 可恢复的操作（路由目标、队列、聚合名单都保留），不用红色 */}
-      <ConfirmDialog
-        isOpen={confirmExitAll}
-        variant="info"
-        title={t("routingSettings.exitAllTitle")}
-        message={t("routingSettings.exitAllMessage")}
-        confirmText={t("routingSettings.exitAllConfirm")}
-        onConfirm={() => {
-          setConfirmExitAll(false);
-          void stopWithRestore().catch(() => undefined);
-        }}
-        onCancel={() => setConfirmExitAll(false)}
-      />
     </>
   );
 }

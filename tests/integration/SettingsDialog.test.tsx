@@ -89,7 +89,7 @@ const renderDialog = (
       <Suspense fallback={<div data-testid="loading">loading</div>}>
         <SettingsPage
           section="data"
-          onExitSettings={() => {}}
+          onSelectSection={() => {}}
           onOpenApps={() => {}}
           {...props}
         />

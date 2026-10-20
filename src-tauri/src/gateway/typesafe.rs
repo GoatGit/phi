@@ -25,14 +25,12 @@ pub fn is_app(id: &str) -> bool {
 
 /// 选出能服务这个模型名的 System One 组。
 ///
-/// `group/<id>` 是显式的组别名；其余模型名按组内供应商声明的模型精确匹配。
+/// `group/<组名>` 是显式的组别名；其余模型名按组内供应商声明的模型精确匹配。
 /// 只考虑目录里已经推导出 `typesafe` 应用身份的组，因此混有聊天供应商的组
 /// 永远不会被选中。
 pub(crate) fn group_for_model<'a>(catalog: &'a Catalog, model: &str) -> Option<&'a RouteGroup> {
-    if let Some(id) = model.strip_prefix("group/") {
-        return catalog.groups.iter().find(|group| {
-            group.enabled && group.id == id && group.app_ids.iter().any(|app| app == APP_ID)
-        });
+    if let Some((group, _)) = super::routing::resolve_group_alias(catalog, APP_ID, model) {
+        return Some(group);
     }
     catalog.groups.iter().find(|group| {
         group.enabled

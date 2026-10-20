@@ -137,7 +137,11 @@ function useAppRouteOptions(app: ProxyAppId, catalog: GatewayCatalog) {
       : t("gateway.connections.unconfigured");
 
   const directOptions: RouteOption[] = catalog.suppliers.map((supplier) => {
-    const direct = supplierDirectCompatible(app, supplier.endpoint.protocol);
+    const direct = supplierDirectCompatible(
+      app,
+      supplier.endpoint.protocol,
+      supplier.endpoint.baseUrl,
+    );
     return {
       value: `supplier/${supplier.id}`,
       label: supplier.name,
@@ -244,7 +248,7 @@ function RouteChoice({
       onClick={() => onSelect(option.value)}
       className={cn(
         "flex w-full items-center gap-2.5 rounded-control border border-transparent px-2.5 py-2 text-start transition-colors",
-        "hover:bg-subtle focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "hover:bg-subtle",
         "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent",
         selected && "bg-subtle",
       )}
@@ -253,11 +257,11 @@ function RouteChoice({
         {selected && <Check className="h-3.5 w-3.5" aria-hidden />}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-fg-1">
+        <span className="block truncate text-body font-medium text-fg-1">
           {option.label}
         </span>
         {option.note && (
-          <span className="block truncate text-xs text-fg-3">
+          <span className="block truncate text-caption text-fg-3">
             {option.note}
           </span>
         )}
@@ -461,7 +465,11 @@ function useProviderAppRouteOptions(
     : t("gateway.connections.nativeTarget");
 
   const directOptions: RouteOption[] = catalog.suppliers.map((supplier) => {
-    const direct = supplierDirectCompatible(app, supplier.endpoint.protocol);
+    const direct = supplierDirectCompatible(
+      app,
+      supplier.endpoint.protocol,
+      supplier.endpoint.baseUrl,
+    );
     return {
       value: `supplier/${supplier.id}`,
       label: supplier.name,

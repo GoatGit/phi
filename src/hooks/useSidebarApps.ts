@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { gatewayApi } from "@/lib/api";
-import type { VisibleApps } from "@/types";
 import { useGatewayCatalog } from "@/components/gateway/useGatewayCatalog";
 import {
   buildSidebarApps,
@@ -12,10 +11,10 @@ import {
 export const sidebarTracesKey = ["gateway", "sidebar-traces"] as const;
 
 /**
- * 侧栏应用列表：可见应用 + 路由专用应用，按“进行中 → 最近有流量 →
+ * 侧栏应用列表：只列用户自己添加进侧栏的应用，按“进行中 → 最近有流量 →
  * 已接入路由组 → 其余”排序。轨迹 15 秒刷新一次，侧栏常驻也不会打重查询。
  */
-export function useSidebarApps(visibleApps: VisibleApps): SidebarAppEntry[] {
+export function useSidebarApps(appIds: readonly string[]): SidebarAppEntry[] {
   const { data: catalog } = useGatewayCatalog();
   const { data: traces } = useQuery({
     queryKey: sidebarTracesKey,
@@ -24,7 +23,7 @@ export function useSidebarApps(visibleApps: VisibleApps): SidebarAppEntry[] {
     staleTime: 5_000,
   });
   return useMemo(
-    () => buildSidebarApps({ visibleApps, catalog, traces }),
-    [visibleApps, catalog, traces],
+    () => buildSidebarApps({ appIds, catalog, traces }),
+    [appIds, catalog, traces],
   );
 }

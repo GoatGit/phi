@@ -296,7 +296,7 @@ export function DeepLinkImportDialog() {
             </DialogHeader>
 
             {/* 主体内容整体右移，略大于标题内边距，让内容看起来不贴边 */}
-            <div className="space-y-4 px-8 py-4 max-h-[60vh] overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:block [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-subtle">
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto px-6 py-4 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:block [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-subtle">
               {request.resource === "prompt" && (
                 <PromptConfirmation request={request} />
               )}

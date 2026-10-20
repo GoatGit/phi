@@ -1,514 +1,210 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ChevronDown } from "lucide-react";
+import { KeyRound, Plus } from "lucide-react";
 import { accessApi, type AccessBinding } from "@/lib/api/access";
 import { useGatewayCatalog } from "./useGatewayCatalog";
-import { copyText } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Field,
-  FieldLabel,
-  FieldGroup,
-  FieldSet,
-  FieldLegend,
-  FieldDescription,
-  FieldError,
-} from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Notice } from "@/components/ui/notice";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  Dialog,
-  DialogContent,
-  DialogBody,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-} from "@/components/ui/select";
+  AccessDeleteDialog,
+  AccessKeyDialog,
+  EXTERNAL_TOOL,
+  IssuedTokenDialog,
+  freshBinding,
+} from "./AccessKeyDialog";
 
-const fresh = (): AccessBinding => ({
-  id: "",
-  name: "",
-  agent: "",
-  tool: "codex",
-  projectId: null,
-  allowedGroups: [],
-  enabled: true,
-});
-export function AccessBindings() {
-  const { t } = useTranslation();
-  return (
-    <Collapsible className="flex flex-col gap-2 rounded-panel border border-border p-4">
-      <CollapsibleTrigger asChild>
-        <Button variant="ghost" className="group w-full justify-between">
-          {t("access.advanced")}
-          <ChevronDown
-            data-icon="inline-end"
-            aria-hidden
-            className="transition-transform group-data-[state=open]:rotate-180"
-          />
-        </Button>
-      </CollapsibleTrigger>
-      <p className="text-sm text-fg-3">{t("access.automaticHint")}</p>
-      <CollapsibleContent className="pt-2">
-        <ClientAccessManager />
-      </CollapsibleContent>
-    </Collapsible>
-  );
+const WEEK_MS = 7 * 86_400_000;
+const isExternal = (binding: AccessBinding) => binding.tool === EXTERNAL_TOOL;
+
+function formatTokens(value: number | undefined): string {
+  if (!value) return "0";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(value);
 }
 
-function ClientAccessManager() {
+function formatCost(value: string | undefined): string {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return "$0";
+  if (amount < 0.01) return "<$0.01";
+  return `$${amount.toFixed(2)}`;
+}
+
+/**
+ * 三方应用：给 PHI 不写配置的客户端（Cursor、Cline、脚本）使用。
+ *
+ * 每个三方应用就是一枚接入令牌，相当于一个独立应用，用量按它分开统计。应用
+ * 自己的接入由 PHI 自动写进客户端配置，不在这里暴露。
+ */
+export function AccessBindings() {
+  return <ExternalKeyManager />;
+}
+
+function ExternalKeyManager() {
   const { t } = useTranslation();
   const client = useQueryClient();
   const [draft, setDraft] = useState<AccessBinding | null>(null);
-  const [projectPath, setProjectPath] = useState("");
   const [issued, setIssued] = useState<string | null>(null);
-  const [scope, setScope] = useState<"all" | "selected">("all");
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState(false);
+  const [deleting, setDeleting] = useState<AccessBinding | null>(null);
+  const [usageSince] = useState(() => Date.now() - WEEK_MS);
+
   const bindings = useQuery({
     queryKey: ["access-bindings"],
     queryFn: accessApi.bindings,
   });
-  const projects = useQuery({
-    queryKey: ["access-projects"],
-    queryFn: accessApi.projects,
-  });
   const catalog = useGatewayCatalog();
-  const availableGroups =
-    catalog.data?.groups?.filter((g) => g.appIds.includes(draft?.tool ?? "")) ??
-    [];
-  const invalidScope =
-    scope === "selected" &&
-    (!draft?.allowedGroups.length ||
-      !draft.allowedGroups.every((id) =>
-        availableGroups.some((g) => g.id === id),
-      ));
-  const ready = projects.isSuccess && catalog.isSuccess;
-  const issue = useMutation({
-    mutationFn: async (binding: AccessBinding) => {
-      let projectId = binding.projectId;
-      if (projectPath.trim())
-        projectId = (await accessApi.createProject(projectPath.trim())).id;
-      return accessApi.issue({ ...binding, projectId });
-    },
-    onSuccess: async (result) => {
-      setDraft(null);
-      setIssued(result.token);
-      setCopied(false);
-      setCopyError(false);
-      await Promise.all([
-        client.invalidateQueries({ queryKey: ["access-bindings"] }),
-        client.invalidateQueries({ queryKey: ["access-projects"] }),
-      ]);
-    },
+  const usage = useQuery({
+    queryKey: ["access-binding-usage", usageSince],
+    queryFn: () => accessApi.usage(usageSince, Date.now()),
+    refetchInterval: 30_000,
   });
+
+  const keys = useMemo(
+    () =>
+      (bindings.data ?? [])
+        .filter(isExternal)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [bindings.data],
+  );
   const enabled = useMutation({
     mutationFn: ({ id, value }: { id: string; value: boolean }) =>
       accessApi.enabled(id, value),
     onSuccess: () =>
       client.invalidateQueries({ queryKey: ["access-bindings"] }),
   });
-  const update = (patch: Partial<AccessBinding>) =>
-    setDraft((value) => (value ? { ...value, ...patch } : value));
+
+  const openCreate = () => {
+    setDraft(freshBinding(keys.length === 0 ? "PHI" : ""));
+  };
+
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">{t("access.title")}</h2>
-        <Button
-          onClick={() => {
-            issue.reset();
-            setProjectPath("");
-            setScope("all");
-            setValidationError(null);
-            setDraft(fresh());
-          }}
-        >
+    <section className="flex flex-col gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h2 className="m-0 flex items-center gap-1.5 text-base font-medium text-fg-1">
+            <KeyRound className="h-4 w-4 text-fg-2" aria-hidden />
+            {t("access.title")}
+          </h2>
+          <p className="m-0 text-caption text-fg-2">
+            {t("access.description")}
+          </p>
+        </div>
+        <Button variant="neutral" size="regular" onClick={openCreate}>
+          <Plus className="h-4 w-4" aria-hidden />
           {t("access.create")}
         </Button>
       </div>
-      <p className="text-sm text-fg-3">{t("access.description")}</p>
-      <Notice title={t("access.boundary")} />
-      {(bindings.error || enabled.error) && (
-        <Notice tone="danger" title={String(bindings.error ?? enabled.error)} />
+
+      {(bindings.error || usage.error) && (
+        <Notice tone="danger" title={String(bindings.error ?? usage.error)} />
       )}
-      {bindings.isPending && <p role="status">{t("ledger.loading")}</p>}
-      {bindings.data?.length === 0 && <Notice title={t("access.empty")} />}
-      {bindings.data?.map((b) => (
-        <Card key={b.id}>
-          <CardHeader className="flex-row items-center justify-between px-4 py-3">
-            <CardTitle>{b.name}</CardTitle>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  issue.reset();
-                  setProjectPath("");
-                  setScope(b.allowedGroups.length ? "selected" : "all");
-                  setValidationError(null);
-                  setDraft({ ...b });
-                }}
+
+      <p className="m-0 text-caption text-fg-3">{t("access.boundary")}</p>
+
+      {keys.length === 0 && bindings.isSuccess ? (
+        <div className="rounded-panel border border-dashed border-border px-4 py-4">
+          <p className="m-0 text-body text-fg-2">{t("access.empty")}</p>
+        </div>
+      ) : (
+        <ul className="m-0 flex list-none flex-col divide-y divide-border overflow-hidden rounded-panel border border-border">
+          {keys.map((binding) => {
+            const totals = usage.data?.[binding.id];
+            return (
+              <li
+                key={binding.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3"
               >
-                {t("access.rotate")}
-              </Button>
-              <Switch
-                aria-label={t("access.enabled", { name: b.name })}
-                checked={b.enabled}
-                disabled={enabled.isPending}
-                onCheckedChange={(value) => enabled.mutate({ id: b.id, value })}
-              />
-            </div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-1 px-4 pb-4 text-sm">
-            <p>
-              {b.agent} · {b.tool} ·{" "}
-              {projects.data?.find((p) => p.id === b.projectId)?.displayPath ??
-                b.projectId ??
-                t("access.noProject")}
-            </p>
-            <p className="text-xs text-fg-3">
-              {b.allowedGroups.length
-                ? b.allowedGroups
-                    .map(
-                      (id) =>
-                        catalog.data?.groups?.find((g) => g.id === id)?.name ??
-                        id,
-                    )
-                    .join(" · ")
-                : t("access.allGroups")}
-            </p>
-          </CardContent>
-        </Card>
-      ))}
-      <Dialog
-        open={!!draft}
-        onOpenChange={(open) => {
-          if (!open && !issue.isPending) setDraft(null);
+                <div className="flex min-w-[140px] flex-1 flex-col gap-0.5">
+                  <span className="flex items-center gap-2 text-body font-medium text-fg-1">
+                    {binding.name}
+                    <span className="rounded-[4px] bg-subtle px-1.5 text-badge font-normal text-fg-2">
+                      {t("access.externalBadge")}
+                    </span>
+                  </span>
+                  <span className="text-caption text-fg-2">
+                    {binding.agent}
+                    {" · "}
+                    {binding.allowedGroups.length
+                      ? binding.allowedGroups
+                          .map(
+                            (id) =>
+                              catalog.data?.groups?.find((g) => g.id === id)
+                                ?.name ?? id,
+                          )
+                          .join(" · ")
+                      : t("access.allGroups")}
+                  </span>
+                </div>
+                <div className="flex min-w-[150px] flex-col items-end gap-0.5 text-end">
+                  <span className="text-caption text-fg-3">
+                    {t("access.keyUsage")}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-body tabular-nums",
+                      totals?.requests ? "text-fg-1" : "text-fg-3",
+                    )}
+                  >
+                    {totals?.requests
+                      ? `${formatTokens(totals.tokens)} tokens · ${formatCost(totals.cost)}`
+                      : t("access.keyUsageEmpty")}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDraft({ ...binding });
+                    }}
+                  >
+                    {t("access.rotate")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-danger"
+                    disabled={enabled.isPending}
+                    onClick={() => {
+                      setDeleting(binding);
+                    }}
+                  >
+                    {t("access.delete")}
+                  </Button>
+                  <Switch
+                    aria-label={t("access.enabled", { name: binding.name })}
+                    checked={binding.enabled}
+                    disabled={enabled.isPending}
+                    onCheckedChange={(value) =>
+                      enabled.mutate({ id: binding.id, value })
+                    }
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <AccessKeyDialog
+        draft={draft}
+        onChange={setDraft}
+        onClose={() => setDraft(null)}
+        onIssued={(token) => {
+          setDraft(null);
+          setIssued(token);
         }}
-      >
-        <DialogContent className="max-h-[85vh] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle>
-              {t(draft?.id ? "access.rotate" : "access.create")}
-            </DialogTitle>
-            <DialogDescription>
-              {t(draft?.id ? "access.rotateHint" : "access.createHint")}
-            </DialogDescription>
-          </DialogHeader>
-          {draft && (
-            <form
-              className="flex min-h-0 flex-1 flex-col"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (issue.isPending || !ready || invalidScope) return;
-                if (!draft.name.trim() || !draft.agent.trim()) {
-                  setValidationError(t("access.required"));
-                  return;
-                }
-                setValidationError(null);
-                issue.mutate({
-                  ...draft,
-                  name: draft.name.trim(),
-                  agent: draft.agent.trim(),
-                  allowedGroups: scope === "all" ? [] : draft.allowedGroups,
-                });
-              }}
-            >
-              <DialogBody>
-                <FieldSet disabled={issue.isPending}>
-                  <FieldGroup className="gap-4">
-                    {(projects.isPending || catalog.isPending) && (
-                      <p role="status">{t("ledger.loading")}</p>
-                    )}
-                    {(issue.error || projects.error || catalog.error) && (
-                      <Notice
-                        tone="danger"
-                        title={String(
-                          issue.error ?? projects.error ?? catalog.error,
-                        )}
-                      >
-                        {(projects.isError || catalog.isError) && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                              void projects.refetch();
-                              void catalog.refetch();
-                            }}
-                          >
-                            {t("access.retry")}
-                          </Button>
-                        )}
-                      </Notice>
-                    )}
-                    {validationError && (
-                      <FieldError>{validationError}</FieldError>
-                    )}
-                    <Field>
-                      <FieldLabel htmlFor="binding-name">
-                        {t("ledger.name")}
-                      </FieldLabel>
-                      <Input
-                        id="binding-name"
-                        required
-                        maxLength={200}
-                        value={draft.name}
-                        onChange={(e) => {
-                          setValidationError(null);
-                          update({ name: e.target.value });
-                        }}
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="binding-agent">
-                        {t("access.agent")}
-                      </FieldLabel>
-                      <Input
-                        id="binding-agent"
-                        required
-                        maxLength={100}
-                        value={draft.agent}
-                        placeholder="Cline / Continue / Claude Code"
-                        onChange={(e) => {
-                          setValidationError(null);
-                          update({ agent: e.target.value });
-                        }}
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="binding-protocol">
-                        {t("access.protocol")}
-                      </FieldLabel>
-                      <Select
-                        value={draft.tool}
-                        onValueChange={(tool) =>
-                          update({ tool, allowedGroups: [] })
-                        }
-                      >
-                        <SelectTrigger
-                          id="binding-protocol"
-                          aria-label={t("access.protocol")}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {[
-                              ["codex", "OpenAI Chat / Responses"],
-                              ["claude", "Anthropic Messages"],
-                              ["gemini", "Gemini"],
-                              // System One 是决策协议，只接 /typesafe/v1/systemone。
-                              ["typesafe", "System One"],
-                            ].map(([value, label]) => (
-                              <SelectItem key={value} value={value}>
-                                {label}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="binding-project-choice">
-                        {t("ledger.project")}
-                      </FieldLabel>
-                      <Select
-                        value={draft.projectId ?? "none"}
-                        disabled={projects.isPending || projects.isError}
-                        onValueChange={(projectId) => {
-                          setProjectPath("");
-                          update({
-                            projectId: projectId === "none" ? null : projectId,
-                          });
-                        }}
-                      >
-                        <SelectTrigger
-                          id="binding-project-choice"
-                          aria-label={t("ledger.project")}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="none">
-                              {t("access.noProject")}
-                            </SelectItem>
-                            {projects.data?.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.displayPath}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="binding-project">
-                        {t("access.newProject")}
-                      </FieldLabel>
-                      <Input
-                        id="binding-project"
-                        value={projectPath}
-                        onChange={(e) => setProjectPath(e.target.value)}
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="binding-scope">
-                        {t("access.scope")}
-                      </FieldLabel>
-                      <Select
-                        value={scope}
-                        disabled={catalog.isPending || catalog.isError}
-                        onValueChange={(value) => {
-                          setScope(value as "all" | "selected");
-                          if (value === "all") update({ allowedGroups: [] });
-                        }}
-                      >
-                        <SelectTrigger id="binding-scope">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="all">
-                              {t("access.allGroups")}
-                            </SelectItem>
-                            <SelectItem value="selected">
-                              {t("access.selectedGroups")}
-                            </SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <FieldDescription>
-                        {t("access.groupsHint")}
-                      </FieldDescription>
-                    </Field>
-                    {scope === "selected" && (
-                      <FieldSet>
-                        <FieldLegend variant="label">
-                          {t("access.groups")}
-                        </FieldLegend>
-                        {availableGroups.length === 0 && ready && (
-                          <FieldDescription>
-                            {t("access.noGroups")}
-                          </FieldDescription>
-                        )}
-                        <FieldGroup className="gap-2">
-                          {availableGroups.map((g) => (
-                            <Field key={g.id} orientation="horizontal">
-                              <Checkbox
-                                id={`binding-group-${g.id}`}
-                                checked={draft.allowedGroups.includes(g.id)}
-                                onCheckedChange={(checked) =>
-                                  update({
-                                    allowedGroups: checked
-                                      ? [...draft.allowedGroups, g.id]
-                                      : draft.allowedGroups.filter(
-                                          (id) => id !== g.id,
-                                        ),
-                                  })
-                                }
-                              />
-                              <FieldLabel htmlFor={`binding-group-${g.id}`}>
-                                {g.name}
-                              </FieldLabel>
-                            </Field>
-                          ))}
-                        </FieldGroup>
-                        {invalidScope && ready && (
-                          <FieldError>{t("access.selectGroup")}</FieldError>
-                        )}
-                      </FieldSet>
-                    )}
-                  </FieldGroup>
-                </FieldSet>
-              </DialogBody>
-              <DialogFooter className="border-t border-border">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={issue.isPending}
-                  onClick={() => setDraft(null)}
-                >
-                  {t("ledger.cancel")}
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={issue.isPending || !ready || invalidScope}
-                >
-                  {t(issue.isPending ? "access.issuing" : "access.issue")}
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={issued !== null}
-        onOpenChange={(open) => {
-          if (!open) setIssued(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("access.token")}</DialogTitle>
-            <DialogDescription>{t("access.tokenHint")}</DialogDescription>
-          </DialogHeader>
-          <FieldGroup className="gap-3 px-6 pb-2">
-            <Field>
-              <FieldLabel htmlFor="issued-access-token">
-                {t("access.token")}
-              </FieldLabel>
-              <Input
-                id="issued-access-token"
-                aria-label={t("access.token")}
-                readOnly
-                value={issued ?? ""}
-                onFocus={(e) => e.target.select()}
-                className="font-mono text-xs"
-              />
-            </Field>
-            <p className="text-sm text-fg-3">{t("access.headers")}</p>
-            {copyError && <FieldError>{t("access.copyFailed")}</FieldError>}
-          </FieldGroup>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={async () => {
-                if (!issued) return;
-                try {
-                  await copyText(issued);
-                  setCopied(true);
-                  setCopyError(false);
-                } catch {
-                  setCopyError(true);
-                }
-              }}
-            >
-              {t(copied ? "access.copied" : "access.copy")}
-            </Button>
-            <Button onClick={() => setIssued(null)}>{t("access.done")}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      />
+
+      <AccessDeleteDialog
+        binding={deleting}
+        onClose={() => setDeleting(null)}
+      />
+
+      <IssuedTokenDialog token={issued} onClose={() => setIssued(null)} />
     </section>
   );
 }

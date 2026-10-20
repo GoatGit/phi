@@ -96,10 +96,33 @@ pub async fn handle_models(
             .db
             .gateway_catalog()
             .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
-        let aliases = crate::gateway::routing::published_unbound_aliases(&catalog, &binding.tool);
+        let external = crate::access::is_external(&binding.tool);
+        // 外部接入的模型清单是全部协议入口的并集：同一枚令牌可以在 Chat /
+        // Responses / Messages / Gemini / System One 任一入口使用。
+        let mut aliases: Vec<(String, String)> = if external {
+            let mut seen: Vec<String> = Vec::new();
+            let mut rows: Vec<(String, String)> = Vec::new();
+            for app in crate::access::EXTERNAL_APPS {
+                for (id, name) in crate::gateway::routing::published_bound_models(&catalog, app) {
+                    if !seen.contains(&id) {
+                        seen.push(id.clone());
+                        rows.push((id, name));
+                    }
+                }
+            }
+            rows
+        } else {
+            crate::gateway::routing::published_bound_models(&catalog, &binding.tool)
+        };
+        aliases.sort_by(|a, b| a.0.cmp(&b.0));
+        let apps: Vec<&str> = if external {
+            crate::access::EXTERNAL_APPS.to_vec()
+        } else {
+            vec![binding.tool.as_str()]
+        };
         let data: Vec<Value> = aliases.into_iter().filter(|(model, _)| {
-            binding.allowed_groups.is_empty() || crate::gateway::routing::matched_unbound_policy(&catalog, &binding.tool, model).ok().flatten()
-                .and_then(|p| p.group_id).is_some_and(|id| binding.allowed_groups.contains(&id))
+            binding.allowed_groups.is_empty() || apps.iter().any(|app| crate::gateway::routing::matched_unbound_policy(&catalog, app, model).ok().flatten()
+                .and_then(|p| p.group_id).is_some_and(|id| binding.allowed_groups.contains(&id)))
         }).map(|(id, name)| json!({"id":id,"object":"model","type":"model","display_name":name,"created":0,"owned_by":"phi"})).collect();
         return Ok(Json(json!({"object":"list","data":data,"has_more":false})));
     }
@@ -922,11 +945,32 @@ pub(crate) fn decode_codex_request_body(
 // Codex API 处理器
 // ============================================================================
 
+/// 外部接入令牌（`tool = external`）：一个令牌跳协议使用，入口路径决定本次路由身份。
+fn is_external_binding(request: &axum::extract::Request) -> bool {
+    request
+        .extensions()
+        .get::<super::ingress::Identity>()
+        .and_then(|identity| identity.binding.as_ref())
+        .is_some_and(|binding| crate::access::is_external(&binding.tool))
+}
+
 /// 处理 /v1/chat/completions 请求（OpenAI Chat Completions API - Codex CLI）
 pub async fn handle_chat_completions(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
+    // 外部接入的 Chat 入口沿用聊天应用那条链路：Anthropic 上游一跳转换，不再经
+    // `chat_bridge` 绕一轮 Responses（那个分支只服务按应用发牌的旧绑定）。
+    if is_external_binding(&request) {
+        return handle_chat_completions_for_app(
+            state,
+            request,
+            AppType::OpenCode,
+            "PHI",
+            "opencode",
+        )
+        .await;
+    }
     handle_chat_completions_for_app(state, request, AppType::Codex, "Codex", "codex").await
 }
 
@@ -1024,11 +1068,14 @@ pub async fn handle_typesafe_systemone(
     // 路由流转图靠 trace 画「这次决策请求由谁服务」，与聊天入口一致。
     // 回包观察器负责写最终状态与用量；这里只是在请求开始时登记。
     let trace = {
+        let binding = super::ledger_observer::external_binding();
         let trace = std::sync::Arc::new(std::sync::Mutex::new(crate::gateway::RequestTrace {
             id: super::ledger_observer::request_id()
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             created_at: chrono::Utc::now().timestamp_millis(),
             app_id: crate::gateway::typesafe::APP_ID.into(),
+            binding_id: binding.as_ref().map(|binding| binding.id.clone()),
+            binding_name: binding.map(|binding| binding.name),
             request_model: parsed.model.clone(),
             catalog_revision: route.revision,
             policy: route.policy.clone(),
@@ -1253,10 +1300,11 @@ async fn handle_chat_completions_for_app(
     tag: &'static str,
     app_type_str: &'static str,
 ) -> Result<axum::response::Response, ProxyError> {
-    if request
-        .extensions()
-        .get::<super::ingress::Identity>()
-        .is_some_and(|identity| identity.binding.is_some())
+    if !is_external_binding(&request)
+        && request
+            .extensions()
+            .get::<super::ingress::Identity>()
+            .is_some_and(|identity| identity.binding.is_some())
     {
         return super::chat_bridge::handle(state, request).await;
     }

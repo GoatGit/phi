@@ -308,6 +308,15 @@ impl Runtime {
             }
         }
     }
+    /// 本地拒绝（预算不足、账本不可用）没有到达上游：只释放活跃计数，不把
+    /// 供应商记为失败或送进冷却。否则用户充值/修好存储后仍会被跳过一段时间。
+    pub fn release(&self, supplier: &str, model: &str, latency: u64) {
+        let mut state = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(s) = state.members.get_mut(&candidate_key(supplier, model)) {
+            s.active = s.active.saturating_sub(1);
+            s.last_latency_ms = Some(latency);
+        }
+    }
     pub fn complete(&self, trace: &RequestTrace) {
         self.observe(trace);
         let Some(event) = trace
@@ -549,6 +558,85 @@ pub fn connection_id(app_id: &str) -> String {
     format!("connection/{app_id}")
 }
 
+/// 组别名对外展示的 id：`group/<组名>`。
+///
+/// 路由组 id 是 UUID，直接以 `group/<id>` 出现在模型的 id、slug 里既不可读也不
+/// 可抄；对外一律换成用户自己起的组名。组名里的空白、`/`、`\` 会被客户端当成
+/// 路径分隔或截断，统一换成 `-`。
+pub fn group_alias(group: &RouteGroup) -> String {
+    let mut name = String::new();
+    for ch in group.name.trim().chars() {
+        if ch.is_whitespace() || ch == '/' || ch == '\\' || ch.is_control() {
+            if !name.ends_with('-') {
+                name.push('-');
+            }
+        } else {
+            name.push(ch);
+        }
+    }
+    let name = name.trim_matches('-');
+    if name.is_empty() {
+        // 组名全是空白或特殊字符时退回 id，至少保证可寻址。
+        format!("group/{group_id}", group_id = group.id)
+    } else {
+        format!("group/{name}")
+    }
+}
+
+/// 把客户端发来的模型名解析成「组 + 组内模型名」。认的写法：
+///
+/// - `group/<组名>`：整个组交给策略选成员；
+/// - `group/<组名>/<模型名>`：钉到组内某个模型；
+/// - 旧写法 `group/<组 id>`：早期版本已经发布出去，不能断。
+///
+/// 组名后面可能还跟着模型名，所以按最长的组名前缀匹配。
+pub fn resolve_group_alias<'a>(
+    catalog: &'a Catalog,
+    app_id: &str,
+    model: &str,
+) -> Option<(&'a RouteGroup, String)> {
+    let model = model.trim();
+    let rest = model.strip_prefix("group/")?;
+    let enabled =
+        |group: &&RouteGroup| group.enabled && group.app_ids.iter().any(|app| app == app_id);
+    // 组名本身可能以 group/ 开头，先按完整字符串试一次。
+    for candidate in [model, rest] {
+        if let Some(group) = catalog
+            .groups
+            .iter()
+            .filter(enabled)
+            .find(|group| group_alias(group) == candidate)
+        {
+            return Some((group, String::new()));
+        }
+    }
+    let mut best: Option<(&RouteGroup, String)> = None;
+    for group in catalog.groups.iter().filter(enabled) {
+        let alias = group_alias(group);
+        let Some(pinned) = model.strip_prefix(&format!("{alias}/")) else {
+            continue;
+        };
+        if pinned.is_empty() {
+            continue;
+        }
+        if best
+            .as_ref()
+            .is_none_or(|(found, _)| alias.len() > group_alias(found).len())
+        {
+            best = Some((group, pinned.to_string()));
+        }
+    }
+    if best.is_some() {
+        return best;
+    }
+    catalog
+        .groups
+        .iter()
+        .filter(enabled)
+        .find(|group| group.id == rest)
+        .map(|group| (group, String::new()))
+}
+
 pub fn app_connection<'a>(catalog: &'a Catalog, app_id: &str) -> Option<&'a RoutePolicy> {
     let id = connection_id(app_id);
     catalog
@@ -582,6 +670,34 @@ pub fn group_policy(
     })
 }
 
+/// 客户端拿到的组别名是用户起的组名，重名会让别名指向不确定的组。这里只在
+/// 「同一个应用可见的组」范围内判重——不同应用各有一个同名组是允许的。
+pub fn validate_aliases(catalog: &Catalog) -> Result<(), AppError> {
+    let mut seen: Vec<(&RouteGroup, String)> = Vec::new();
+    for group in catalog.groups.iter().filter(|group| group.enabled) {
+        if !group
+            .app_ids
+            .iter()
+            .any(|app| super::apps::spec_by_id(app).is_some() || super::typesafe::is_app(app))
+        {
+            continue;
+        }
+        let alias = group_alias(group);
+        let clash = seen.iter().any(|(other, other_alias)| {
+            *other_alias == alias
+                && other
+                    .app_ids
+                    .iter()
+                    .any(|app| group.app_ids.iter().any(|mine| mine == app))
+        });
+        if clash {
+            return Err(invalid("gateway.duplicateGroupName"));
+        }
+        seen.push((group, alias));
+    }
+    Ok(())
+}
+
 /// 一个应用当前连接的路由组里所有可发布的模型名（按组内出现顺序去重）。
 /// 用于把路由组的模型清单写进客户端配置，以及本地 `/models` 发现。
 pub fn published_models(catalog: &Catalog, app_id: &str) -> Vec<String> {
@@ -610,21 +726,14 @@ fn collect_group_models(catalog: &Catalog, group_id: &str, models: &mut Vec<Stri
         return;
     };
     for member in group.members.iter().filter(|member| member.enabled) {
-        if let Some(supplier_id) = &member.supplier_id {
-            if let Some(supplier) = catalog
-                .suppliers
-                .iter()
-                .find(|supplier| &supplier.id == supplier_id)
-            {
-                for model in &supplier.models {
-                    push_model(models, model);
-                }
-            }
+        // 一个成员就是一个出口：应用侧只能看到成员自己声明的模型。把供应商的
+        // 全部模型都发布出去会出现「选了 n、实际转发 m」的静默替换。
+        if member.supplier_id.is_some() {
+            push_model(models, &member.model);
         }
         if let Some(nested) = &member.group_id {
             collect_group_models(catalog, nested, models, depth + 1);
         }
-        push_model(models, &member.model);
     }
 }
 
@@ -652,10 +761,10 @@ pub fn matched_policy(
         policy.id = connection.id.clone();
         // 组连接仍然由「应用连接」决定组，但请求模型名可以点名组内成员：
         // plan 会把模型匹配的候选排到最前。`group/<id>` 是组别名，不参与。
-        policy.request_model = if model.starts_with("group/") {
-            String::new()
-        } else {
-            model.to_string()
+        policy.request_model = match resolve_group_alias(catalog, app_id, model) {
+            // 组别名：整个组交给策略；组别名后带模型名时钉住那个成员。
+            Some((_, pinned)) => pinned,
+            None => model.to_string(),
         };
         return Ok(Some(policy));
     }
@@ -668,8 +777,10 @@ pub fn matched_unbound_policy(
     app_id: &str,
     model: &str,
 ) -> Result<Option<RoutePolicy>, AppError> {
-    if let Some(id) = model.strip_prefix("group/") {
-        return group_policy(catalog, app_id, id, model).map(Some);
+    if let Some((group, pinned)) = resolve_group_alias(catalog, app_id, model) {
+        let mut policy = group_policy(catalog, app_id, &group.id, model)?;
+        policy.request_model = pinned;
+        return Ok(Some(policy));
     }
     let mut policies: Vec<_> = catalog
         .policies
@@ -682,7 +793,38 @@ pub fn matched_unbound_policy(
         })
         .collect();
     policies.sort_by(|a, b| a.priority.cmp(&b.priority).then(a.id.cmp(&b.id)));
-    Ok(policies.first().map(|p| (*p).clone()))
+    if let Some(policy) = policies.first() {
+        return Ok(Some((*policy).clone()));
+    }
+    // 没有显式策略时，让组内成员的模型名自己点名。第三方客户端（Cursor、
+    // Cline、脚本）只会填一个真实的模型名，`group/<id>` 别名对它们不可发现；
+    // 这里把请求模型映射到「app 可用且确实提供该模型的组」，再由
+    // `request_model` 把匹配成员排到最前，其余成员仍可故障转移。
+    let Some(group) = group_with_model(catalog, app_id, model) else {
+        return Ok(None);
+    };
+    let mut policy = group_policy(catalog, app_id, &group.id, "")?;
+    policy.request_model = model.to_string();
+    Ok(Some(policy))
+}
+
+/// 某个应用身份可用的、组内确实提供 `model` 的第一个启用组。
+fn group_with_model<'a>(catalog: &'a Catalog, app_id: &str, model: &str) -> Option<&'a RouteGroup> {
+    let wanted = model.trim();
+    if wanted.is_empty() {
+        return None;
+    }
+    catalog
+        .groups
+        .iter()
+        .filter(|group| group.enabled && group.app_ids.iter().any(|a| a == app_id))
+        .find(|group| {
+            let mut models = Vec::new();
+            collect_group_models(catalog, &group.id, &mut models, 0);
+            models
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(wanted))
+        })
 }
 
 impl Runtime {
@@ -1075,10 +1217,31 @@ pub fn published_aliases(catalog: &Catalog, app_id: &str) -> Vec<(String, String
                     && g.enabled
                     && g.app_ids.iter().any(|a| a == app_id)
             })
-            .map(|g| (format!("group/{}", g.id), g.name.clone()))
+            .map(|g| (group_alias(g), g.name.clone()))
             .collect();
     }
     published_unbound_aliases(catalog, app_id)
+}
+
+/// 绑定密钥（含外部接入）可用的模型清单：组别名 + 组内成员模型名。
+///
+/// 绑定路径用 [`matched_unbound_policy`]，它既能解析 `group/<id>`，也能用成员
+/// 模型名点名；所以清单必须同时给出两者，否则客户端「拉取模型」只会看到
+/// 一个看起来不像模型的组别名。
+pub fn published_bound_models(catalog: &Catalog, app_id: &str) -> Vec<(String, String)> {
+    let mut aliases = published_unbound_aliases(catalog, app_id);
+    for group in catalog
+        .groups
+        .iter()
+        .filter(|g| g.enabled && g.app_ids.iter().any(|a| a == app_id))
+    {
+        let mut models = Vec::new();
+        collect_group_models(catalog, &group.id, &mut models, 0);
+        aliases.extend(models.into_iter().map(|model| (model.clone(), model)));
+    }
+    aliases.sort_by(|a, b| a.0.cmp(&b.0));
+    aliases.dedup_by(|a, b| a.0 == b.0);
+    aliases
 }
 
 pub fn published_unbound_aliases(catalog: &Catalog, app_id: &str) -> Vec<(String, String)> {
@@ -1086,7 +1249,7 @@ pub fn published_unbound_aliases(catalog: &Catalog, app_id: &str) -> Vec<(String
         .groups
         .iter()
         .filter(|g| g.enabled && g.app_ids.iter().any(|a| a == app_id))
-        .map(|g| (format!("group/{}", g.id), g.name.clone()))
+        .map(|g| (group_alias(g), g.name.clone()))
         .collect();
     aliases.extend(
         catalog

@@ -10,7 +10,9 @@ export function SkillConfirmation({
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">{t("deeplink.skill.title")}</h3>
+      <h3 className="m-0 text-section text-fg-1">
+        {t("deeplink.skill.title")}
+      </h3>
 
       <div>
         <label className="block text-sm font-medium text-fg-2">

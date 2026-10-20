@@ -8,6 +8,7 @@ pub mod attach;
 pub mod intent;
 pub mod local_apps;
 pub mod routing;
+pub mod subscriptions;
 pub mod typesafe;
 use crate::proxy::providers::{get_adapter, AuthInfo, AuthStrategy};
 use crate::{
@@ -130,6 +131,10 @@ pub struct RequestTrace {
     pub id: String,
     pub created_at: i64,
     pub app_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_name: Option<String>,
     #[serde(default)]
     pub request_model: String,
     pub catalog_revision: u64,
@@ -372,12 +377,19 @@ fn supplier_direct_settings(
             settings
         }
         // Claude Desktop 直连只接受原生 Anthropic 入口，写法和 Claude Code 一样。
-        AppType::ClaudeDesktop => serde_json::json!({
-            "env": {
-                "ANTHROPIC_BASE_URL": base_url,
-                "ANTHROPIC_AUTH_TOKEN": secret.api_key,
+        // 但客户端的直连配置只读 ANTHROPIC_AUTH_TOKEN（Bearer）：x-api-key 的
+        // 供应商必须走路由，否则写进去的密钥会以错误的头发送出去。
+        AppType::ClaudeDesktop => {
+            if secret.auth_field != "ANTHROPIC_AUTH_TOKEN" {
+                return Err(invalid("gateway.directIncompatible"));
             }
-        }),
+            serde_json::json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": base_url,
+                    "ANTHROPIC_AUTH_TOKEN": secret.api_key,
+                }
+            })
+        }
         // 其余应用把供应商声明成指向上游的普通供应商行，模型名单一并发布。
         AppType::OpenCode | AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode => {
             if supplier.models.is_empty() {
@@ -655,6 +667,28 @@ pub(crate) fn provider_models(provider: &Provider) -> Vec<String> {
             }
         }
     }
+    if let Some(models_value) = provider.settings_config.get("models") {
+        // 累加式应用把模型声明在自己的 `models` 字段里：OpenCode/MCode 是对象
+        // （键即模型 id），OpenClaw/Hermes/Pi 是 `[{id,name}]` 数组。导入到资源池
+        // 时如果不读这里，供应商会变成没有模型的空壳。
+        let ids: Vec<&str> = match models_value {
+            serde_json::Value::Object(map) => map.keys().map(String::as_str).collect(),
+            serde_json::Value::Array(rows) => rows
+                .iter()
+                .filter_map(|row| {
+                    ["id", "model", "name"]
+                        .iter()
+                        .find_map(|key| row.get(*key)?.as_str())
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        for id in ids {
+            if identifier(id) && !models.iter().any(|model| model == id) {
+                models.push(id.to_string());
+            }
+        }
+    }
     if let Some(stack_models) = provider
         .meta
         .as_ref()
@@ -755,12 +789,15 @@ impl Database {
             }) else {
                 return Ok(None);
             };
-            format!("group/{}", group.id)
+            routing::group_alias(group)
         } else if let Some(policy) = policies.first() {
             if !policy.match_model.is_empty() {
                 policy.match_model.clone()
             } else if let Some(id) = &policy.group_id {
-                format!("group/{id}")
+                match catalog.groups.iter().find(|g| &g.id == id) {
+                    Some(group) => routing::group_alias(group),
+                    None => format!("group/{id}"),
+                }
             } else {
                 policy
                     .candidates
@@ -775,7 +812,7 @@ impl Database {
             .filter(|g| g.enabled && g.app_ids.iter().any(|a| a == app_id))
             .min_by_key(|g| &g.id)
         {
-            format!("group/{}", group.id)
+            routing::group_alias(group)
         } else {
             return Ok(None);
         };
@@ -916,8 +953,9 @@ impl Database {
             .ok_or_else(|| invalid("gateway.missingSecret"))?;
         // Use the saved endpoint and credential together. Never return the key or
         // upstream error body to the renderer, nor forward credentials on redirects.
+        let (base, secret) = subscriptions::resolve(&supplier.endpoint.base_url, secret)?;
         fetch_upstream_model_ids(
-            &supplier.endpoint.base_url,
+            &base,
             &supplier.endpoint.protocol,
             &secret.auth_field,
             &secret.api_key,
@@ -1034,6 +1072,9 @@ impl Database {
         let secret = self
             .secret(supplier_id)?
             .ok_or_else(|| invalid("gateway.missingSecret"))?;
+        if subscriptions::subscription_id(&supplier.endpoint.base_url).is_some() {
+            return Err(invalid("gateway.subscriptionNeedsRouting"));
+        }
         let settings = supplier_direct_settings(&app_type, supplier, &secret)?;
         // 累加式应用的供应商标识只允许字母、数字、`-`/`_`（MCode 最严格），
         // 走 `/` 之外的分隔形式；旧四个应用保持原 id 以兼容界面映射。
@@ -1304,6 +1345,7 @@ impl Database {
     }
     fn validate_gateway_catalog(&self, catalog: &Catalog) -> Result<(), AppError> {
         routing::validate(catalog)?;
+        routing::validate_aliases(catalog)?;
         if catalog.suppliers.len() > 500 || catalog.policies.len() > 500 {
             return Err(invalid("gateway.limitExceeded"));
         }
@@ -1430,11 +1472,11 @@ impl Database {
         };
         let mut policy = routing::group_policy(&catalog, typesafe::APP_ID, &group_id, model)?;
         // 请求里的模型名点名组内成员：组里可以同时放 jev-latest 与其它决策模型，
-        // 不能让策略把请求改写成另一个成员。`group/<id>` 是组别名，不参与点名。
-        policy.request_model = if model.starts_with("group/") {
-            String::new()
-        } else {
-            model.to_string()
+        // 不能让策略把请求改写成另一个成员。组别名本身不参与点名。
+        policy.request_model = match routing::resolve_group_alias(&catalog, typesafe::APP_ID, model)
+        {
+            Some((_, pinned)) => pinned,
+            None => model.to_string(),
         };
         let decision = self
             .gateway_runtime
@@ -1475,11 +1517,14 @@ impl Database {
         let initial =
             self.gateway_runtime
                 .plan(&catalog, &policy, session.clone(), vec![], false)?;
+        let binding = crate::proxy::ledger_observer::external_binding();
         let trace = std::sync::Arc::new(std::sync::Mutex::new(RequestTrace {
             id: crate::proxy::ledger_observer::request_id()
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             created_at: chrono::Utc::now().timestamp_millis(),
             app_id: app_id.into(),
+            binding_id: binding.as_ref().map(|binding| binding.id.clone()),
+            binding_name: binding.map(|binding| binding.name),
             request_model: model.into(),
             catalog_revision: catalog.revision,
             policy: policy.clone(),
@@ -1579,6 +1624,7 @@ impl Database {
         let mut providers = Vec::new();
         let mut models = HashMap::new();
         let mut supplier_ids = HashMap::new();
+        let mut first_error: Option<AppError> = None;
         if let Some(group) = decision.groups.first() {
             policy.failover = group.failover;
         }
@@ -1593,15 +1639,31 @@ impl Database {
                 }
             })
             .unwrap_or(if policy.failover { 11 } else { 1 });
-        for c in decision.candidates.iter().filter(|c| c.available).take(max) {
+        // 取材料的失败（密钥被删、订阅引擎不可用）不应占用尝试名额：先试
+        // 所有真正可用的候选，再拿被尝试上限挡住的候选做后备，否则一个坏
+        // 供应商会让整组失去故障转移。
+        let ordered = decision.candidates.iter().filter(|c| c.available).chain(
+            decision
+                .candidates
+                .iter()
+                .filter(|c| !c.available && c.reason == "attempt_limit"),
+        );
+        for c in ordered {
+            if providers.len() >= max {
+                break;
+            }
             let supplier = catalog
                 .suppliers
                 .iter()
                 .find(|s| s.id == c.supplier_id)
                 .ok_or_else(|| invalid("gateway.missingSupplier"))?;
-            let secret = self
-                .secret(&supplier.id)?
-                .ok_or_else(|| invalid("gateway.missingSecret"))?;
+            let secret = match self.secret(&supplier.id)? {
+                Some(secret) => secret,
+                None => {
+                    first_error.get_or_insert_with(|| invalid("gateway.missingSecret"));
+                    continue;
+                }
+            };
             let mut provider = Provider::with_id(
                 if policy.group_id.is_some() {
                     format!(
@@ -1616,7 +1678,19 @@ impl Database {
                 serde_json::json!({}),
                 None,
             );
-            let base = &supplier.endpoint.base_url;
+            let (resolved_base, secret) =
+                match subscriptions::resolve(&supplier.endpoint.base_url, secret) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        log::warn!(
+                            "[GATEWAY] 供应商 {} 无法解析，尝试下一个候选: {error}",
+                            supplier.name
+                        );
+                        first_error.get_or_insert(error);
+                        continue;
+                    }
+                };
+            let base = &resolved_base;
             let protocol = &supplier.endpoint.protocol;
             let api_key_field: String = match (app_id, secret.auth_field.as_str()) {
                 ("claude" | "claude-desktop" | "codex" | "grokbuild", "ANTHROPIC_API_KEY") => {
@@ -1625,6 +1699,11 @@ impl Database {
                 ("claude" | "claude-desktop", _) => "ANTHROPIC_AUTH_TOKEN".to_string(),
                 ("gemini", _) => "GEMINI_API_KEY".to_string(),
                 ("typesafe", _) => "TYPESAFE_API_KEY".to_string(),
+                // Chat 入口（OpenCode / Pi …）接 Anthropic 上游时同样要考虑鉴权方式：
+                // x-api-key 的供应商用 Bearer 会 401。
+                _ if protocol == "anthropic" && secret.auth_field == "ANTHROPIC_API_KEY" => {
+                    "ANTHROPIC_API_KEY".to_string()
+                }
                 _ => "OPENAI_API_KEY".to_string(),
             };
             provider.meta = Some(ProviderMeta {
@@ -1657,6 +1736,13 @@ impl Database {
             supplier_ids.insert(provider.id.clone(), supplier.id.clone());
             models.insert(provider.id.clone(), c.model.clone());
             providers.push(provider);
+        }
+        // 一个候选都没做成：把第一个具体原因返回（缺密钥 / 订阅引擎不可用）。
+        // 全部处于冷却时保持空列表，调用方会带上各自原因报「无可用出口」。
+        if providers.is_empty() {
+            if let Some(error) = first_error {
+                return Err(error);
+            }
         }
         Ok(ResolvedRoute {
             revision: catalog.revision,
@@ -2056,6 +2142,15 @@ mod tests {
         let conn = db.conn.lock().expect("lock conn");
         conn.execute("INSERT INTO gateway_supplier_secrets(supplier_id,api_key,auth_field) VALUES(?1,?2,?3) ON CONFLICT(supplier_id) DO UPDATE SET api_key=excluded.api_key, auth_field=excluded.auth_field",
             params![supplier_id, api_key, auth_field]).expect("seed secret");
+    }
+
+    fn delete_secret(db: &Database, supplier_id: &str) {
+        let conn = db.conn.lock().expect("lock conn");
+        conn.execute(
+            "DELETE FROM gateway_supplier_secrets WHERE supplier_id=?1",
+            [supplier_id],
+        )
+        .expect("delete secret");
     }
 
     fn secret_count(db: &Database) -> usize {
@@ -2741,6 +2836,8 @@ mod tests {
             id: format!("trace-{i}"),
             created_at: i,
             app_id: "claude".into(),
+            binding_id: Some("client-key".into()),
+            binding_name: Some("Cursor".into()),
             request_model: "m".into(),
             catalog_revision: 1,
             policy: test_policy("p", "claude", "", 1, false, &["s"]),
@@ -2768,6 +2865,14 @@ mod tests {
         // Newest first.
         assert_eq!(traces[0].id, "trace-1004");
         assert!(traces[0].policy.id == "p");
+        assert_eq!(traces[0].binding_id.as_deref(), Some("client-key"));
+        assert_eq!(traces[0].binding_name.as_deref(), Some("Cursor"));
+        let mut legacy = serde_json::to_value(&traces[0]).unwrap();
+        legacy.as_object_mut().unwrap().remove("bindingId");
+        legacy.as_object_mut().unwrap().remove("bindingName");
+        let legacy: RequestTrace = serde_json::from_value(legacy).unwrap();
+        assert!(legacy.binding_id.is_none());
+        assert!(legacy.binding_name.is_none());
     }
 
     #[test]
@@ -3034,6 +3139,74 @@ mod tests {
     }
 
     #[test]
+    fn materialization_skips_missing_secrets_and_uses_the_next_member() {
+        let db = memory_db();
+        let mut a = test_supplier("sup-a");
+        a.endpoint.protocol = "anthropic".into();
+        let mut b = test_supplier("sup-b");
+        b.endpoint.protocol = "anthropic".into();
+        b.endpoint.base_url = "https://b.example.com".into();
+        seed_secret(&db, "sup-a", "sk-a", "ANTHROPIC_API_KEY");
+        seed_secret(&db, "sup-b", "sk-b", "ANTHROPIC_API_KEY");
+        let mut catalog = catalog_with(vec![a, b], vec![]);
+        catalog.groups.push(
+            serde_json::from_value(serde_json::json!({
+                "id":"root","name":"Root","appIds":["claude"],"maxAttempts":1,"members":[
+                    {"id":"a","supplierId":"sup-a","model":"claude-sonnet-4-5"},
+                    {"id":"b","supplierId":"sup-b","model":"claude-sonnet-4-5"}
+                ]
+            }))
+            .unwrap(),
+        );
+        let mut policy = crate::gateway::routing::group_policy(&catalog, "claude", "root", "")
+            .expect("group policy");
+        policy.id = crate::gateway::routing::connection_id("claude");
+        let decision = db
+            .gateway_runtime
+            .plan(&catalog, &policy, None, vec![], false)
+            .expect("plan");
+        // 候选展开只允许 1 次尝试，第二家是后备；删掉第一家密钥后仍应用第二家。
+        delete_secret(&db, "sup-a");
+        let route = db
+            .materialize_gateway_route(&catalog, "claude", policy, decision)
+            .expect("materialize");
+        assert_eq!(route.providers.len(), 1);
+        assert_eq!(
+            route
+                .supplier_ids
+                .get(&route.providers[0].id)
+                .map(String::as_str),
+            Some("sup-b")
+        );
+    }
+
+    #[test]
+    fn claude_desktop_direct_rejects_api_key_auth_and_accepts_bearer() {
+        let db = memory_db();
+        let mut supplier = test_supplier("sup-d");
+        supplier.endpoint.protocol = "anthropic".into();
+        seed_legacy_catalog(&db, &catalog_with(vec![supplier], vec![]));
+        // x-api-key 的供应商只能走路由：Claude Desktop 的直连配置只写 Bearer token。
+        seed_secret(&db, "sup-d", "sk-d", "ANTHROPIC_API_KEY");
+        assert!(db
+            .materialize_supplier_provider("claude-desktop", "sup-d")
+            .is_err());
+        // Bearer 供应商可以直接落行。
+        seed_secret(&db, "sup-d", "sk-d", "ANTHROPIC_AUTH_TOKEN");
+        let id = db
+            .materialize_supplier_provider("claude-desktop", "sup-d")
+            .expect("materialize claude desktop");
+        let provider = db
+            .get_provider_by_id(&id, "claude-desktop")
+            .expect("fetch desktop provider")
+            .expect("provider exists");
+        assert_eq!(
+            provider.settings_config["env"]["ANTHROPIC_AUTH_TOKEN"],
+            "sk-d"
+        );
+    }
+
+    #[test]
     fn desktop_route_keeps_the_anthropic_auth_field() {
         let db = memory_db();
         seed_legacy_catalog(&db, &catalog_with(vec![test_supplier("sup-a")], vec![]));
@@ -3118,7 +3291,6 @@ mod tests {
 
     #[test]
     fn supplier_from_provider_reads_native_additive_shapes() {
-        use std::str::FromStr;
         for (app, settings) in [
             (
                 "opencode",
@@ -3138,6 +3310,31 @@ mod tests {
             let supplier = supplier_from_provider(app, &provider).expect("supplier");
             assert_eq!(supplier.endpoint.protocol, "openai_chat", "{app}");
             assert_eq!(supplier.endpoint.base_url, "https://relay.example.com/v1");
+            assert_eq!(supplier.models, vec!["m".to_string()], "{app}");
+        }
+    }
+
+    #[test]
+    fn provider_models_reads_additive_shapes() {
+        for (settings, expected) in [
+            (
+                serde_json::json!({"models": {"open-a": {"name": "A"}, "open-b": {}}}),
+                vec!["open-a", "open-b"],
+            ),
+            (
+                serde_json::json!({"models": [{"id": "array-a"}, {"name": "array-b"}, {"model": "array-c"}]}),
+                vec!["array-a", "array-b", "array-c"],
+            ),
+            (
+                serde_json::json!({"models": [{"id": "dup"}, {"id": "dup"}]}),
+                vec!["dup"],
+            ),
+        ] {
+            let provider =
+                crate::provider::Provider::with_id("p".into(), "P".into(), settings, None);
+            let models = provider_models(&provider);
+            let expected: Vec<String> = expected.into_iter().map(str::to_string).collect();
+            assert_eq!(models, expected);
         }
     }
 

@@ -1,0 +1,116 @@
+[
+  {
+    "id": "antigravity",
+    "name": "Antigravity",
+    "website": "https://antigravity.google",
+    "icon": "antigravity"
+  },
+  {
+    "id": "claude",
+    "name": "Claude",
+    "website": "https://claude.ai",
+    "icon": "claude"
+  },
+  {
+    "id": "codex",
+    "name": "ChatGPT (Codex)",
+    "website": "https://chatgpt.com",
+    "icon": "codex"
+  },
+  {
+    "id": "chatgpt-api",
+    "name": "ChatGPT API",
+    "website": "https://chatgpt.com",
+    "icon": "openai"
+  },
+  {
+    "id": "commandcode-plan",
+    "name": "Command Code",
+    "website": "https://commandcode.ai",
+    "icon": "commandcode"
+  },
+  {
+    "id": "copilot",
+    "name": "GitHub Copilot",
+    "website": "https://github.com/features/copilot",
+    "icon": "githubcopilot"
+  },
+  {
+    "id": "cursor",
+    "name": "Cursor",
+    "website": "https://cursor.com",
+    "icon": "cursor"
+  },
+  {
+    "id": "devin",
+    "name": "Devin",
+    "website": "https://devin.ai",
+    "icon": "devin"
+  },
+  {
+    "id": "factory",
+    "name": "Factory",
+    "website": "https://factory.ai",
+    "icon": "factory"
+  },
+  {
+    "id": "gemini",
+    "name": "Gemini CLI",
+    "website": "https://gemini.google.com",
+    "icon": "gemini"
+  },
+  {
+    "id": "grok",
+    "name": "Grok (SuperGrok)",
+    "website": "https://x.ai/cli",
+    "icon": "grok"
+  },
+  {
+    "id": "kiro",
+    "name": "Kiro",
+    "website": "https://kiro.dev",
+    "icon": "kiro"
+  },
+  {
+    "id": "mimo-app",
+    "name": "Xiaomi MiMo",
+    "website": "https://mimo-ai.xiaomimimo.com",
+    "icon": "xiaomimimo"
+  },
+  {
+    "id": "qoder",
+    "name": "Qoder",
+    "website": "https://qoder.com",
+    "icon": "qoder"
+  },
+  {
+    "id": "qoder-cn",
+    "name": "Qoder CN",
+    "website": "https://qoder.cn",
+    "icon": "qoder"
+  },
+  {
+    "id": "workbuddy",
+    "name": "WorkBuddy",
+    "website": "https://www.codebuddy.cn",
+    "icon": "workbuddy"
+  },
+  {
+    "id": "workbuddy-ai",
+    "name": "WorkBuddy AI",
+    "website": "https://www.workbuddy.ai",
+    "icon": "workbuddy"
+  },
+  {
+    "id": "zcode",
+    "name": "ZCode",
+    "website": "https://zcode.z.ai",
+    "icon": "zcode"
+  },
+  {
+    "id": "zed",
+    "name": "Zed",
+    "website": "https://zed.dev",
+    "icon": "zed"
+  }
+]

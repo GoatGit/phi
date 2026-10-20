@@ -11,11 +11,9 @@ import {
   MoreHorizontal,
   RefreshCw,
 } from "lucide-react";
-import type { AppId } from "@/lib/api";
 import { providersApi } from "@/lib/api/providers";
 import type { ToolInstallationReport } from "@/lib/api/settings";
-import type { VisibleApps } from "@/types";
-import { DEFAULT_VISIBLE_APPS } from "@/config/appConfig";
+import { type LocalRoutableAppId } from "@/config/appConfig";
 import { useSettings } from "@/hooks/useSettings";
 import { isUpdateAvailable } from "@/lib/version";
 import { cn } from "@/lib/utils";
@@ -45,12 +43,17 @@ import {
 } from "@/components/ui/select";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
-import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
+import {
+  APP_DISPLAY_NAME,
+  AppGlyph,
+  getAppDisplayName,
+} from "@/components/shell/AppGlyph";
 import { ToolUpgradeConfirmDialog } from "@/components/settings/ToolUpgradeConfirmDialog";
 import { ToolErrorMessage } from "@/components/settings/ToolErrorMessage";
 import {
   ENV_BADGE_CONFIG,
   ONE_CLICK_INSTALL_COMMANDS,
+  ROUTE_TOOL_APP_IDS,
   TOOL_APP_IDS,
   TOOL_NAMES,
   toolDisplayName,
@@ -76,15 +79,26 @@ const SOURCE_LABEL: Record<string, string> = {
 
 type Row =
   | { kind: "tool"; tool: ToolName }
+  | { kind: "route-tool"; tool: ToolName; app: LocalRoutableAppId }
   | { kind: "desktop" }
   | { kind: "observability"; app: "zcode" };
+
+/** 路由专用应用：没有完整应用页，但在「应用」页也能装 / 升。 */
+const ROUTE_TOOLS = Object.keys(ROUTE_TOOL_APP_IDS) as ToolName[];
 
 const ROWS: Row[] = [
   { kind: "tool", tool: "claude" },
   { kind: "desktop" },
   { kind: "observability", app: "zcode" },
-  ...TOOL_NAMES.filter((tool) => tool !== "claude").map(
-    (tool): Row => ({ kind: "tool", tool }),
+  ...TOOL_NAMES.filter(
+    (tool) => tool !== "claude" && !ROUTE_TOOLS.includes(tool),
+  ).map((tool): Row => ({ kind: "tool", tool })),
+  ...ROUTE_TOOLS.map(
+    (tool): Row => ({
+      kind: "route-tool",
+      tool,
+      app: ROUTE_TOOL_APP_IDS[tool]!,
+    }),
   ),
 ];
 
@@ -104,7 +118,14 @@ function formatCheckedAt(timestamp: number, locale: string): string {
  * 「应用」页（v7）：每个应用一行 = 安装状态 / 版本 + 安装 / 升级 + 在侧栏显示的开关。
  * 隐藏一个应用只影响界面（侧栏、MCP / Skills 的列、提示词和会话的下拉），配置照常同步。
  */
-export function AppsPage({ onBack }: { onBack?: () => void } = {}) {
+export function AppsPage({
+  onBack,
+  embedded = false,
+}: {
+  onBack?: () => void;
+  /** 设置在页内标签里打开：不画自己的页头，操作按钮放到内容顶部。 */
+  embedded?: boolean;
+} = {}) {
   const { t, i18n } = useTranslation();
   const tools = useToolManagement();
   const { settings, updateSettings, autoSaveSettings } = useSettings();
@@ -115,31 +136,33 @@ export function AppsPage({ onBack }: { onBack?: () => void } = {}) {
     staleTime: 30_000,
   });
 
-  const visibleApps: VisibleApps = {
-    ...DEFAULT_VISIBLE_APPS,
-    ...settings?.visibleApps,
-  };
-  const visibleCount = Object.values(visibleApps).filter(Boolean).length;
+  const sidebarApps = Array.isArray(settings?.sidebarApps)
+    ? settings.sidebarApps
+    : [];
+  const inSidebar = (app: string) => sidebarApps.includes(app);
 
-  const setVisible = (app: AppId, visible: boolean) => {
+  // 「显示」开关 = 侧栏里的快捷方式。只改左侧菜单，不影响应用配置与同步。
+  const setInSidebar = (app: string, visible: boolean) => {
     if (!settings) return;
-    // 至少留一个应用在侧栏
-    if (!visible && visibleCount <= 1) return;
-    const next = { ...visibleApps, [app]: visible };
-    const previous = settings.visibleApps;
-    updateSettings({ visibleApps: next });
-    void autoSaveSettings({ visibleApps: next }).catch(() =>
-      updateSettings({ visibleApps: previous }),
+    const next = visible
+      ? [...sidebarApps.filter((id) => id !== app), app]
+      : sidebarApps.filter((id) => id !== app);
+    const previous = settings.sidebarApps;
+    updateSettings({ sidebarApps: next });
+    void autoSaveSettings({ sidebarApps: next }).catch(() =>
+      updateSettings({ sidebarApps: previous }),
     );
   };
 
-  const visibilitySwitch = (app: AppId) => (
+  const visibilitySwitch = (app: string) => (
     <Switch
       size="sm"
-      checked={visibleApps[app]}
-      disabled={!settings || (visibleApps[app] && visibleCount <= 1)}
-      onCheckedChange={(checked) => setVisible(app, checked)}
-      aria-label={t("appsPage.showInSidebar", { name: APP_DISPLAY_NAME[app] })}
+      checked={inSidebar(app)}
+      disabled={!settings}
+      onCheckedChange={(checked) => setInSidebar(app, checked)}
+      aria-label={t("appsPage.showInSidebar", {
+        name: getAppDisplayName(app),
+      })}
     />
   );
 
@@ -149,160 +172,181 @@ export function AppsPage({ onBack }: { onBack?: () => void } = {}) {
       })
     : t("appsPage.neverChecked");
 
+  const actions = (
+    <>
+      <span className="whitespace-nowrap text-caption text-fg-3">
+        {lastChecked}
+      </span>
+      {(tools.updatableToolNames.length > 0 || tools.batchAction) && (
+        <Button
+          variant="neutral"
+          size="regular"
+          disabled={tools.isLoadingTools || Boolean(tools.batchAction)}
+          aria-busy={Boolean(tools.batchAction)}
+          onClick={() =>
+            void tools.handleRunToolAction(tools.updatableToolNames, "update", {
+              fromBatchEntry: true,
+            })
+          }
+        >
+          {tools.batchAction === "update" ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <ArrowUpCircle className="h-3.5 w-3.5" />
+          )}
+          {t("settings.updateAllTools", {
+            count: tools.updatableToolNames.length,
+          })}
+        </Button>
+      )}
+      <Button
+        variant="neutral"
+        size="regular"
+        disabled={tools.isLoadingTools || tools.isAnyBusy}
+        onClick={() => void tools.checkForUpdates()}
+      >
+        <RefreshCw
+          className={cn("h-3.5 w-3.5", tools.isLoadingTools && "animate-spin")}
+        />
+        {tools.isLoadingTools
+          ? t("appsPage.checking")
+          : t("appsPage.checkUpdates")}
+      </Button>
+      <DropdownMenu>
+        <HoverTip content={t("common.more")}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="quiet"
+              size="icon-compact"
+              className="h-8 w-8"
+              aria-label={t("appsPage.moreActions")}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </HoverTip>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => setShowCommands(true)}>
+            {t("appsPage.manualCommands")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+
+  const content = (
+    <>
+      <div className="flex h-8 items-center px-4 text-caption font-medium text-fg-2">
+        <span className="flex-1">{t("appsPage.columnApp")}</span>
+        <span className="w-[168px] text-end">
+          {t("appsPage.columnVersion")}
+        </span>
+        <span className="w-[104px]" />
+        <span className="flex w-[64px] items-center justify-end gap-0.5">
+          {t("appsPage.columnVisible")}
+          <HelpTip title={t("appsPage.columnVisible")} align="end">
+            {t("appsPage.visibleHelp")}
+          </HelpTip>
+        </span>
+      </div>
+
+      <div className="divide-y divide-border overflow-hidden rounded-panel border border-border bg-surface">
+        {ROWS.map((row) =>
+          row.kind === "observability" ? (
+            <AppRow
+              key={row.app}
+              app={row.app}
+              name={
+                <span className="flex items-center gap-1">
+                  {APP_DISPLAY_NAME[row.app]}
+                  <HelpTip title={t("appsPage.observabilityHelp")}>
+                    {t("appsPage.observabilityHelp")}
+                  </HelpTip>
+                </span>
+              }
+              version={
+                <span className="text-caption text-fg-2">
+                  {t("appsPage.observabilityVersion")}
+                </span>
+              }
+              visibility={visibilitySwitch(row.app)}
+            />
+          ) : row.kind === "desktop" ? (
+            <AppRow
+              key="claude-desktop"
+              app="claude-desktop"
+              name={
+                <span className="flex items-center gap-1">
+                  {APP_DISPLAY_NAME["claude-desktop"]}
+                  <HelpTip title={APP_DISPLAY_NAME["claude-desktop"]}>
+                    {t("appsPage.desktopHelp")}
+                  </HelpTip>
+                </span>
+              }
+              version={
+                <span className="text-caption text-fg-2">
+                  {desktopStatus?.supported === false
+                    ? t("appsPage.desktopUnsupported")
+                    : desktopStatus?.configured
+                      ? t("appsPage.desktopConnected")
+                      : t("appsPage.desktopNotConnected")}
+                </span>
+              }
+              visibility={visibilitySwitch("claude-desktop")}
+            />
+          ) : row.kind === "route-tool" ? (
+            <ToolRow
+              key={row.tool}
+              tool={row.tool}
+              tools={tools}
+              app={row.app}
+              label={getAppDisplayName(row.app)}
+              routeOnly
+              visibility={visibilitySwitch(row.app)}
+            />
+          ) : (
+            <ToolRow
+              key={row.tool}
+              tool={row.tool}
+              tools={tools}
+              visibility={visibilitySwitch(TOOL_APP_IDS[row.tool]!)}
+            />
+          ),
+        )}
+      </div>
+    </>
+  );
+
   return (
     <>
-      <AppPageHeader
-        leading={onBack && <PageHeaderBackButton onClick={onBack} />}
-        icon={<LayoutGrid className="h-5 w-5" strokeWidth={1.5} />}
-        title={t("nav.apps")}
-        titleExtra={
-          <HelpTip title={t("appsPage.helpTitle")}>
-            {t("appsPage.helpBody")}
-          </HelpTip>
-        }
-        actions={
-          <>
-            <span className="whitespace-nowrap text-caption text-fg-3">
-              {lastChecked}
-            </span>
-            {(tools.updatableToolNames.length > 0 || tools.batchAction) && (
-              <Button
-                variant="neutral"
-                size="regular"
-                disabled={tools.isLoadingTools || Boolean(tools.batchAction)}
-                aria-busy={Boolean(tools.batchAction)}
-                onClick={() =>
-                  void tools.handleRunToolAction(
-                    tools.updatableToolNames,
-                    "update",
-                    { fromBatchEntry: true },
-                  )
-                }
-              >
-                {tools.batchAction === "update" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <ArrowUpCircle className="h-3.5 w-3.5" />
-                )}
-                {t("settings.updateAllTools", {
-                  count: tools.updatableToolNames.length,
-                })}
-              </Button>
-            )}
-            <Button
-              variant="neutral"
-              size="regular"
-              disabled={tools.isLoadingTools || tools.isAnyBusy}
-              onClick={() => void tools.checkForUpdates()}
-            >
-              <RefreshCw
-                className={cn(
-                  "h-3.5 w-3.5",
-                  tools.isLoadingTools && "animate-spin",
-                )}
-              />
-              {tools.isLoadingTools
-                ? t("appsPage.checking")
-                : t("appsPage.checkUpdates")}
-            </Button>
-            <DropdownMenu>
-              <HoverTip content={t("common.more")}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="quiet"
-                    size="icon-compact"
-                    className="h-8 w-8"
-                    aria-label={t("appsPage.moreActions")}
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </HoverTip>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => setShowCommands(true)}>
-                  {t("appsPage.manualCommands")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        }
-      />
-
-      <div
-        id="main-content"
-        className="min-h-0 flex-1 overflow-y-auto scroll-stable"
-      >
-        <div className="px-6 pb-10 pt-4">
-          <div className="flex h-8 items-center px-4 text-caption font-medium text-fg-2">
-            <span className="flex-1">{t("appsPage.columnApp")}</span>
-            <span className="w-[168px] text-end">
-              {t("appsPage.columnVersion")}
-            </span>
-            <span className="w-[104px]" />
-            <span className="flex w-[56px] items-center justify-end gap-0.5">
-              {t("appsPage.columnVisible")}
-              <HelpTip title={t("appsPage.columnVisible")} align="end">
-                {t("appsPage.visibleHelp")}
-              </HelpTip>
-            </span>
+      {embedded ? (
+        <div className="mx-auto w-full max-w-[760px] px-6 pb-10 pt-4">
+          <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+            {actions}
           </div>
-
-          <div className="divide-y divide-border overflow-hidden rounded-panel border border-border bg-surface">
-            {ROWS.map((row) =>
-              row.kind === "observability" ? (
-                <AppRow
-                  key={row.app}
-                  app={row.app}
-                  name={
-                    <span className="flex items-center gap-1">
-                      {APP_DISPLAY_NAME[row.app]}
-                      <HelpTip title={t("appsPage.observabilityHelp")}>
-                        {t("appsPage.observabilityHelp")}
-                      </HelpTip>
-                    </span>
-                  }
-                  version={
-                    <span className="text-caption text-fg-2">
-                      {t("appsPage.observabilityVersion")}
-                    </span>
-                  }
-                  visibility={visibilitySwitch(row.app)}
-                />
-              ) : row.kind === "desktop" ? (
-                <AppRow
-                  key="claude-desktop"
-                  app="claude-desktop"
-                  name={
-                    <span className="flex items-center gap-1">
-                      {APP_DISPLAY_NAME["claude-desktop"]}
-                      <HelpTip title={APP_DISPLAY_NAME["claude-desktop"]}>
-                        {t("appsPage.desktopHelp")}
-                      </HelpTip>
-                    </span>
-                  }
-                  version={
-                    <span className="text-caption text-fg-2">
-                      {desktopStatus?.supported === false
-                        ? t("appsPage.desktopUnsupported")
-                        : desktopStatus?.configured
-                          ? t("appsPage.desktopConnected")
-                          : t("appsPage.desktopNotConnected")}
-                    </span>
-                  }
-                  visibility={visibilitySwitch("claude-desktop")}
-                />
-              ) : (
-                <ToolRow
-                  key={row.tool}
-                  tool={row.tool}
-                  tools={tools}
-                  visibility={visibilitySwitch(TOOL_APP_IDS[row.tool])}
-                />
-              ),
-            )}
-          </div>
+          {content}
         </div>
-      </div>
+      ) : (
+        <>
+          <AppPageHeader
+            leading={onBack && <PageHeaderBackButton onClick={onBack} />}
+            icon={<LayoutGrid className="h-5 w-5" strokeWidth={1.5} />}
+            title={t("nav.apps")}
+            titleExtra={
+              <HelpTip title={t("appsPage.helpTitle")}>
+                {t("appsPage.helpBody")}
+              </HelpTip>
+            }
+            actions={actions}
+          />
+          <div
+            id="main-content"
+            className="min-h-0 flex-1 overflow-y-auto scroll-stable"
+          >
+            <div className="px-6 pb-10 pt-4">{content}</div>
+          </div>
+        </>
+      )}
 
       <Dialog open={showCommands} onOpenChange={setShowCommands}>
         <DialogContent className="max-w-2xl">
@@ -357,7 +401,7 @@ function AppRow({
   visibility,
   footer,
 }: {
-  app: AppId;
+  app: string;
   name: React.ReactNode;
   meta?: React.ReactNode;
   version?: React.ReactNode;
@@ -381,7 +425,7 @@ function AppRow({
         </div>
         <div className="w-[168px] shrink-0 text-end">{version}</div>
         <div className="flex w-[104px] shrink-0 justify-end">{action}</div>
-        <div className="flex w-[56px] shrink-0 justify-end">{visibility}</div>
+        <div className="flex w-[64px] shrink-0 justify-end">{visibility}</div>
       </div>
       {footer && <div className="ms-9 mt-2">{footer}</div>}
     </div>
@@ -400,10 +444,18 @@ function ToolRow({
   tool,
   tools,
   visibility,
+  app,
+  label,
+  routeOnly = false,
 }: {
   tool: ToolName;
   tools: ReturnType<typeof useToolManagement>;
   visibility: React.ReactNode;
+  /** 行图标的应用 id：核心应用用 TOOL_APP_IDS，路由专用应用用它们的 AppId。 */
+  app?: string;
+  label?: string;
+  /** 路由专用应用：在名称后标注，并解释它始终在侧栏。 */
+  routeOnly?: boolean;
 }) {
   const { t } = useTranslation();
   const info = tools.toolVersionByName.get(tool);
@@ -555,10 +607,11 @@ function ToolRow({
 
   return (
     <AppRow
-      app={TOOL_APP_IDS[tool]}
+      app={app ?? TOOL_APP_IDS[tool] ?? tool}
       name={
         <>
-          <span className="truncate">{toolDisplayName(tool)}</span>
+          <span className="truncate">{label ?? toolDisplayName(tool)}</span>
+          {routeOnly && <Pill>{t("appsPage.routeOnly")}</Pill>}
           {sourceLabel && <Pill>{sourceLabel}</Pill>}
           {envBadge && <Pill>{envBadge}</Pill>}
         </>

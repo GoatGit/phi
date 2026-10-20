@@ -210,6 +210,13 @@ export const iconMetadata: Record<string, IconMetadata> = {
     keywords: ["claude"],
     defaultColor: "#D4915D",
   },
+  antigravity: {
+    name: "antigravity",
+    displayName: "Antigravity",
+    category: "ai-provider",
+    keywords: ["antigravity", "google", "subscription"],
+    defaultColor: "currentColor",
+  },
   aws: {
     name: "aws",
     displayName: "AWS",
@@ -362,13 +369,29 @@ export const iconMetadata: Record<string, IconMetadata> = {
       "claude",
       "codex",
     ],
-    defaultColor: "#000000",
+    // 图形用 currentColor 绘制：写死黑色会让深色卡片上的 Command Code 标消失
+    defaultColor: "currentColor",
+  },
+  codex: {
+    name: "codex",
+    displayName: "Codex",
+    category: "ai-provider",
+    shape: "tile",
+    keywords: ["codex", "chatgpt", "openai", "subscription"],
+    defaultColor: "currentColor",
   },
   copilot: {
     name: "copilot",
     displayName: "copilot",
     category: "other",
     keywords: [],
+    defaultColor: "currentColor",
+  },
+  cursor: {
+    name: "cursor",
+    displayName: "Cursor",
+    category: "ai-provider",
+    keywords: ["cursor", "subscription", "coding agent"],
     defaultColor: "currentColor",
   },
   etok: {
@@ -439,6 +462,13 @@ export const iconMetadata: Record<string, IconMetadata> = {
     category: "ai-provider",
     keywords: ["deep", "seek"],
     defaultColor: "#1E88E5",
+  },
+  devin: {
+    name: "devin",
+    displayName: "Devin",
+    category: "ai-provider",
+    keywords: ["devin", "cognition", "subscription", "coding agent"],
+    defaultColor: "currentColor",
   },
   doubao: {
     name: "doubao",
@@ -515,6 +545,14 @@ export const iconMetadata: Record<string, IconMetadata> = {
     displayName: "hunyuan",
     category: "other",
     keywords: [],
+    defaultColor: "currentColor",
+  },
+  kiro: {
+    name: "kiro",
+    displayName: "Kiro",
+    category: "ai-provider",
+    shape: "tile",
+    keywords: ["kiro", "aws", "subscription", "coding agent"],
     defaultColor: "currentColor",
   },
   kimi: {
@@ -644,6 +682,13 @@ export const iconMetadata: Record<string, IconMetadata> = {
     keywords: ["qianwenai", "qianwen", "qwen", "aliyun", "alibaba"],
     defaultColor: "#624AFF",
   },
+  qoder: {
+    name: "qoder",
+    displayName: "Qoder",
+    category: "ai-provider",
+    keywords: ["qoder", "subscription", "coding agent"],
+    defaultColor: "currentColor",
+  },
   qwen: {
     name: "qwen",
     displayName: "qwen",
@@ -708,6 +753,14 @@ export const iconMetadata: Record<string, IconMetadata> = {
     displayName: "wenxin",
     category: "other",
     keywords: [],
+    defaultColor: "currentColor",
+  },
+  workbuddy: {
+    name: "workbuddy",
+    displayName: "WorkBuddy",
+    category: "ai-provider",
+    shape: "tile",
+    keywords: ["workbuddy", "codebuddy", "tencent", "subscription"],
     defaultColor: "currentColor",
   },
   xai: {
@@ -986,6 +1039,13 @@ export const iconMetadata: Record<string, IconMetadata> = {
     category: "ai-provider",
     shape: "tile",
     keywords: ["zcode", "z code", "zhipu", "coding agent"],
+  },
+  zed: {
+    name: "zed",
+    displayName: "Zed",
+    category: "ai-provider",
+    keywords: ["zed", "zed industries", "subscription", "editor"],
+    defaultColor: "currentColor",
   },
 };
 

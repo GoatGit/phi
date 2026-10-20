@@ -1,0 +1,33 @@
+{
+  "version": "1.0.2",
+  "items": [
+    {
+      "type": "improve",
+      "zh": "路由图的应用列默认最多显示五个，其余收进「展开」",
+      "zh-TW": "路由圖的應用欄預設最多顯示五個，其餘收進「展開」",
+      "en": "The routing app column now shows at most five apps by default",
+      "ja": "ルーティング画面のアプリ欄は既定で最大 5 件まで表示します"
+    },
+    {
+      "type": "new",
+      "zh": "三方应用节点右上角可重新签发令牌或删除应用",
+      "zh-TW": "三方應用節點右上角可重新簽發權杖或刪除應用",
+      "en": "Third-party app nodes offer reissue token and delete from their menu",
+      "ja": "サードパーティアプリのノードからトークン再発行と削除ができます"
+    },
+    {
+      "type": "improve",
+      "zh": "用量记录按三方应用区分来源，不再混成一个笼统类型",
+      "zh-TW": "用量記錄依三方應用區分來源，不再混成一個籠統類型",
+      "en": "Usage records now separate traffic by third-party app",
+      "ja": "利用状況はサードパーティアプリごとに集計されます"
+    },
+    {
+      "type": "fix",
+      "zh": "订阅登录回调显示 PHI 自己的页面，不再是别的品牌",
+      "zh-TW": "訂閱登入回呼顯示 PHI 自己的頁面，不再是別的品牌",
+      "en": "Subscription sign-in returns to a PHI page instead of another brand",
+      "ja": "サブスクのサインイン後は PHI のページに戻ります"
+    }
+  ]
+}

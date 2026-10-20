@@ -57,6 +57,7 @@ fn contributions(conn: &Connection, r: &RequestRecord) -> Result<Vec<Contributio
         ("all", ""),
         ("agent", r.agent.as_str()),
         ("project", project.map(String::as_str).unwrap_or("unknown")),
+        ("binding", r.binding_id.as_str()),
     ] {
         let mut total = zero();
         total.requests = 1;
@@ -70,6 +71,7 @@ fn contributions(conn: &Connection, r: &RequestRecord) -> Result<Vec<Contributio
             ("all", ""),
             ("agent", r.agent.as_str()),
             ("project", project.map(String::as_str).unwrap_or("unknown")),
+            ("binding", r.binding_id.as_str()),
             ("model", a.model.as_str()),
             ("account", a.account_id.as_deref().unwrap_or("unknown")),
         ] {
@@ -141,6 +143,11 @@ pub(super) fn sync_request(conn: &Connection, r: &RequestRecord) -> Result<(), A
 }
 
 pub(super) fn migrate(conn: &Connection) -> Result<(), AppError> {
+    migrate_projection_v101(conn)?;
+    migrate_binding_dimension_v102(conn)
+}
+
+fn migrate_projection_v101(conn: &Connection) -> Result<(), AppError> {
     let done: bool = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM phi_schema_migrations WHERE version=101)",
@@ -194,6 +201,53 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), AppError> {
             let _ = conn.execute_batch(
                 "ROLLBACK TO phi_reporting_projection; RELEASE phi_reporting_projection",
             );
+            Err(error)
+        }
+    }
+}
+
+fn migrate_binding_dimension_v102(conn: &Connection) -> Result<(), AppError> {
+    let done: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM phi_schema_migrations WHERE version=102)",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(err)?;
+    if done {
+        return Ok(());
+    }
+    conn.execute_batch("SAVEPOINT phi_binding_dimension")
+        .map_err(err)?;
+    let result = (|| {
+        // The projection is derived, so rebuilding it is cheaper than teaching
+        // every historical row a new dimension.
+        conn.execute_batch(
+            "DELETE FROM ledger_daily_dimensions; DELETE FROM ledger_request_rollups;",
+        )
+        .map_err(err)?;
+        let mut stmt = conn
+            .prepare("SELECT payload FROM route_decisions ORDER BY ts,request_id")
+            .map_err(err)?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(err)?;
+        for row in rows {
+            let r: RequestRecord = decode(row.map_err(err)?)?;
+            sync_request(conn, &r)?;
+        }
+        conn.execute(
+            "INSERT INTO phi_schema_migrations(version,created_at) VALUES(102,?1)",
+            [Utc::now().timestamp_millis()],
+        )
+        .map_err(err)?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => conn
+            .execute_batch("RELEASE phi_binding_dimension")
+            .map_err(err),
+        Err(error) => {
+            let _ = conn
+                .execute_batch("ROLLBACK TO phi_binding_dimension; RELEASE phi_binding_dimension");
             Err(error)
         }
     }
@@ -389,6 +443,25 @@ mod tests {
     }
 
     #[test]
+    fn binding_dimension_and_binding_totals_follow_the_identity() {
+        let db = Database::memory().unwrap();
+        let start = window_bounds("daily", Utc::now().timestamp_millis())
+            .unwrap()
+            .0;
+        at(&db, start + 10);
+        let totals = db.ledger_binding_totals(start, start + DAY).unwrap();
+        assert_eq!(totals["binding"].requests, 1);
+        assert_eq!(totals["binding"].cost, "2");
+        let expected = usage();
+        assert_eq!(
+            totals["binding"].tokens,
+            expected.input + expected.output + expected.cache_read + expected.cache_creation
+        );
+        // Local app requests use a `local:<app>` identity and must stay separable.
+        assert!(!totals.contains_key("local:codex"));
+    }
+
+    #[test]
     fn late_attribution_moves_reporting_buckets_but_never_budget_identity_or_totals() {
         let db = Database::memory().unwrap();
         let project = db.save_access_project("/synthetic/project".into()).unwrap();
@@ -481,13 +554,17 @@ mod tests {
         db.ledger_finish(&refused.id, "blocked").unwrap();
         let before = db.ledger_page(LedgerQuery::default()).unwrap().totals;
         let conn = db.conn.lock().unwrap();
-        conn.execute_batch("DELETE FROM phi_schema_migrations WHERE version=101; DELETE FROM ledger_daily_dimensions; DELETE FROM ledger_request_rollups;").unwrap();
+        conn.execute_batch("DELETE FROM phi_schema_migrations WHERE version IN (101,102); DELETE FROM ledger_daily_dimensions; DELETE FROM ledger_request_rollups;").unwrap();
         migrate(&conn).unwrap();
         migrate(&conn).unwrap();
         drop(conn);
         assert_eq!(
             db.ledger_page(LedgerQuery::default()).unwrap().totals,
             before
+        );
+        assert!(
+            db.ledger_page(LedgerQuery::default()).unwrap().dimensions["binding"]
+                .contains_key("binding")
         );
         assert_eq!(before.requests, 2);
         assert_eq!(before.attempts, 1);

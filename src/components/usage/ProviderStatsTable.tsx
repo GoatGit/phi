@@ -20,6 +20,7 @@ interface ProviderStatsTableProps {
   appType?: string;
   providerName?: string;
   model?: string;
+  bindingId?: string;
   refreshIntervalMs: number;
 }
 
@@ -28,13 +29,14 @@ export function ProviderStatsTable({
   appType,
   providerName,
   model,
+  bindingId,
   refreshIntervalMs,
 }: ProviderStatsTableProps) {
   const { t, i18n } = useTranslation();
   const locale = getLocaleFromLanguage(getResolvedLang(i18n));
   const { data: stats, isLoading } = useProviderStats(
     range,
-    { appType, providerName, model },
+    { appType, providerName, model, bindingId },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },

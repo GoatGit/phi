@@ -68,11 +68,11 @@ export function ConfirmDialog({
     >
       <DialogContent className="max-w-sm" zIndex={zIndex}>
         <DialogHeader className="space-y-3 border-b-0 bg-transparent pb-0">
-          <DialogTitle className="flex items-center gap-2 text-lg font-semibold">
+          <DialogTitle className="flex items-center gap-2 text-title">
             <IconComponent className={iconClass} />
             {title}
           </DialogTitle>
-          <DialogDescription className="whitespace-pre-line text-sm leading-relaxed">
+          <DialogDescription className="whitespace-pre-line text-body leading-relaxed">
             {message}
           </DialogDescription>
         </DialogHeader>
@@ -84,7 +84,7 @@ export function ConfirmDialog({
               onCheckedChange={(value) => setCheckboxChecked(value === true)}
               className="mt-0.5"
             />
-            <span className="text-sm leading-relaxed">{checkboxLabel}</span>
+            <span className="text-body leading-relaxed">{checkboxLabel}</span>
           </label>
         ) : null}
         <DialogFooter className="flex gap-2 border-t-0 bg-transparent pt-2 sm:justify-end">

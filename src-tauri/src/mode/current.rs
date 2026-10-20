@@ -110,6 +110,12 @@ pub fn local_app_in_use(db: &Database, app_id: &str) -> Result<Option<Provider>,
     }
 }
 
+/// 回滚用：数据库记录的“正在使用”指针。不推断直连用途，也不校验供应商是否还存在。
+/// 接入失败时用它把 `is_current` 恢复到尝试前，和 `provider_for` 的用途推断分开。
+pub fn in_use_pointer(db: &Database, app_id: &str) -> Result<Option<String>, AppError> {
+    db.get_current_provider(app_id)
+}
+
 /// 设备本地记录的直连指针（不验证是否存在、不回落到 DB）。只给切换失败时的回滚用：
 /// 回滚要把本地记录恢复成原样。
 pub fn local_direct_pointer(app: &AppType) -> Option<String> {

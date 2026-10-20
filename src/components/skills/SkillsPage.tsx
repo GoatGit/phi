@@ -641,7 +641,7 @@ export function SkillsPage({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col px-6 pb-5">
+      <div className="flex min-h-0 flex-1 flex-col px-6 pb-10 pt-4">
         <div
           ref={listScrollRef}
           className="min-h-0 overflow-auto scroll-stable rounded-panel border border-border bg-surface"

@@ -12,7 +12,7 @@ import {
 import i18n from "i18next";
 import zh from "@/i18n/locales/zh.json";
 import { AccessBindings } from "@/components/gateway/AccessBindings";
-import { accessApi } from "@/lib/api/access";
+import { accessApi, type AccessBinding } from "@/lib/api/access";
 import { gatewayApi, type GatewayRouteGroup } from "@/lib/api/gateway";
 import * as clipboard from "@/lib/clipboard";
 import { renderWithQueryClient } from "../utils/testQueryClient";
@@ -54,6 +54,15 @@ const group: GatewayRouteGroup = {
   nonStreamingTimeout: 600,
   rules: [],
 };
+
+/** 一个没有任何外部协议入口的组：三方应用不能选它。 */
+const asideGroup: GatewayRouteGroup = {
+  ...group,
+  id: "aside-group",
+  name: "Aside",
+  appIds: ["unrelated-app"],
+};
+
 beforeEach(() => {
   vi.restoreAllMocks();
   i18n.addResourceBundle(
@@ -64,7 +73,6 @@ beforeEach(() => {
     true,
   );
   vi.spyOn(accessApi, "bindings").mockResolvedValue([]);
-  vi.spyOn(accessApi, "projects").mockResolvedValue([]);
   vi.spyOn(gatewayApi, "getCatalog").mockResolvedValue({
     revision: 1,
     suppliers: [],
@@ -77,35 +85,41 @@ beforeEach(() => {
   }));
   vi.spyOn(clipboard, "copyText").mockResolvedValue();
 });
+
+/** 打开新建弹窗并填好名称。三方应用就是一枚接入令牌，只有一个名称字段。 */
 function openForm() {
   renderWithQueryClient(<AccessBindings />);
-  fireEvent.click(screen.getByRole("button", { name: zh.access.advanced }));
   fireEvent.click(screen.getByRole("button", { name: zh.access.create }));
   const dialog = screen.getByRole("dialog");
-  fireEvent.change(within(dialog).getByLabelText(zh.ledger.name), {
+  fireEvent.change(within(dialog).getByLabelText(zh.access.keyName), {
     target: { value: " Cline " },
-  });
-  fireEvent.change(within(dialog).getByLabelText(zh.access.agent), {
-    target: { value: " cline " },
   });
   return dialog;
 }
 
-describe("optional local client access", () => {
-  it("keeps manual tokens out of the normal flow and explains the boundary", () => {
+/** 等目录查询落地：可选路由组来自它，提交按钮要等它成功才可用。 */
+async function waitForGroups(dialog: HTMLElement) {
+  return within(dialog).findByRole("checkbox", { name: "Coding" });
+}
+
+describe("third-party app access", () => {
+  it("lists third-party apps as apps rather than a hidden advanced flow", () => {
     renderWithQueryClient(<AccessBindings />);
-    expect(screen.getByText(zh.access.automaticHint)).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: zh.access.create }),
-    ).not.toBeInTheDocument();
-    expect(accessApi.bindings).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: zh.access.advanced }));
+      screen.getByRole("heading", { name: zh.access.title }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(zh.access.description)).toBeInTheDocument();
     expect(screen.getByText(zh.access.boundary)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: zh.access.create }),
+    ).toBeInTheDocument();
   });
 
-  it("guards keyboard submission while prerequisite data is loading", () => {
-    vi.mocked(accessApi.projects).mockReturnValue(new Promise(() => {}));
-    const dialog = openForm();
+  it("guards keyboard submission while nothing is named", () => {
+    renderWithQueryClient(<AccessBindings />);
+    fireEvent.click(screen.getByRole("button", { name: zh.access.create }));
+    const dialog = screen.getByRole("dialog");
+    // 没有任何可选路由组时提交按钮保持禁用：请求在流转图上会没有路线可画。
     expect(
       within(dialog).getByRole("button", { name: zh.access.issue }),
     ).toBeDisabled();
@@ -113,10 +127,15 @@ describe("optional local client access", () => {
     expect(accessApi.issue).not.toHaveBeenCalled();
   });
 
-  it("recovers from a failed prerequisite read and copies the issued token", async () => {
-    vi.mocked(accessApi.projects)
+  it("recovers from a failed catalog read and copies the issued token", async () => {
+    vi.mocked(gatewayApi.getCatalog)
       .mockRejectedValueOnce(new Error("storage unavailable"))
-      .mockResolvedValue([]);
+      .mockResolvedValue({
+        revision: 1,
+        suppliers: [],
+        policies: [],
+        groups: [group],
+      });
     const dialog = openForm();
     const retry = await within(dialog).findByRole("button", {
       name: zh.access.retry,
@@ -124,9 +143,9 @@ describe("optional local client access", () => {
     expect(
       within(dialog).getByRole("button", { name: zh.access.issue }),
     ).toBeDisabled();
-    fireEvent.submit(dialog.querySelector("form")!);
-    expect(accessApi.issue).not.toHaveBeenCalled();
     fireEvent.click(retry);
+    await waitFor(() => expect(accessApi.issue).not.toHaveBeenCalled());
+    await userEvent.click(await waitForGroups(dialog));
     const submit = within(dialog).getByRole("button", {
       name: zh.access.issue,
     });
@@ -136,8 +155,10 @@ describe("optional local client access", () => {
     expect(accessApi.issue).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "Cline",
-        agent: "cline",
-        allowedGroups: [],
+        // 没填渠道标识时用应用名，用量记录才分得清是哪一方。
+        agent: "Cline",
+        tool: "external",
+        allowedGroups: ["codex-group"],
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: zh.access.copy }));
@@ -151,64 +172,62 @@ describe("optional local client access", () => {
     );
   });
 
-  it("does not broaden selected scope when the protocol changes", async () => {
-    const user = userEvent.setup();
-    const dialog = openForm();
-    const submit = within(dialog).getByRole("button", {
-      name: zh.access.issue,
+  it("only offers route groups that an external entry can use", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue({
+      revision: 1,
+      suppliers: [],
+      policies: [],
+      groups: [group, asideGroup],
     });
-    await waitFor(() => expect(submit).toBeEnabled());
-    await user.click(within(dialog).getByLabelText(zh.access.scope));
-    await user.click(
-      screen.getByRole("option", { name: zh.access.selectedGroups }),
-    );
-    expect(submit).toBeDisabled();
-    fireEvent.submit(dialog.querySelector("form")!);
-    expect(accessApi.issue).not.toHaveBeenCalled();
-    await user.click(within(dialog).getByRole("checkbox", { name: "Coding" }));
-    expect(submit).toBeEnabled();
-    await user.click(within(dialog).getByLabelText(zh.access.protocol));
-    await user.click(
-      screen.getByRole("option", { name: "Anthropic Messages" }),
-    );
-    expect(within(dialog).getByLabelText(zh.access.scope)).toHaveTextContent(
-      zh.access.selectedGroups,
-    );
-    expect(submit).toBeDisabled();
-    expect(within(dialog).getByText(zh.access.noGroups)).toBeInTheDocument();
-    fireEvent.submit(dialog.querySelector("form")!);
-    expect(accessApi.issue).not.toHaveBeenCalled();
-    await user.click(within(dialog).getByLabelText(zh.access.protocol));
-    await user.click(
-      screen.getByRole("option", { name: "OpenAI Chat / Responses" }),
-    );
-    await user.click(within(dialog).getByRole("checkbox", { name: "Coding" }));
-    await user.click(submit);
-    await waitFor(() =>
-      expect(accessApi.issue).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tool: "codex",
-          allowedGroups: ["codex-group"],
-        }),
-      ),
-    );
+    const dialog = openForm();
+    expect(await waitForGroups(dialog)).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("checkbox", { name: "Aside" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps the form and input after issuing fails", async () => {
     vi.mocked(accessApi.issue).mockRejectedValue(new Error("write failed"));
     const dialog = openForm();
+    await userEvent.click(await waitForGroups(dialog));
     const submit = within(dialog).getByRole("button", {
       name: zh.access.issue,
     });
     await waitFor(() => expect(submit).toBeEnabled());
     fireEvent.click(submit);
     await within(dialog).findByText("Error: write failed");
-    expect(within(dialog).getByLabelText(zh.ledger.name)).toHaveValue(
+    expect(within(dialog).getByLabelText(zh.access.keyName)).toHaveValue(
       " Cline ",
     );
     expect(
       screen.queryByDisplayValue("test-only-token"),
     ).not.toBeInTheDocument();
     expect(submit).toBeEnabled();
+  });
+
+  it("deletes a third-party app through the shared confirmation", async () => {
+    const binding: AccessBinding = {
+      id: "binding-1",
+      name: "Cursor",
+      agent: "Cursor",
+      tool: "external",
+      projectId: null,
+      allowedGroups: ["codex-group"],
+      enabled: true,
+    };
+    vi.mocked(accessApi.bindings).mockResolvedValue([binding]);
+    const remove = vi.spyOn(accessApi, "remove").mockResolvedValue(undefined);
+    renderWithQueryClient(<AccessBindings />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: zh.access.delete }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(zh.access.deleteTitle)).toBeInTheDocument();
+    // 确认框里的按钮也叫「删除」，取最后一个（弹窗内）。
+    const confirm = within(dialog)
+      .getAllByRole("button", { name: zh.access.delete })
+      .pop();
+    fireEvent.click(confirm!);
+    await waitFor(() => expect(remove).toHaveBeenCalledWith("binding-1"));
   });
 });

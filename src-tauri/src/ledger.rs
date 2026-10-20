@@ -921,6 +921,25 @@ impl Database {
             Ok(BudgetStatus{budget:b,window_start:start,window_end:end,totals,in_flight,alerts})
         }).collect()
     }
+    /// Per-identity totals for the gateway key list. Keys are ledger `binding_id`s,
+    /// so a disabled or rotated token remains attributable to the same key.
+    pub fn ledger_binding_totals(
+        &self,
+        since: i64,
+        until: i64,
+    ) -> Result<BTreeMap<String, Totals>, AppError> {
+        if until <= since
+            || until
+                .checked_sub(since)
+                .is_none_or(|range| range > 366 * 86_400_000)
+        {
+            return Err(err("ledger range must be at most 366 days"));
+        }
+        let conn = lock_conn!(self.conn);
+        let (_, dimensions) = rollups::report(&conn, &LedgerQuery::default(), since, until)?;
+        Ok(dimensions.get("binding").cloned().unwrap_or_default())
+    }
+
     pub fn ledger_page(&self, q: LedgerQuery) -> Result<LedgerPage, AppError> {
         let conn = lock_conn!(self.conn);
         let now = Utc::now().timestamp_millis();

@@ -191,7 +191,7 @@ export function PromptPageFrame({
         <div role="status" className="sr-only" />
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col px-6 pb-5">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col px-6 pb-10">{children}</div>
     </>
   );
 }

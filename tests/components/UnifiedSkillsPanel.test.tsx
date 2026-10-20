@@ -9,6 +9,7 @@ import type {
   SkillBackupEntry,
   SkillRepoFailure,
   SkillUpdateInfo,
+  UnmanagedSkill,
 } from "@/lib/api/skills";
 
 const m = vi.hoisted(() => ({
@@ -32,6 +33,8 @@ const m = vi.hoisted(() => ({
   updates: [] as SkillUpdateInfo[],
   repoFailures: [] as SkillRepoFailure[],
   checking: false,
+  unmanaged: [] as UnmanagedSkill[],
+  scanningUnmanaged: false,
   visibleApps: ["claude", "codex", "pi"] as string[],
 }));
 
@@ -81,14 +84,9 @@ vi.mock("@/hooks/useSkills", () => ({
   }),
   useUninstallSkill: () => ({ mutateAsync: m.uninstall, isPending: false }),
   useScanUnmanagedSkills: () => ({
-    data: [
-      {
-        directory: "shared-skill",
-        name: "Shared Skill",
-        foundIn: ["grokbuild", "claude"],
-        path: "/tmp/shared-skill",
-      },
-    ],
+    data: m.unmanaged,
+    isLoading: m.scanningUnmanaged,
+    isFetchedAfterMount: !m.scanningUnmanaged,
     refetch: m.scanUnmanaged,
   }),
   useImportSkillsFromApps: () => ({
@@ -168,6 +166,8 @@ describe("UnifiedSkillsPanel", () => {
     m.updates = [];
     m.repoFailures = [];
     m.checking = false;
+    m.unmanaged = [];
+    m.scanningUnmanaged = false;
     m.visibleApps = ["claude", "codex", "pi"];
     m.scanUnmanaged.mockReset().mockResolvedValue({
       data: [
@@ -465,23 +465,114 @@ describe("UnifiedSkillsPanel", () => {
     ).toHaveAttribute("aria-selected", "true");
   });
 
-  it("lets the unmanaged notice be ignored with one control", async () => {
-    m.installed = [makeSkill()];
+  it("imports every local Skill automatically, without a manual import action", async () => {
+    m.installed = [];
+    m.visibleApps = ["claude", "codex", "grokbuild", "pi"];
+    m.unmanaged = [
+      {
+        directory: "shared-skill",
+        name: "Shared Skill",
+        foundIn: ["grokbuild", "claude"],
+        path: "/tmp/shared-skill",
+      },
+      {
+        directory: "solo-skill",
+        name: "Solo Skill",
+        foundIn: ["agents"],
+        path: "/tmp/solo-skill",
+      },
+    ];
+    m.importSkills.mockResolvedValueOnce([
+      makeSkill({ id: "shared" }),
+      makeSkill({ id: "solo" }),
+    ]);
     renderPanel();
+
+    await waitFor(() => expect(m.importSkills).toHaveBeenCalledTimes(1));
+    // 在发现它的应用里启用；只有 agents 来源的不启用任何应用；Pi 交给后端判断
+    expect(m.importSkills.mock.calls[0][0]).toEqual([
+      {
+        directory: "shared-skill",
+        apps: {
+          claude: true,
+          codex: false,
+          gemini: false,
+          grokbuild: true,
+          opencode: false,
+          openclaw: false,
+          hermes: false,
+          pi: false,
+          mcode: false,
+        },
+      },
+      {
+        directory: "solo-skill",
+        apps: {
+          claude: false,
+          codex: false,
+          gemini: false,
+          grokbuild: false,
+          opencode: false,
+          openclaw: false,
+          hermes: false,
+          pi: false,
+          mcode: false,
+        },
+      },
+    ]);
     await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "skillsPage.banner.ignore" }),
-      ).toBeInTheDocument(),
+      expect(m.toastSuccess).toHaveBeenCalledWith(
+        "skillsPage.autoImport.done",
+        { closeButton: true },
+      ),
     );
-    expect(
-      screen.queryByRole("button", { name: "skillsPage.banner.close" }),
-    ).not.toBeInTheDocument();
+
+    // 手工导入入口已移除（菜单和空状态都不再有）
     await userEvent.click(
-      screen.getByRole("button", { name: "skillsPage.banner.ignore" }),
+      screen.getByRole("button", { name: "skillsPage.add" }),
     );
     expect(
-      screen.queryByText("skillsPage.banner.unmanaged"),
+      screen.queryByRole("menuitem", { name: "skillsPage.addMenu.import" }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "skillsPage.importCount" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not retry the same batch of local Skills after auto import fails", async () => {
+    m.unmanaged = [
+      {
+        directory: "shared-skill",
+        name: "Shared Skill",
+        foundIn: ["claude"],
+        path: "/tmp/shared-skill",
+      },
+    ];
+    m.importSkills.mockRejectedValueOnce(new Error("disk full"));
+    const { rerender } = renderPanel();
+
+    await waitFor(() => expect(m.importSkills).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(m.toastWarning).toHaveBeenCalledWith(
+        "skillsPage.autoImport.partial",
+        expect.anything(),
+      ),
+    );
+
+    // 同一批目录再渲染一次也不重复尝试，避免失败后刷屏
+    m.unmanaged = [
+      {
+        directory: "shared-skill",
+        name: "Shared Skill",
+        foundIn: ["claude"],
+        path: "/tmp/shared-skill",
+      },
+    ];
+    rerender(<UnifiedSkillsPanel />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(m.importSkills).toHaveBeenCalledTimes(1);
   });
 
   it("highlights a column header and shows the app name while hovering its cells", async () => {
@@ -703,40 +794,13 @@ describe("UnifiedSkillsPanel", () => {
     );
   });
 
-  it("imports with apps chosen from where each Skill was found", async () => {
-    m.installed = [makeSkill()];
-    m.visibleApps = ["claude", "codex", "grokbuild", "pi"];
-    m.importSkills.mockResolvedValueOnce([makeSkill({ id: "shared" })]);
+  it("shows the auto-import progress instead of the empty state while scanning", () => {
+    m.scanningUnmanaged = true;
     renderPanel();
-    await userEvent.click(
-      screen.getByRole("button", { name: "skillsPage.banner.reviewImport" }),
-    );
-    await waitFor(() =>
-      expect(screen.getByText("skillsPage.import.title")).toBeInTheDocument(),
-    );
-    // Pi 按目录判断，导入时不提供勾选
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).queryByText("Pi")).not.toBeInTheDocument();
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: "skillsPage.import.submit" }),
-    );
-    await waitFor(() => expect(m.importSkills).toHaveBeenCalled());
-    expect(m.importSkills.mock.calls[0][0]).toEqual([
-      {
-        directory: "shared-skill",
-        apps: {
-          claude: true,
-          codex: false,
-          gemini: false,
-          grokbuild: true,
-          opencode: false,
-          openclaw: false,
-          hermes: false,
-          pi: false,
-          mcode: false,
-        },
-      },
-    ]);
+    expect(
+      screen.getByText("skillsPage.autoImport.running"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("skillsPage.emptyTitle")).not.toBeInTheDocument();
   });
 
   it("closes the backup dialog and reports an explicit refresh failure", async () => {

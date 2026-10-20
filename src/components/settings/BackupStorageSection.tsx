@@ -116,7 +116,7 @@ export function BackupStorageSection() {
                       {itemText(location.id, "name")}
                     </span>
                     {location.id.startsWith("legacy") && (
-                      <span className="shrink-0 rounded px-1 py-px text-[10px] font-normal text-fg-2 border border-border">
+                      <span className="shrink-0 rounded px-1 py-px text-badge font-normal text-fg-2 border border-border">
                         {t("settings.backupStorage.legacy")}
                       </span>
                     )}

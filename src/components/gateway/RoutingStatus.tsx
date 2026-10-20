@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { gatewayApi } from "@/lib/api";
+import { accessApi } from "@/lib/api/access";
 import {
   type GatewayCatalog,
   type GatewayRoutingSummary,
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useGlobalProxyConfig } from "@/lib/query/proxy";
+import { proxyOrigin } from "@/lib/gatewayAddress";
 import { GatewaySelect } from "./GatewaySelect";
 import { GATEWAY_APPS, useGatewayErrorMessage } from "./useGatewayCatalog";
 
@@ -83,7 +85,7 @@ export function RoutingFilterBar({
           {active > 0 && (
             <Badge
               variant="secondary"
-              className="ms-0.5 h-4 min-w-4 px-1 text-[10px] tabular-nums"
+              className="ms-0.5 h-4 min-w-4 px-1 text-badge tabular-nums"
             >
               {active}
             </Badge>
@@ -251,16 +253,15 @@ export function RoutingSummary({
       hint: costHints.join(" · ") || null,
     },
   ];
+  // 指标按列排：标签在上、数值在下，最多 5 列；窄窗自动落到 3 / 2 列。
+  // 以前是一行 flex-wrap，长提示会把行拆得七零八落。
   return (
-    <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs">
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-caption sm:grid-cols-3 xl:grid-cols-5">
       {metrics.map((metric) => (
-        <div
-          key={metric.label}
-          className="flex items-baseline gap-1.5 whitespace-nowrap"
-        >
+        <div key={metric.label} className="flex min-w-0 flex-col gap-0.5">
           <dt className="text-fg-3">{metric.label}</dt>
           <dd
-            className="font-medium text-fg tabular-nums"
+            className="font-medium text-fg-1 tabular-nums"
             title={
               metric.label === t("gateway.trace.cost")
                 ? t("gateway.routingStatus.costNote")
@@ -268,12 +269,12 @@ export function RoutingSummary({
             }
           >
             {metric.value}
-            {metric.hint && (
-              <span className="ms-1 font-normal text-fg-3">
-                · {metric.hint}
-              </span>
-            )}
           </dd>
+          {metric.hint && (
+            <span className="truncate text-fg-3" title={metric.hint}>
+              {metric.hint}
+            </span>
+          )}
         </div>
       ))}
     </dl>
@@ -314,6 +315,15 @@ export function RoutingStatus({
   }, [groupId, policyId]);
   const query = useRoutingData(filters, offset);
   const config = useGlobalProxyConfig();
+  const bindings = useQuery({
+    queryKey: ["access-bindings"],
+    queryFn: accessApi.bindings,
+  });
+  // 流转图给的是「照着填进客户端」的地址：带协议头和 /v1，和后端
+  // `proxy_origin` 一致；0.0.0.0 / :: 监听所有网卡，客户端连不上，改用回环。
+  const gatewayAddress = config.data
+    ? proxyOrigin(config.data.listenAddress, config.data.listenPort)
+    : undefined;
   // Retention can shrink the last page while polling.
   useEffect(() => {
     if (query.data && offset > 0 && offset >= query.data.total) {
@@ -372,6 +382,8 @@ export function RoutingStatus({
             key={JSON.stringify([filters, offset])}
             data={query.data}
             catalog={catalog}
+            bindings={bindings.data}
+            gatewayAddress={gatewayAddress}
             routeAppRequest={routeAppRequest}
             onRouteAppRequestHandled={onRouteAppRequestHandled}
           />

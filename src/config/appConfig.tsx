@@ -79,7 +79,7 @@ export function isProxyAppId(appId: string): appId is ProxyAppId {
 
 /**
  * 路由专用应用：只接入统一路由，没有完整的应用管理页。
- * 它们会出现在侧栏应用列表里，但点进去是路由页的「设置应用路由」。
+ * 它们会出现在侧栏应用列表里，点进去是自己的配置页，从「路由」进入路由页。
  * 与后端 `gateway::local_apps::LOCAL_APPS` 保持一致。
  */
 export type LocalRoutableAppId =
@@ -329,6 +329,22 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
       "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300 hover:bg-fuchsia-500/20 border-0 gap-1.5",
   },
 };
+
+/**
+ * 应用图标名（ProviderIcon 注册名）。路由流程图等只按 id 渲染图标的地方用它。
+ * 应用 id 不等于图标名：Claude Desktop 用 Claude 的标，Grok Build 用 Grok 的标。
+ */
+const APP_ICON_NAMES: Record<string, string> = {
+  "claude-desktop": "claude",
+  grokbuild: "grok",
+  mcode: "minimax",
+};
+
+export function getAppIconName(appId: string): string | null {
+  if (isLocalRoutableAppId(appId)) return LOCAL_ROUTABLE_APP_ICONS[appId];
+  if (APP_ICON_NAMES[appId]) return APP_ICON_NAMES[appId];
+  return appId in APP_ICON_MAP ? appId : null;
+}
 
 export function getAppLabel(appId: string): string {
   return (

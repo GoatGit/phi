@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
-import { ChartColumn, Check, ChevronDown, Loader2 } from "lucide-react";
+import {
+  ChartColumn,
+  Check,
+  ChevronDown,
+  KeyRound,
+  Loader2,
+} from "lucide-react";
 import { AppGlyph, APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 import { PageTabs } from "@/components/ui/page-tabs";
 import { Button } from "@/components/ui/button";
@@ -15,16 +21,19 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   KNOWN_APP_TYPES,
+  type AppType,
   type AppTypeFilter,
   type UsageRangeSelection,
 } from "@/types/usage";
 import { usageKeys, useModelStats, useProviderStats } from "@/lib/query/usage";
 import { useUsageEventBridge } from "@/hooks/useUsageEventBridge";
 import { usageApi } from "@/lib/api/usage";
+import { accessApi } from "@/lib/api/access";
 import { getUsageRangePresetLabel, resolveUsageRange } from "@/lib/usageRange";
 import { cn } from "@/lib/utils";
 import { UsageHero } from "./UsageHero";
@@ -45,6 +54,19 @@ interface UsageDashboardProps {
 }
 
 type UsageTab = "logs" | "providers" | "models" | "pricing";
+
+/**
+ * 用量范围是单选：要么全部、要么一个应用、要么一把外部密钥。
+ * 外部密钥本身就是接入 PHI 的一个独立第三方应用，不能和应用再叠加。
+ */
+type UsageScope =
+  | { kind: "all" }
+  | { kind: "app"; app: AppType }
+  | { kind: "key"; keyId: string };
+
+function toUsageScope(appType: AppTypeFilter): UsageScope {
+  return appType === "all" ? { kind: "all" } : { kind: "app", app: appType };
+}
 
 const TABS = ["logs", "providers", "models", "pricing"] as const;
 
@@ -102,7 +124,12 @@ export function UsageDashboard({
   const [range, setRange] = useState<UsageRangeSelection>({
     preset: "today",
   });
-  const [appType, setAppType] = useState<AppTypeFilter>(initialAppType);
+  const [scope, setScope] = useState<UsageScope>(() =>
+    toUsageScope(initialAppType),
+  );
+  // 下游只认 appType / bindingId；两者由同一个 scope 推导，天然互斥。
+  const appType: AppTypeFilter = scope.kind === "app" ? scope.app : "all";
+  const bindingId = scope.kind === "key" ? scope.keyId : undefined;
   const [providerName, setProviderName] = useState<string | undefined>(
     undefined,
   );
@@ -122,16 +149,18 @@ export function UsageDashboard({
   const compact = width < 720;
 
   useEffect(() => {
-    setAppType(initialAppType);
+    setScope(toUsageScope(initialAppType));
     setProviderName(undefined);
     setModel(undefined);
   }, [initialAppType]);
 
   // 切应用时清掉下游筛选，避免留下一个在新范围内查无数据的"幽灵"组合；
   // 切供应商同理清掉模型（模型选项随供应商级联）。
+  // 选应用会同时退出密钥筛选：密钥是一个独立应用，两者只能选一个。
   const changeAppType = (next: AppTypeFilter) => {
-    setAppType(next);
-    if (next !== appType) {
+    const scopeChanged = scope.kind === "key" || next !== appType;
+    setScope(toUsageScope(next));
+    if (scopeChanged) {
       setProviderName(undefined);
       setModel(undefined);
     }
@@ -140,6 +169,19 @@ export function UsageDashboard({
   const changeProviderName = (next: string | undefined) => {
     setProviderName(next);
     if (next !== providerName) {
+      setModel(undefined);
+    }
+  };
+
+  // 选密钥即切到"外部应用"这一独立范围，并退出应用筛选；
+  // 清掉下游筛选，避免旧供应商/模型把新范围过滤成空。
+  const changeBindingId = (next: string | undefined) => {
+    // 没有密钥筛选时点「全部密钥」不应把当前应用也一并清掉
+    if (!next && scope.kind !== "key") return;
+    const scopeChanged = next !== bindingId;
+    setScope(next ? { kind: "key", keyId: next } : { kind: "all" });
+    if (scopeChanged) {
+      setProviderName(undefined);
       setModel(undefined);
     }
   };
@@ -197,12 +239,12 @@ export function UsageDashboard({
   };
   const { data: providerOptionsData } = useProviderStats(
     range,
-    { appType },
+    { appType, bindingId },
     refetch,
   );
   const { data: modelOptionsData } = useModelStats(
     range,
-    { appType, providerName },
+    { appType, providerName, bindingId },
     refetch,
   );
   // 有没有任何用量（不分时间范围）：一条都没有时显示空状态
@@ -242,11 +284,36 @@ export function UsageDashboard({
   const providerTotal = providerOptions.reduce((sum, p) => sum + p.count, 0);
   const modelTotal = modelOptions.reduce((sum, m) => sum + m.count, 0);
 
+  // 外部接入密钥：只有存在密钥时才显示筛选项。应用自己的接入没有密钥。
+  const bindings = useQuery({
+    queryKey: ["access-bindings"],
+    queryFn: accessApi.bindings,
+  });
+  const externalKeys = useMemo(
+    () =>
+      (bindings.data ?? [])
+        .filter((b) => b.tool === "external")
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [bindings.data],
+  );
+  const selectedKey = externalKeys.find((key) => key.id === bindingId);
+
+  // 密钥被删除后，不留一个查不到任何数据的筛选范围。
+  useEffect(() => {
+    if (!bindings.isSuccess || scope.kind !== "key") return;
+    if (!externalKeys.some((key) => key.id === scope.keyId)) {
+      setScope({ kind: "all" });
+      setProviderName(undefined);
+      setModel(undefined);
+    }
+  }, [bindings.isSuccess, externalKeys, scope]);
+
   // ── 筛选行 ───────────────────────────────────────────────────────────
-  // 选中块是单独的滑块（SegmentThumb），切换应用时滑过去
+  // 选中块是单独的滑块（SegmentThumb），在应用与密钥之间切换时滑过去。
+  // 密钥触发器和应用芯片同属一个单选组，value 用当前范围区分，选中密钥时也要重量。
   const appFilterIndicator = useSlidingIndicator<HTMLDivElement>(
     '[aria-pressed="true"]',
-    appType,
+    bindingId ? `key:${bindingId}` : appType,
   );
   const chipClass = (pressed: boolean) =>
     cn(
@@ -255,49 +322,132 @@ export function UsageDashboard({
         ? "font-semibold text-fg-1"
         : "font-medium text-fg-2 hover:text-fg-1",
     );
+  const keyPressed = scope.kind === "key";
 
   const filterRow = (
     <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-1.5 px-6 py-2">
-      <div
-        ref={appFilterIndicator.ref}
-        role="group"
-        aria-label={t("usage.appFilter.label")}
-        className="relative flex h-8 shrink-0 items-center gap-0.5 rounded-[8px] bg-subtle p-[3px]"
-      >
-        <SegmentThumb
-          rect={appFilterIndicator.rect}
-          animate={appFilterIndicator.animate}
-          className="rounded-[5px]"
-        />
-        <button
-          type="button"
-          aria-pressed={appType === "all"}
-          className={chipClass(appType === "all")}
-          onClick={() => changeAppType("all")}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div
+          ref={appFilterIndicator.ref}
+          role="group"
+          aria-label={t("usage.keyFilter.groupLabel")}
+          className="relative flex h-8 shrink-0 items-center gap-0.5 rounded-[8px] bg-subtle p-[3px]"
         >
-          {t("usage.appFilter.all")}
-        </button>
-        {/* 应用只露图标，名字放悬停提示和 aria-label */}
-        {KNOWN_APP_TYPES.map((app) => (
-          <HoverTip key={app} content={APP_DISPLAY_NAME[app]}>
-            <button
-              type="button"
-              aria-pressed={appType === app}
-              aria-label={APP_DISPLAY_NAME[app]}
-              className={cn(
-                chipClass(appType === app),
-                "w-[30px] justify-center px-0",
-              )}
-              onClick={() => changeAppType(app)}
-            >
-              <AppGlyph
-                app={app}
-                size={16}
-                badgeClassName={appType === app ? "bg-surface" : "bg-subtle"}
+          <SegmentThumb
+            rect={appFilterIndicator.rect}
+            animate={appFilterIndicator.animate}
+            className="rounded-[5px]"
+          />
+          <button
+            type="button"
+            aria-pressed={scope.kind === "all"}
+            className={chipClass(scope.kind === "all")}
+            onClick={() => changeAppType("all")}
+          >
+            {t("usage.appFilter.all")}
+          </button>
+          {/* 应用只露图标，名字放悬停提示和 aria-label */}
+          {KNOWN_APP_TYPES.map((app) => {
+            const pressed = scope.kind === "app" && scope.app === app;
+            return (
+              <HoverTip key={app} content={APP_DISPLAY_NAME[app]}>
+                <button
+                  type="button"
+                  aria-pressed={pressed}
+                  aria-label={APP_DISPLAY_NAME[app]}
+                  className={cn(
+                    chipClass(pressed),
+                    "w-[30px] justify-center px-0",
+                  )}
+                  onClick={() => changeAppType(app)}
+                >
+                  <AppGlyph
+                    app={app}
+                    size={16}
+                    badgeClassName={pressed ? "bg-surface" : "bg-subtle"}
+                  />
+                </button>
+              </HoverTip>
+            );
+          })}
+          {/* 每个外部密钥就是一个独立应用：放在同一个单选组里，选中密钥即退出应用筛选 */}
+          {externalKeys.length > 0 && (
+            <>
+              <span
+                aria-hidden="true"
+                className="mx-0.5 h-4 w-px shrink-0 bg-border"
               />
-            </button>
-          </HoverTip>
-        ))}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-pressed={keyPressed}
+                    aria-label={
+                      selectedKey
+                        ? `${t("usage.keyFilter.label")}: ${selectedKey.name}`
+                        : t("usage.keyFilter.label")
+                    }
+                    title={selectedKey?.name ?? t("usage.keyFilter.title")}
+                    className={cn(
+                      chipClass(keyPressed),
+                      "max-w-[172px] gap-1 pe-1 ps-1.5",
+                    )}
+                  >
+                    <KeyRound
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 truncate">
+                      {selectedKey?.name ?? t("usage.keyFilter.label")}
+                    </span>
+                    <ChevronDown
+                      className="h-3.5 w-3.5 shrink-0 opacity-70"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  aria-label={t("usage.keyFilter.title")}
+                  className={cn(
+                    menuContentClass,
+                    "max-h-[360px] overflow-y-auto",
+                  )}
+                >
+                  <DropdownMenuLabel className="max-w-[280px] whitespace-normal text-caption font-normal leading-relaxed text-fg-3">
+                    {t("usage.keyFilter.hint")}
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem
+                    className={menuItemClass}
+                    onSelect={() => changeBindingId(undefined)}
+                  >
+                    <MenuCheck checked={bindingId == null} />
+                    {t("usage.keyFilter.all")}
+                  </DropdownMenuItem>
+                  {externalKeys.map((key) => {
+                    // agent 与名称相同时不重复展示（新建密钥时记账标识默认等于名称）
+                    const meta = !key.enabled
+                      ? t("usage.keyFilter.disabled")
+                      : key.agent && key.agent !== key.name
+                        ? key.agent
+                        : null;
+                    return (
+                      <DropdownMenuItem
+                        key={key.id}
+                        className={menuItemClass}
+                        onSelect={() => changeBindingId(key.id)}
+                      >
+                        <MenuCheck checked={bindingId === key.id} />
+                        <span className="min-w-0 truncate">{key.name}</span>
+                        {meta && <MenuMeta>{meta}</MenuMeta>}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
+        </div>
       </div>
       <div className="min-w-2 flex-1" />
       <DropdownMenu>
@@ -484,6 +634,7 @@ export function UsageDashboard({
             appType={appType}
             providerName={providerName}
             model={model}
+            bindingId={bindingId}
             statusCode={statusCode}
             refreshIntervalMs={refreshIntervalMs}
             onOpenDetail={setDetailRequestId}
@@ -495,6 +646,7 @@ export function UsageDashboard({
             appType={appType}
             providerName={providerName}
             model={model}
+            bindingId={bindingId}
             refreshIntervalMs={refreshIntervalMs}
           />
         )}
@@ -504,6 +656,7 @@ export function UsageDashboard({
             appType={appType}
             providerName={providerName}
             model={model}
+            bindingId={bindingId}
             refreshIntervalMs={refreshIntervalMs}
           />
         )}
@@ -517,12 +670,12 @@ export function UsageDashboard({
       // 空库里只有定价可配：不画全是 0 的概览和趋势，直接给页签
       <div
         id="main-content"
-        className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto scroll-stable px-6 pb-6 pt-1"
+        className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto scroll-stable px-6 pb-10 pt-1"
       >
         {tabsSection}
       </div>
     ) : isEmpty ? (
-      <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto scroll-stable px-6 pb-6">
+      <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto scroll-stable px-6 pb-10">
         <div className="mt-16 flex max-w-[440px] flex-col items-center gap-3 text-center">
           <span
             aria-hidden="true"
@@ -562,13 +715,14 @@ export function UsageDashboard({
     ) : (
       <div
         id="main-content"
-        className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto scroll-stable px-6 pb-6 pt-1"
+        className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto scroll-stable px-6 pb-10 pt-1"
       >
         <UsageHero
           range={range}
           appType={scopedAppType}
           providerName={providerName}
           model={model}
+          bindingId={bindingId}
           refreshIntervalMs={refreshIntervalMs}
           compact={compact}
         />
@@ -579,6 +733,7 @@ export function UsageDashboard({
             appType={appType}
             providerName={providerName}
             model={model}
+            bindingId={bindingId}
             refreshIntervalMs={refreshIntervalMs}
           />
         ) : (
@@ -588,6 +743,7 @@ export function UsageDashboard({
             appType={appType}
             providerName={providerName}
             model={model}
+            bindingId={bindingId}
             refreshIntervalMs={refreshIntervalMs}
           />
         )}

@@ -1824,9 +1824,28 @@ pub async fn startup(state: &AppState) {
     }
     // 累加式路由应用的接入配置里带着本进程的本地令牌：按新令牌和网关地址重写一次。
     crate::gateway::attach::refresh_all(state).await;
+    prewarm_subscription_engine(state);
     ensure_desktop_mapping_service(state).await;
     // 记一次新启动的 Codex 会读到的目录：兜住启动时补完的操作和 PHI 没开时的外部修改。
     codex_client_catalog::observe(&DeviceStore::for_device());
+}
+
+/// 有订阅供应商时提前拉起订阅引擎。失败只记日志：首个请求仍会重试，
+/// 并在界面上得到具体原因。
+fn prewarm_subscription_engine(state: &AppState) {
+    let has_subscription = state
+        .db
+        .gateway_catalog()
+        .map(|catalog| crate::gateway::subscriptions::catalog_has_subscription(&catalog))
+        .unwrap_or(false);
+    if !has_subscription {
+        return;
+    }
+    std::thread::spawn(|| {
+        if let Err(error) = crate::gateway::subscriptions::prewarm() {
+            log::warn!("[GATEWAY] 订阅引擎预热失败，将在首个请求时重试: {error}");
+        }
+    });
 }
 
 async fn startup_app(state: &AppState, app: &AppType) -> Result<(), String> {
@@ -2635,7 +2654,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod mode_tests {
+pub(crate) mod mode_tests {
     //! 双模式的验收：进入 / 退出只动关键字段和独有字段；契约相同的换路由不碰客户端文件；
     //! 代理路由和直连指针互相独立；每一步崩溃都能按 pending 补完；旧版遗留的接管状态
     //! 在启动时迁移掉。
@@ -2655,13 +2674,13 @@ mod mode_tests {
     use std::sync::Arc;
     use tempfile::TempDir;
 
-    struct Home {
+    pub(crate) struct Home {
         dir: TempDir,
         saved: Vec<(&'static str, Option<OsString>)>,
     }
 
     impl Home {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let dir = TempDir::new().expect("temp home");
             let saved = ["HOME", "USERPROFILE", "PHI_TEST_HOME"]
                 .into_iter()
@@ -5448,7 +5467,7 @@ model_provider = "c"
 
     // ---------- 新增对话框：和编辑器同一套规则 ----------
 
-    async fn state_without_providers() -> AppState {
+    pub(crate) async fn state_without_providers() -> AppState {
         let db = Arc::new(Database::memory().expect("memory db"));
         db.update_proxy_config(ProxyConfig {
             listen_port: 0,
@@ -5457,6 +5476,332 @@ model_provider = "c"
         .await
         .expect("ephemeral port");
         AppState::new(db)
+    }
+
+    /// 一条最小可路由目录：一个 openai_chat 供应商 + 一个引用它的组。
+    pub(crate) async fn seed_gateway_group(state: &AppState, app_id: &str, model: &str) {
+        let catalog = state
+            .db
+            .create_gateway_supplier(crate::gateway::SupplierUpsert {
+                name: Some("Pool".into()),
+                endpoint: Some(crate::gateway::Endpoint {
+                    protocol: "openai_chat".into(),
+                    base_url: "http://127.0.0.1:9".into(),
+                }),
+                models: Some(vec!["m".into(), "n".into()]),
+                api_key: Some("sk-pool".into()),
+                auth_field: Some("OPENAI_API_KEY".into()),
+                revision: None,
+            })
+            .expect("supplier");
+        let supplier = catalog.suppliers.last().expect("supplier row").id.clone();
+        let mut catalog = catalog;
+        catalog.groups.push(
+            serde_json::from_value(json!({
+                "id": "root",
+                "name": "Root",
+                "appIds": [app_id],
+                "members": [{"id": "one", "supplierId": supplier, "model": model}]
+            }))
+            .expect("group"),
+        );
+        state
+            .db
+            .save_gateway_catalog(catalog)
+            .expect("save catalog");
+    }
+
+    /// 审计复现：首次接入时没有上一家（record.previous_provider_id = None），
+    /// 之后一次失败的改选不能把仍在使用的 PHI 供应商行删掉。
+    #[tokio::test]
+    #[serial]
+    async fn a_failed_gateway_reconnect_keeps_the_provider_row_and_connection() {
+        let _home = Home::new();
+        let state = state_without_providers().await;
+        seed_gateway_group(&state, "openclaw", "m").await;
+        crate::gateway::attach::connect(&state, &AppType::OpenClaw, "root", None)
+            .await
+            .expect("first connect");
+        let id = crate::gateway::apps::provider_id(&AppType::OpenClaw);
+        let status = crate::gateway::attach::status(&state, &AppType::OpenClaw)
+            .expect("attachment status")
+            .expect("attached");
+        assert!(
+            status.previous_provider_id.is_none(),
+            "audit reproduction requires no recorded previous provider"
+        );
+        let before = state
+            .db
+            .get_provider_by_id(&id, "openclaw")
+            .expect("fetch")
+            .expect("row");
+        assert!(before.settings_config["models"]
+            .as_array()
+            .expect("models")
+            .iter()
+            .any(|row| row["id"] == "m"));
+
+        // 把成员换成 n，并让 OpenClaw 原生配置写入失败（路径变成目录）。
+        let mut catalog = state.db.gateway_catalog().expect("catalog");
+        catalog
+            .groups
+            .iter_mut()
+            .find(|group| group.id == "root")
+            .expect("group")
+            .members[0]
+            .model = "n".into();
+        state
+            .db
+            .save_gateway_catalog(catalog)
+            .expect("save catalog");
+        let path = crate::openclaw_config::get_openclaw_config_path();
+        fs::remove_file(&path).expect("remove openclaw config");
+        fs::create_dir(&path).expect("config path as directory");
+
+        let error = crate::gateway::attach::connect(&state, &AppType::OpenClaw, "root", None)
+            .await
+            .expect_err("reconnect must fail");
+        assert!(error.contains("写入"), "unexpected error: {error}");
+        let after = state
+            .db
+            .get_provider_by_id(&id, "openclaw")
+            .expect("fetch")
+            .expect("row survives a failed reconnect");
+        assert_eq!(after.settings_config, before.settings_config);
+        let catalog = state.db.gateway_catalog().expect("catalog");
+        assert_eq!(
+            crate::gateway::routing::app_connection(&catalog, "openclaw")
+                .and_then(|policy| policy.group_id.clone())
+                .as_deref(),
+            Some("root")
+        );
+    }
+
+    /// 审计复现：Provider 类应用在 switch 失败时，供应商行不能丢，原生配置
+    /// 也不能留在新模型上（本次失败发生在备份写入，原生文件应保持旧值）。
+    #[cfg(unix)]
+    #[tokio::test]
+    #[serial]
+    async fn a_failed_gateway_switch_keeps_the_provider_row_and_native_config() {
+        use std::os::unix::fs::PermissionsExt;
+        let _home = Home::new();
+        let state = state_without_providers().await;
+        seed_gateway_group(&state, "openclaw", "m").await;
+        crate::gateway::attach::connect(&state, &AppType::OpenClaw, "root", None)
+            .await
+            .expect("first connect");
+        let id = crate::gateway::apps::provider_id(&AppType::OpenClaw);
+        let before = state
+            .db
+            .get_provider_by_id(&id, "openclaw")
+            .expect("fetch")
+            .expect("row");
+        let path = crate::openclaw_config::get_openclaw_config_path();
+        let native_before: Value =
+            json5::from_str(&fs::read_to_string(&path).expect("read openclaw"))
+                .expect("native json");
+
+        let mut catalog = state.db.gateway_catalog().expect("catalog");
+        catalog
+            .groups
+            .iter_mut()
+            .find(|group| group.id == "root")
+            .expect("group")
+            .members[0]
+            .model = "n".into();
+        state
+            .db
+            .save_gateway_catalog(catalog)
+            .expect("save catalog");
+
+        // 让 switch 的备份写入失败（.phi 只读），旧供应商行仍必须保留。
+        let device = crate::config::get_home_dir().join(".phi");
+        fs::create_dir_all(&device).expect("device dir");
+        let original = fs::metadata(&device).expect("metadata").permissions();
+        fs::set_permissions(&device, fs::Permissions::from_mode(0o500))
+            .expect("read-only device dir");
+        let error = crate::gateway::attach::connect(&state, &AppType::OpenClaw, "root", None)
+            .await
+            .expect_err("reconnect must fail");
+        fs::set_permissions(&device, original).expect("restore permissions");
+        assert!(error.contains("写入"), "unexpected error: {error}");
+
+        let after = state
+            .db
+            .get_provider_by_id(&id, "openclaw")
+            .expect("fetch")
+            .expect("row survives a failed reconnect");
+        assert_eq!(after.settings_config, before.settings_config);
+        let native_after: Value =
+            json5::from_str(&fs::read_to_string(&path).expect("read openclaw"))
+                .expect("native json");
+        assert_eq!(native_after, native_before);
+        let catalog = state.db.gateway_catalog().expect("catalog");
+        assert_eq!(
+            crate::gateway::routing::app_connection(&catalog, "openclaw")
+                .and_then(|policy| policy.group_id.clone())
+                .as_deref(),
+            Some("root")
+        );
+    }
+
+    /// 审计复现：switch 已经写入新配置、remember 才失败时，回滚必须把原生配置
+    /// 切回旧供应商，不能把客户端留在新模型上。
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    #[serial]
+    async fn a_failed_gateway_remember_rolls_back_the_native_config() {
+        use std::process::Command;
+        let _home = Home::new();
+        let state = state_without_providers().await;
+        seed_gateway_group(&state, "openclaw", "m").await;
+        crate::gateway::attach::connect(&state, &AppType::OpenClaw, "root", None)
+            .await
+            .expect("first connect");
+        let id = crate::gateway::apps::provider_id(&AppType::OpenClaw);
+        let before = state
+            .db
+            .get_provider_by_id(&id, "openclaw")
+            .expect("fetch")
+            .expect("row");
+        let path = crate::openclaw_config::get_openclaw_config_path();
+        let native_before: Value =
+            json5::from_str(&fs::read_to_string(&path).expect("read openclaw"))
+                .expect("native json");
+
+        let mut catalog = state.db.gateway_catalog().expect("catalog");
+        catalog
+            .groups
+            .iter_mut()
+            .find(|group| group.id == "root")
+            .expect("group")
+            .members[0]
+            .model = "n".into();
+        state
+            .db
+            .save_gateway_catalog(catalog)
+            .expect("save catalog");
+
+        // 只让 live-state 的 rename 失败（macOS 的 immutable 标志），switch 的备份
+        // 和原生配置写入仍然可用，这样失败点会落在 remember。
+        let live = crate::config::get_home_dir().join(".phi/live-state.json");
+        assert!(live.is_file(), "first connect must write live-state");
+        let locked = Command::new("chflags")
+            .args(["uchg", live.to_str().expect("utf8")])
+            .status()
+            .expect("chflags");
+        assert!(locked.success(), "chflags uchg failed");
+        let error = crate::gateway::attach::connect(&state, &AppType::OpenClaw, "root", None)
+            .await
+            .expect_err("remember must fail");
+        let _ = Command::new("chflags")
+            .args(["nouchg", live.to_str().expect("utf8")])
+            .status();
+        assert!(error.contains("接入状态"), "unexpected error: {error}");
+
+        let after = state
+            .db
+            .get_provider_by_id(&id, "openclaw")
+            .expect("fetch")
+            .expect("row survives a failed remember");
+        assert_eq!(after.settings_config, before.settings_config);
+        let native_after: Value =
+            json5::from_str(&fs::read_to_string(&path).expect("read openclaw"))
+                .expect("native json");
+        assert_eq!(native_after, native_before);
+        let catalog = state.db.gateway_catalog().expect("catalog");
+        assert_eq!(
+            crate::gateway::routing::app_connection(&catalog, "openclaw")
+                .and_then(|policy| policy.group_id.clone())
+                .as_deref(),
+            Some("root")
+        );
+    }
+
+    /// 审计复现：本地应用的 remember 失败时，回滚必须把原生配置、供应商行和
+    /// 数据库当前指针一起退回，不能把用户原值当成“上一次接入”写回去。
+    #[cfg(unix)]
+    #[tokio::test]
+    #[serial]
+    async fn a_failed_local_gateway_reconnect_restores_row_current_and_native_config() {
+        use std::os::unix::fs::PermissionsExt;
+        let _home = Home::new();
+        let state = state_without_providers().await;
+        // 先放一份用户原生配置：退出时的“原值”与本次失败回滚的“当前值”必须区分开。
+        let commandcode = crate::config::get_home_dir().join(".commandcode");
+        fs::create_dir_all(&commandcode).expect("commandcode dir");
+        fs::write(commandcode.join("providers.json"), r#"{"provider":{}}"#)
+            .expect("seed providers");
+        fs::write(
+            commandcode.join("settings.json"),
+            r#"{"model":"user/model","modelProvider":"user"}"#,
+        )
+        .expect("seed settings");
+        seed_gateway_group(&state, "commandcode", "m").await;
+        crate::gateway::attach::connect_local(&state, "commandcode", "root", None)
+            .await
+            .expect("first connect");
+        let id = crate::gateway::local_apps::provider_id("commandcode");
+        let before = state
+            .db
+            .get_provider_by_id(&id, "commandcode")
+            .expect("fetch")
+            .expect("row");
+        let before_current =
+            crate::mode::current::in_use_pointer(&state.db, "commandcode").expect("current");
+        assert_eq!(before_current.as_deref(), Some(id.as_str()));
+        let settings_path = crate::config::get_home_dir().join(".commandcode/settings.json");
+        let native_before: Value =
+            serde_json::from_str(&fs::read_to_string(&settings_path).expect("read settings"))
+                .expect("native json");
+        assert_eq!(native_before["modelProvider"], "phi-route-commandcode");
+
+        let mut catalog = state.db.gateway_catalog().expect("catalog");
+        catalog
+            .groups
+            .iter_mut()
+            .find(|group| group.id == "root")
+            .expect("group")
+            .members[0]
+            .model = "n".into();
+        state
+            .db
+            .save_gateway_catalog(catalog)
+            .expect("save catalog");
+
+        // apply / set_current 成功后让 live-state 写入失败（remember 失败）。
+        let device = crate::config::get_home_dir().join(".phi");
+        fs::create_dir_all(&device).expect("device dir");
+        let original = fs::metadata(&device).expect("metadata").permissions();
+        fs::set_permissions(&device, fs::Permissions::from_mode(0o500))
+            .expect("read-only device dir");
+        let error = crate::gateway::attach::connect_local(&state, "commandcode", "root", None)
+            .await
+            .expect_err("reconnect must fail");
+        fs::set_permissions(&device, original).expect("restore permissions");
+        assert!(error.contains("接入状态"), "unexpected error: {error}");
+
+        let after = state
+            .db
+            .get_provider_by_id(&id, "commandcode")
+            .expect("fetch")
+            .expect("row survives a failed reconnect");
+        assert_eq!(after.settings_config, before.settings_config);
+        assert_eq!(
+            crate::mode::current::in_use_pointer(&state.db, "commandcode").expect("current"),
+            before_current
+        );
+        let native_after: Value =
+            serde_json::from_str(&fs::read_to_string(&settings_path).expect("read settings"))
+                .expect("native json");
+        assert_eq!(native_after, native_before);
+        let catalog = state.db.gateway_catalog().expect("catalog");
+        assert_eq!(
+            crate::gateway::routing::app_connection(&catalog, "commandcode")
+                .and_then(|policy| policy.group_id.clone())
+                .as_deref(),
+            Some("root")
+        );
     }
 
     #[tokio::test]

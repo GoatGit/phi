@@ -331,7 +331,9 @@ describe("AppsPage concurrent CLI upgrades", () => {
     });
     const { AppsPage } = await import("@/components/apps/AppsPage");
     const view = mountApps(AppsPage);
-    await waitFor(() => expect(mocks.getToolVersions).toHaveBeenCalledTimes(9));
+    await waitFor(() =>
+      expect(mocks.getToolVersions).toHaveBeenCalledTimes(15),
+    );
     view.unmount();
     const remounted = await renderApps();
     fireEvent.click(updateButton("Claude Code"));
@@ -856,6 +858,35 @@ describe("AppsPage concurrent CLI upgrades", () => {
     expect(
       screen.queryByRole("menuitem", { name: "settings.toolDiagnose" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("AppsPage route-only apps", () => {
+  it("uses the settings content width when embedded", async () => {
+    vi.resetModules();
+    const { AppsPage } = await import("@/components/apps/AppsPage");
+    const view = mountApps(() => <AppsPage embedded />);
+    await waitFor(() =>
+      expect(view.container.querySelector(".max-w-\\[760px\\]")).not.toBeNull(),
+    );
+  });
+
+  it("lists the new route-only apps with install actions and a sidebar switch", async () => {
+    vi.resetModules();
+    missing.add("command-code");
+    await renderApps();
+
+    const row = card("Command Code");
+    expect(row.getByText("appsPage.routeOnly")).toBeInTheDocument();
+    expect(
+      row.getByRole("button", { name: "settings.toolInstall" }),
+    ).toBeEnabled();
+    expect(
+      row.getByRole("switch", { name: /appsPage\.showInSidebar/ }),
+    ).toBeInTheDocument();
+    for (const name of ["Crush", "Droid", "Kimi Code", "AtomCode", "OmO"]) {
+      expect(screen.getByText(name)).toBeInTheDocument();
+    }
   });
 });
 

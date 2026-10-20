@@ -9,6 +9,8 @@ import type { ProxyAppId } from "@/config/appConfig";
 import type { PresetEntry } from "@/components/providers/forms/ProviderPresetSelector";
 import { GROKBUILD_OFFICIAL_PROVIDER_ID } from "@/utils/providerCapabilities";
 
+import { subscriptionTemplates } from "./subscriptionTemplates";
+
 type SupplierTemplate = PresetEntry & { appId: ProxyAppId };
 
 /**
@@ -40,6 +42,7 @@ const systemOneTemplate: SupplierTemplate = {
 // separate suppliers. Prefer the existing pool default (Claude's template).
 const templates: SupplierTemplate[] = [
   systemOneTemplate,
+  ...subscriptionTemplates,
   ...providerPresets
     .filter((preset) => !preset.hidden)
     .map((preset, index) => ({
@@ -76,6 +79,7 @@ export const supplierTemplates = templates.filter(({ preset }) => {
     preset.family,
     preset.planKey,
     preset.regionKey,
+    "group" in preset ? preset.group : undefined,
   ]);
   if (seen.has(key)) return false;
   seen.add(key);

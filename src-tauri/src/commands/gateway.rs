@@ -5,6 +5,23 @@ use crate::{
 use tauri::State;
 
 #[tauri::command]
+pub async fn gateway_subscription_action(
+    action: String,
+    input: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    crate::gateway::subscriptions::action(&action, input).await
+}
+
+#[tauri::command]
+pub async fn connect_gateway_subscription(
+    state: State<'_, AppState>,
+    id: String,
+    revision: u64,
+) -> Result<Catalog, String> {
+    crate::gateway::subscriptions::connect(&state.db, &id, revision).await
+}
+
+#[tauri::command]
 pub async fn create_gateway_supplier_from_template(
     state: State<'_, AppState>,
     app_id: String,

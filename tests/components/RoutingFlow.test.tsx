@@ -1,4 +1,12 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RoutingFlow, wirePath } from "@/components/gateway/RoutingFlow";
 import { ROUTABLE_APP_IDS } from "@/config/appConfig";
@@ -10,12 +18,15 @@ import {
   laneFinalState,
   lanePlayback,
   latestTracePerApp,
+  readableRequestModel,
 } from "@/components/gateway/routingFlowModel";
+import { renderWithQueryClient } from "../utils/testQueryClient";
 import type {
   GatewayCatalog,
   GatewayRequestTrace,
   GatewayTracePage,
 } from "@/lib/api/gateway";
+import type { AccessBinding } from "@/lib/api/access";
 
 const baseTrace: GatewayRequestTrace = {
   id: "request-1",
@@ -206,6 +217,30 @@ const catalog: GatewayCatalog = {
 };
 
 describe("routing flow model", () => {
+  it("rewrites a legacy group/<uuid> request model to the group name", () => {
+    // 早期版本用 UUID 当组别名，历史轨迹里存的就是它。用户看到一串 UUID
+    // 无法对应到任何组，这里按今天的目录换回组名；其他模型名原样透传。
+    const withGroup: GatewayCatalog = {
+      ...catalog,
+      groups: [
+        group({ id: "group-917a468c", name: "路由组1", appIds: ["codex"] }),
+      ],
+    };
+    expect(readableRequestModel("group/group-917a468c", withGroup)).toBe(
+      "group/路由组1",
+    );
+    expect(readableRequestModel("group/group-917a468c/gpt-5", withGroup)).toBe(
+      "group/路由组1/gpt-5",
+    );
+    expect(readableRequestModel("group/路由组1", withGroup)).toBe(
+      "group/路由组1",
+    );
+    expect(readableRequestModel("gpt-5", withGroup)).toBe("gpt-5");
+    // 目录里已经没有这个组时，保持原样而不是造一个名字出来。
+    expect(readableRequestModel("group/gone", withGroup)).toBe("group/gone");
+    expect(readableRequestModel(undefined, withGroup)).toBe("");
+  });
+
   it("keeps one lane per app using its latest request, active wins", () => {
     const older = { ...baseTrace, id: "older", createdAt: 500 };
     const newer = {
@@ -295,11 +330,15 @@ describe("routing flow model", () => {
     ]);
     expect(apps[0]).toMatchObject({
       lane: null,
-      staticGroupKey: "group:root",
-      staticOutletKeys: ["a|model-a", "b|model-b", "b|model-nested"],
+      staticRoutes: [
+        {
+          groupKey: "group:root",
+          outletKeys: ["a|model-a", "b|model-b", "b|model-nested"],
+        },
+      ],
     });
     // 其余应用没有连接：只有 app→PHI 一条边。
-    expect(apps[1].staticGroupKey).toBeNull();
+    expect(apps[1].staticRoutes).toEqual([]);
     // The group column lists every catalog group (including nested ones),
     // while the nested group's members are flattened into the model list.
     expect(groups.map((g) => g.name)).toEqual(["Root group", "Nested group"]);
@@ -317,7 +356,9 @@ describe("routing flow model", () => {
     );
     const claude = apps.find((app) => app.appId === "claude")!;
     expect(claude.lane).not.toBeNull();
-    expect(claude.staticGroupKey).toBe("group:root");
+    expect(claude.staticRoutes.map((route) => route.groupKey)).toEqual([
+      "group:root",
+    ]);
     expect(groups[0]).toMatchObject({ key: "group:root", name: "Root group" });
     // Shared outlets take the traffic state; configured-only ones stay idle.
     expect(outlets.find((o) => o.key === "a|model-a")!.state).toBe("failed");
@@ -586,7 +627,11 @@ describe("routing flow diagram", () => {
   it("collapses the lower-priority apps by default and expands them on demand", () => {
     render(<RoutingFlow data={page([])} catalog={catalog} />);
     const list = screen.getByRole("list", { name: "gateway.flow.apps" });
-    expect(list.children).toHaveLength(6);
+    // 默认只留五个位置：已配置/活跃的应用只优先占位，不额外占名额。
+    expect(list.children).toHaveLength(5);
+    expect(document.querySelector('[data-flow-key="claude"]')).not.toBeNull();
+    // 没有任何配置的应用（排在最后、没流量）默认被收起来。
+    expect(document.querySelector('[data-flow-key="openclaw"]')).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "gateway.flow.moreApps" }),
     );
@@ -594,10 +639,81 @@ describe("routing flow diagram", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "gateway.flow.fewerApps" }),
     );
-    expect(list.children).toHaveLength(6);
+    expect(list.children).toHaveLength(5);
   });
 
-  it("keeps every in-flight app visible past the collapse limit", () => {
+  it("shows the gateway address with its protocol and copies it as shown", () => {
+    // 流转图上的地址是让用户照抄进客户端的，缺协议头就会被客户端判成
+    // URL 解析失败（表现为「连不上」）。这里锁住「显示即可用」。
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(
+      <RoutingFlow
+        data={page([])}
+        catalog={catalog}
+        gatewayAddress="http://127.0.0.1:15821/v1"
+      />,
+    );
+    const address =
+      document.querySelector<HTMLButtonElement>(".phi-flow-address")!;
+    expect(address).toHaveTextContent("http://127.0.0.1:15821/v1");
+    fireEvent.click(address);
+    expect(writeText).toHaveBeenCalledWith("http://127.0.0.1:15821/v1");
+  });
+
+  it("keeps the visible count capped when one group holds many apps", () => {
+    // 现实场景：一个路由组一次性挂了八个应用，于是几乎每个应用都被判定为
+    // 已配置。已配置只能用来「优先占位」，不能让默认列表突破上限。
+    const shared: GatewayCatalog = {
+      ...catalog,
+      policies: [],
+      groups: [
+        {
+          ...catalog.groups![0],
+          appIds: [
+            "claude",
+            "claude-desktop",
+            "codex",
+            "gemini",
+            "grokbuild",
+            "opencode",
+            "openclaw",
+            "hermes",
+          ],
+        },
+      ],
+    };
+    render(<RoutingFlow data={page([])} catalog={shared} />);
+    const list = screen.getByRole("list", { name: "gateway.flow.apps" });
+    expect(list.children).toHaveLength(5);
+    expect(
+      screen.getByRole("button", { name: "gateway.flow.moreApps" }),
+    ).toBeInTheDocument();
+  });
+
+  it("lets a manual pick show more apps than the collapse limit", async () => {
+    const user = userEvent.setup();
+    render(<RoutingFlow data={page([])} catalog={catalog} />);
+    const list = screen.getByRole("list", { name: "gateway.flow.apps" });
+    expect(list.children).toHaveLength(5);
+    await user.click(
+      screen.getByRole("button", { name: "gateway.flow.pickApps" }),
+    );
+    const menu = screen.getByRole("dialog");
+    // 挑七个：用户自定义的筛选不受第 1 条的折叠上限约束。
+    for (const box of within(menu).getAllByRole("checkbox").slice(0, 7)) {
+      fireEvent.click(box);
+    }
+    await waitFor(() => expect(list.children).toHaveLength(7));
+    expect(
+      screen.queryByRole("button", { name: /gateway.flow.moreApps/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps in-flight apps prioritized but still capped", () => {
     const live = [
       "claude",
       "codex",
@@ -614,22 +730,22 @@ describe("routing flow diagram", () => {
       createdAt: 1000 + index,
     }));
     render(<RoutingFlow data={page([], live)} />);
+    // 进行中只用来优先占位：八条都在跑，默认仍只露五个，其余折叠。
     expect(
       screen.getByRole("list", { name: "gateway.flow.apps" }).children,
-    ).toHaveLength(live.length);
-    // 没有可折叠的行时不显示展开按钮。
+    ).toHaveLength(5);
     expect(
-      screen.queryByRole("button", { name: "gateway.flow.moreApps" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "gateway.flow.moreApps" }),
+    ).toBeInTheDocument();
   });
 
   it("draws configured apps, groups and models as gray dashed base lines", () => {
     const { container } = render(
       <RoutingFlow data={page([])} catalog={catalog} />,
     );
-    // 默认只列优先级最高的 6 个应用，其余折叠在展开按钮后面。
+    // 默认只列优先级最高的五个应用（硬上限），其余折叠在展开按钮后面。
     const appList = screen.getByRole("list", { name: "gateway.flow.apps" });
-    expect(appList.children).toHaveLength(6);
+    expect(appList.children).toHaveLength(5);
     expect(
       screen.getByRole("list", { name: "gateway.flow.groups" }).children,
     ).toHaveLength(2);
@@ -640,18 +756,22 @@ describe("routing flow diagram", () => {
     expect(
       screen.queryByText("gateway.flow.states.unknown"),
     ).not.toBeInTheDocument();
-    // 6 app→PHI + 1 PHI→group + 3 group→model gray dashed wires.
+    // 折叠后的应用不画 app→PHI 灰线；可见的 claude 走 group 区那条灰线，
+    // 组与模型各自保留配置层连线。
     expect(
-      container.querySelectorAll('path[data-state="static"]'),
-    ).toHaveLength(10);
+      regionOf(container, "app").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(1);
+    expect(
+      regionOf(container, "group").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(1);
     fireEvent.click(
       screen.getByRole("button", { name: "gateway.flow.moreApps" }),
     );
     // 展开后补齐剩下的应用与连线。
     expect(appList.children).toHaveLength(17);
     expect(
-      container.querySelectorAll('path[data-state="static"]'),
-    ).toHaveLength(21);
+      regionOf(container, "app").querySelectorAll('[data-state="static"]'),
+    ).toHaveLength(1);
     expect(
       screen.queryByRole("button", { name: "gateway.flow.replay" }),
     ).not.toBeInTheDocument();
@@ -668,10 +788,10 @@ describe("routing flow diagram", () => {
     // app→PHI + PHI→group + two group→model attempt wires.
     expect(colored).toHaveLength(4);
     expect(colored.every((path) => path.style.stroke !== "")).toBe(true);
-    // 折叠状态下只有前 6 个应用在图上，claude 已被流量线替换。
+    // 有流量的应用不再画灰线；其余列出来的应用都没有配置，所以 app 区没有灰线。
     expect(
       regionOf(container, "app").querySelectorAll('[data-state="static"]'),
-    ).toHaveLength(5);
+    ).toHaveLength(0);
     expect(
       regionOf(container, "group").querySelectorAll('[data-state="static"]'),
     ).toHaveLength(0);
@@ -697,9 +817,10 @@ describe("routing flow diagram", () => {
     const { container } = render(
       <RoutingFlow data={page([baseTrace])} catalog={sharedCatalog} />,
     );
+    // codex 也接入了路由组但没有流量：它的灰线留着。
     expect(
       regionOf(container, "app").querySelectorAll('[data-state="static"]'),
-    ).toHaveLength(5);
+    ).toHaveLength(1);
     expect(
       regionOf(container, "group").querySelectorAll('[data-state="static"]'),
     ).toHaveLength(0);
@@ -724,7 +845,7 @@ describe("routing flow diagram", () => {
     );
     expect(
       regionOf(container, "app").querySelectorAll('[data-state="static"]'),
-    ).toHaveLength(5);
+    ).toHaveLength(0);
     expect(
       regionOf(container, "group").querySelectorAll('[data-state="static"]'),
     ).toHaveLength(1);
@@ -877,6 +998,74 @@ describe("wire attachment", () => {
     // 组节点 400..464，中心 432：每个应用的灰线都落在同一点。
     for (const path of wires) expect(endY(path)).toBe(432);
     expect(new Set(wires.map((path) => path.getAttribute("d"))).size).toBe(1);
+  });
+
+  it("adds another app from the first column by opening the third-party app form", () => {
+    // 新建弹窗要读路由目录，所以这里需要 QueryClient（真实页面本来就有）。
+    renderWithQueryClient(<RoutingFlow data={page([])} catalog={catalog} />);
+    const add = screen.getByRole("button", { name: "gateway.flow.addApp" });
+    // 第一次添加时默认叫 PHI：不给用户多一步命名。
+    fireEvent.click(add);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText("access.keyName")).toHaveValue("PHI");
+  });
+
+  it("edits a third-party app node instead of its route settings", async () => {
+    // 三方应用（接入令牌）没有应用配置可写，节点右上角给的是编辑：
+    // 弹窗里只有重新签发与删除。
+    const binding: AccessBinding = {
+      id: "cursor",
+      name: "Cursor",
+      agent: "Cursor",
+      tool: "external",
+      projectId: null,
+      allowedGroups: ["root"],
+      enabled: true,
+    };
+    renderWithQueryClient(
+      <RoutingFlow data={page([])} catalog={catalog} bindings={[binding]} />,
+    );
+    const list = screen.getByRole("list", { name: "gateway.flow.apps" });
+    const node = list.querySelector<HTMLElement>(
+      '[data-flow-key="binding:cursor"]',
+    )!;
+    expect(node.dataset.appKind).toBe("binding");
+    fireEvent.click(
+      within(node).getByRole("button", { name: "gateway.flow.editAppFor" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Cursor")).toBeInTheDocument();
+    expect(within(dialog).getByText("access.editHint")).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "access.rotate" }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "access.delete" }),
+    ).toBeInTheDocument();
+    // 编辑弹窗不暴露改名与改路由范围。
+    expect(within(dialog).queryByLabelText("access.keyName")).toBeNull();
+    expect(within(dialog).queryByRole("checkbox")).toBeNull();
+  });
+
+  it("narrows the app column to the picked apps", async () => {
+    const user = userEvent.setup();
+    render(<RoutingFlow data={page([])} catalog={catalog} />);
+    const list = screen.getByRole("list", { name: "gateway.flow.apps" });
+    expect(list.children).toHaveLength(5);
+    await user.click(
+      screen.getByRole("button", { name: "gateway.flow.pickApps" }),
+    );
+    const menu = screen.getByRole("dialog");
+    // 挑选弹层里列出全部应用，不只是折叠后可见的那 6 个。
+    expect(within(menu).getAllByRole("checkbox")).toHaveLength(
+      ROUTABLE_APP_IDS.length,
+    );
+    fireEvent.click(within(menu).getAllByRole("checkbox")[16]);
+    await waitFor(() => expect(list.children).toHaveLength(1));
+    // 挑选生效后折叠按钮让位，避免和「显示哪些应用」互相打架。
+    expect(
+      screen.queryByRole("button", { name: /gateway.flow.moreApps/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("fans parallel traffic wires out without leaving the group node", () => {

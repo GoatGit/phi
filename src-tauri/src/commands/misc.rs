@@ -128,8 +128,24 @@ pub struct ToolVersion {
     wsl_distro: Option<String>,
 }
 
-const VALID_TOOLS: [&str; 9] = [
-    "claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes", "pi", "mcode",
+const VALID_TOOLS: [&str; 15] = [
+    "claude",
+    "codex",
+    "gemini",
+    "grok",
+    "opencode",
+    "openclaw",
+    "hermes",
+    "pi",
+    "mcode",
+    // 路由专用应用也走同一套安装 / 升级：它们本身是独立 CLI，装好后由
+    // `gateway::local_apps` 写原生配置指向本地网关。
+    "command-code",
+    "crush",
+    "droid",
+    "kimi",
+    "atomcode",
+    "omo",
 ];
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -514,6 +530,12 @@ fn tool_display_name(tool: &str) -> &'static str {
         "hermes" => "Hermes",
         "pi" => "Pi",
         "mcode" => "MiniMax Code",
+        "command-code" => "Command Code",
+        "crush" => "Crush",
+        "droid" => "Droid",
+        "kimi" => "Kimi Code",
+        "atomcode" => "AtomCode",
+        "omo" => "OmO",
         _ => "Unknown",
     }
 }
@@ -731,6 +753,12 @@ fn npm_install_command_for(tool: &str) -> Option<&'static str> {
         "mcode" => Some(
             "npm i -g @minimax-ai/code@latest --ignore-scripts=false --include=optional \"--allow-scripts=@minimax-ai/code,better-sqlite3\"",
         ),
+        "command-code" => Some("npm i -g command-code@latest"),
+        "crush" => Some("npm i -g @charmland/crush@latest"),
+        "droid" => Some("npm i -g droid@latest"),
+        "kimi" => Some("npm i -g @moonshot-ai/kimi-code@latest"),
+        "atomcode" => Some("npm i -g @atomgit.com/atomcode@latest"),
+        "omo" => Some("npm i -g omo-ai@latest"),
         _ => None,
     }
 }
@@ -1115,6 +1143,14 @@ async fn get_single_tool_version_impl(
             fetch_npm_latest_for_tool(&client, "@earendil-works/pi-coding-agent", tool, local).await
         }
         "mcode" => fetch_npm_latest_for_tool(&client, "@minimax-ai/code", tool, local).await,
+        "command-code" => fetch_npm_latest_for_tool(&client, "command-code", tool, local).await,
+        "crush" => fetch_npm_latest_for_tool(&client, "@charmland/crush", tool, local).await,
+        "droid" => fetch_npm_latest_for_tool(&client, "droid", tool, local).await,
+        "kimi" => fetch_npm_latest_for_tool(&client, "@moonshot-ai/kimi-code", tool, local).await,
+        "atomcode" => {
+            fetch_npm_latest_for_tool(&client, "@atomgit.com/atomcode", tool, local).await
+        }
+        "omo" => fetch_npm_latest_for_tool(&client, "omo-ai", tool, local).await,
         _ => None,
     };
 
@@ -2961,6 +2997,12 @@ fn npm_package_for(tool: &str) -> Option<&'static str> {
         "openclaw" => Some("openclaw"),
         "pi" => Some("@earendil-works/pi-coding-agent"),
         "mcode" => Some("@minimax-ai/code"),
+        "command-code" => Some("command-code"),
+        "crush" => Some("@charmland/crush"),
+        "droid" => Some("droid"),
+        "kimi" => Some("@moonshot-ai/kimi-code"),
+        "atomcode" => Some("@atomgit.com/atomcode"),
+        "omo" => Some("omo-ai"),
         _ => None,
     }
 }
@@ -6044,6 +6086,46 @@ mod tests {
         // The verified distribution exposes `pi --version`, but no updater
         // contract is assumed; upgrades stay on the package-manager path.
         assert_eq!(official_update_args("pi"), None);
+    }
+
+    #[test]
+    fn route_only_apps_use_their_official_npm_packages() {
+        for (tool, display, package, install) in [
+            (
+                "command-code",
+                "Command Code",
+                "command-code",
+                "npm i -g command-code@latest",
+            ),
+            (
+                "crush",
+                "Crush",
+                "@charmland/crush",
+                "npm i -g @charmland/crush@latest",
+            ),
+            ("droid", "Droid", "droid", "npm i -g droid@latest"),
+            (
+                "kimi",
+                "Kimi Code",
+                "@moonshot-ai/kimi-code",
+                "npm i -g @moonshot-ai/kimi-code@latest",
+            ),
+            (
+                "atomcode",
+                "AtomCode",
+                "@atomgit.com/atomcode",
+                "npm i -g @atomgit.com/atomcode@latest",
+            ),
+            ("omo", "OmO", "omo-ai", "npm i -g omo-ai@latest"),
+        ] {
+            assert!(VALID_TOOLS.contains(&tool), "{tool} must be accepted");
+            assert_eq!(tool_display_name(tool), display);
+            assert_eq!(npm_package_for(tool), Some(package));
+            assert_eq!(npm_install_command_for(tool), Some(install));
+            // 这些 CLI 都没有可安全静默执行的自升级契约；升级统一回到
+            // 已安装处的 npm，避免非 TTY 下假成功。
+            assert_eq!(official_update_args(tool), None);
+        }
     }
 
     #[test]

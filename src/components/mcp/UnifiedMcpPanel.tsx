@@ -697,7 +697,7 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
           ))}
         </NoticeSlot>
 
-        <div className="flex min-h-0 flex-1 flex-col px-6 pb-5">
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-10">
           {isLoading ? (
             <div className="py-12 text-center text-body text-fg-2">
               {t("mcp.loading")}

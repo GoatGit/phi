@@ -33,6 +33,8 @@ fn trace(c: &Catalog, decision: RouteDecision, outcome: &str) -> RequestTrace {
         id: uuid::Uuid::new_v4().to_string(),
         created_at: now(),
         app_id: "claude".into(),
+        binding_id: None,
+        binding_name: None,
         request_model: "group/root".into(),
         catalog_revision: c.revision,
         policy: policy(c),
@@ -77,11 +79,18 @@ fn validation_rejects_cycles_scope_models_and_invalid_manual_target() {
         }
         assert!(validate(&c).is_err(), "mutation {mutation}");
     }
-    assert!(matched_policy(&c, "gemini", "group/root").is_err());
-    assert!(matched_policy(&c, "claude", "group/missing").is_err());
+    // 别名指向别的应用的组、或不存在的组时，没有回退策略可命中。
+    assert!(matched_policy(&c, "gemini", "group/Root")
+        .unwrap()
+        .is_none());
+    assert!(matched_policy(&c, "claude", "group/missing")
+        .unwrap()
+        .is_none());
     let mut c = c;
     c.groups[0].enabled = false;
-    assert!(matched_policy(&c, "claude", "group/root").is_err());
+    assert!(matched_policy(&c, "claude", "group/Root")
+        .unwrap()
+        .is_none());
 }
 #[test]
 fn round_robin_and_weighted_are_deterministic_and_preview_is_read_only() {
@@ -108,6 +117,43 @@ fn round_robin_and_weighted_are_deterministic_and_preview_is_read_only() {
     assert_eq!(sequence.iter().filter(|s| s.as_str() == "a").count(), 30);
     assert_eq!(sequence.iter().filter(|s| s.as_str() == "b").count(), 10);
 }
+#[test]
+fn local_refusals_release_load_without_cooling_the_outlet() {
+    let c = catalog();
+    let r = Runtime::default();
+    r.begin("a", "m");
+    assert_eq!(
+        r.statuses()
+            .into_iter()
+            .find(|status| status.supplier_id == "a")
+            .map(|status| status.active),
+        Some(1)
+    );
+    // 预算/账本这类本地拒绝没有到达上游：只释放活跃计数，不是供应商失败。
+    r.release("a", "m", 5);
+    let after = r
+        .statuses()
+        .into_iter()
+        .find(|status| status.supplier_id == "a")
+        .expect("outlet status");
+    assert_eq!(after.active, 0);
+    assert_eq!(after.failures, 0);
+    assert_eq!(after.cooldown_until, None);
+    assert_eq!(after.last_latency_ms, Some(5));
+    let decision = r.plan(&c, &policy(&c), None, vec![], false).unwrap();
+    assert!(decision
+        .candidates
+        .iter()
+        .find(|candidate| candidate.supplier_id == "a")
+        .is_some_and(|candidate| candidate.available));
+    // 释放一个从未登记过的出口是空操作，不应写入假状态。
+    r.release("missing", "m", 1);
+    assert!(r
+        .statuses()
+        .iter()
+        .all(|status| status.supplier_id != "missing"));
+}
+
 #[test]
 fn health_manual_and_least_used_use_actual_outlet_state() {
     let mut c = catalog();
@@ -273,7 +319,7 @@ fn completion_distinguishes_cancellation_and_unknown_usage() {
 #[test]
 fn aliases_are_scoped_and_catalog_remains_backward_compatible() {
     let c = catalog();
-    assert_eq!(published_aliases(&c, "claude")[0].0, "group/root");
+    assert_eq!(published_aliases(&c, "claude")[0].0, "group/Root");
     assert!(published_aliases(&c, "gemini").is_empty());
     let legacy: Catalog =
         serde_json::from_value(json!({"revision":0,"suppliers":[],"policies":[]})).unwrap();
@@ -292,7 +338,13 @@ fn application_connection_replaces_model_matching_and_cached_group_aliases() {
     let mut connection = group_policy(&c, "claude", "root", "").unwrap();
     connection.id = connection_id("claude");
     c.policies.extend([legacy, connection]);
-    for model in ["old-model", "new-model", "group/other", "group/missing"] {
+    for model in [
+        "old-model",
+        "new-model",
+        "group/Other",
+        "group/root",
+        "group/missing",
+    ] {
         let p = matched_policy(&c, "claude", model).unwrap().unwrap();
         assert_eq!(p.id, "connection/claude");
         assert_eq!(p.group_id.as_deref(), Some("root"));
@@ -300,10 +352,10 @@ fn application_connection_replaces_model_matching_and_cached_group_aliases() {
     }
     assert_eq!(
         published_aliases(&c, "claude"),
-        vec![("group/root".into(), "Root".into())]
+        vec![("group/Root".into(), "Root".into())]
     );
     assert_eq!(
-        matched_unbound_policy(&c, "claude", "group/other")
+        matched_unbound_policy(&c, "claude", "group/Other")
             .unwrap()
             .unwrap()
             .group_id
@@ -313,20 +365,23 @@ fn application_connection_replaces_model_matching_and_cached_group_aliases() {
     assert_eq!(published_unbound_aliases(&c, "claude").len(), 3);
     // Other applications keep their own connection scope.
     assert_eq!(
-        matched_policy(&c, "codex", "group/other")
+        matched_policy(&c, "codex", "group/Other")
             .unwrap()
             .unwrap()
             .group_id
             .as_deref(),
         Some("other")
     );
+    // 组被停用：连接本身失效，任何模型（含别名）都不再命中。
     c.groups[0].enabled = false;
     assert!(matched_policy(&c, "claude", "old-model").is_err());
-    assert!(matched_policy(&c, "claude", "group/other").is_err());
+    assert!(matched_policy(&c, "claude", "group/Other").is_err());
     assert!(published_aliases(&c, "claude").is_empty());
+    // 连接被停用、组也停用：连旧别名都不再命中。
     c.policies[1].enabled = false;
     c.policies[1].group_id = None;
-    assert!(matched_policy(&c, "claude", "group/other").is_err());
+    assert!(matched_policy(&c, "claude", "group/Other").is_err());
+    assert!(matched_policy(&c, "claude", "old-model").is_err());
 }
 
 #[test]
@@ -350,6 +405,7 @@ fn group_selection_persists_checks_revision_and_restores_failed_connections() {
     root.members[0].supplier_id = Some(c.suppliers[0].id.clone());
     let mut other = root.clone();
     other.id = "other".into();
+    other.name = "Other".into();
     other.members[0].model = "n".into();
     c.groups.extend([root, other]);
     let mut legacy = group_policy(&c, "claude", "other", "").unwrap();
@@ -456,7 +512,7 @@ async fn materialization_preserves_multiple_models_and_pending_trace_without_log
 }
 
 #[test]
-fn codex_gateway_entry_publishes_every_group_model() {
+fn codex_gateway_entry_publishes_every_group_member_model() {
     let db = Database::memory().unwrap();
     let mut c = db
         .create_gateway_supplier(SupplierUpsert {
@@ -507,7 +563,9 @@ fn codex_gateway_entry_publishes_every_group_model() {
         .filter_map(|row| row["model"].as_str())
         .collect();
     // 组里混了 Anthropic 成员：Codex 的选择器也要能看到它，才能按模型名点名。
-    assert_eq!(models, vec!["m", "n", "claude-x", "claude-y"]);
+    // 但供应商的其它模型没有对应出口，不能发布：否则客户端选中它们时会被
+    // 静默改写成成员的固定模型。
+    assert_eq!(models, vec!["m", "claude-x"]);
     assert!(entry.settings_config["config"]
         .as_str()
         .unwrap()
@@ -548,10 +606,57 @@ fn request_model_pins_the_matching_group_member() {
         assert_eq!(decision.candidates[0].model, expected, "{requested}");
     }
 
-    // `group/<id>` 是组别名，不是成员模型，不能触发点名。
-    let policy = matched_policy(&c, "codex", "group/root").unwrap().unwrap();
+    // 组别名本身不是成员模型，不能触发点名。
+    let policy = matched_policy(&c, "codex", "group/Root").unwrap().unwrap();
     assert!(policy.request_model.is_empty());
     assert_eq!(policy.match_model, "");
+}
+
+#[test]
+fn bound_tokens_route_a_real_model_name_to_its_group_member() {
+    // 外部接入没有「应用连接」策略，唯一能发现的模型名就是组别名；客户端只会
+    // 填真实模型名，所以绑定路径也要能从成员模型名反查到组并点名该成员。
+    let c: Catalog = serde_json::from_value(json!({
+        "revision": 7,
+        "suppliers": [
+            {"id":"gpt","name":"GPT","endpoint":{"protocol":"openai_responses","baseUrl":"https://g.invalid"},"models":["gpt-5"]},
+            {"id":"claude","name":"Claude","endpoint":{"protocol":"anthropic","baseUrl":"https://c.invalid"},"models":["claude-x"]}
+        ],
+        "policies": [],
+        "groups": [{"id":"root","name":"Root","appIds":["opencode","codex"],"members":[
+            {"id":"g","supplierId":"gpt","model":"gpt-5"},
+            {"id":"c","supplierId":"claude","model":"claude-x"}
+        ]}]
+    }))
+    .unwrap();
+
+    let policy = matched_unbound_policy(&c, "opencode", "claude-x")
+        .unwrap()
+        .expect("member model resolves to a group");
+    assert_eq!(policy.group_id.as_deref(), Some("root"));
+    assert_eq!(policy.request_model, "claude-x");
+    let decision = Runtime::default()
+        .plan(&c, &policy, None, vec![], false)
+        .unwrap();
+    assert_eq!(decision.candidates[0].supplier_id, "claude");
+    assert_eq!(decision.candidates[0].model, "claude-x");
+
+    // 大小写不敏感，且没提供该模型的 app 身份不会被借用。
+    assert!(matched_unbound_policy(&c, "opencode", "CLAUDE-X")
+        .unwrap()
+        .is_some());
+    assert!(matched_unbound_policy(&c, "gemini", "claude-x")
+        .unwrap()
+        .is_none());
+    assert!(matched_unbound_policy(&c, "opencode", "absent")
+        .unwrap()
+        .is_none());
+
+    // 模型清单：组别名 + 成员模型名，没有其它东西。
+    let published = published_bound_models(&c, "opencode");
+    let ids: Vec<_> = published.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, vec!["claude-x", "gpt-5", "group/Root"]);
+    assert!(published_bound_models(&c, "gemini").is_empty());
 }
 
 #[test]
@@ -646,10 +751,63 @@ async fn group_timeout_policy_defaults_validated_and_carried_into_routes() {
 }
 
 #[test]
+fn group_aliases_use_the_group_name_not_its_uuid() {
+    let mut c = catalog();
+    c.groups[0].id = "group-917a468c-cb86-4ae5-9e97-484f1fac6eb4".into();
+    c.groups[0].name = "路由组 1".into();
+    // 换个可发布的应用，避开应用连接对别名的影响。
+    let alias = published_aliases(&c, "codex")[0].0.clone();
+    assert_eq!(alias, "group/路由组-1");
+    // 组名里的空白和下划线被换成连字符，客户端不会把它当路径。
+    let policy = matched_policy(&c, "codex", &alias).unwrap().unwrap();
+    assert_eq!(
+        policy.group_id.as_deref(),
+        Some("group-917a468c-cb86-4ae5-9e97-484f1fac6eb4")
+    );
+    assert!(policy.request_model.is_empty());
+    // 早期版本已经发布过 group/<id>，不能断。
+    let legacy = matched_policy(
+        &c,
+        "codex",
+        "group/group-917a468c-cb86-4ae5-9e97-484f1fac6eb4",
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(legacy.group_id, policy.group_id);
+    // 组名后面跟模型名时钉住那个模型。
+    let pinned = matched_policy(&c, "codex", &format!("{alias}/m"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(pinned.request_model, "m");
+    assert_eq!(pinned.match_model, format!("{alias}/m"));
+    // 不存在的组名不会命中任何策略。
+    assert!(matched_policy(&c, "codex", "group/absent")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn duplicate_group_names_are_refused_where_the_alias_would_be_ambiguous() {
+    let mut c = catalog();
+    let mut other = c.groups[0].clone();
+    other.id = "other".into();
+    c.groups.push(other);
+    // 同一个应用同时看到两个 "Root"：别名指向不确定的组。
+    assert!(validate_aliases(&c).is_err());
+    // 组名不同就没问题。
+    c.groups[1].name = "Other".into();
+    assert!(validate_aliases(&c).is_ok());
+    // 两个组各自只服务不同应用：别名不会同时出现，不判重。
+    c.groups[0].app_ids = vec!["claude".into()];
+    c.groups[1].app_ids = vec!["codex".into()];
+    assert!(validate_aliases(&c).is_ok());
+}
+
+#[test]
 fn codex_group_discovery_keeps_required_client_fields_without_custom_tools() {
-    let result = codex_discovery(&[("group/root".into(), "Root".into())]);
+    let result = codex_discovery(&[("group/Root".into(), "Root".into())]);
     let row = &result["models"][0];
-    assert_eq!(row["slug"], "group/root");
+    assert_eq!(row["slug"], "group/Root");
     assert_eq!(row["display_name"], "Root");
     assert!(row["base_instructions"]
         .as_str()
@@ -668,7 +826,9 @@ fn published_models_flattens_the_connected_group_for_any_app() {
     let mut connection = group_policy(&c, "opencode", "root", "").unwrap();
     connection.id = connection_id("opencode");
     c.policies.push(connection);
-    assert_eq!(published_models(&c, "opencode"), vec!["m", "n"]);
+    assert_eq!(published_models(&c, "opencode"), vec!["m"]);
+    // 同组里只有被成员引用的模型才算出口；供应商的其它模型不能凭空发布。
+    assert!(!published_models(&c, "opencode").contains(&"n".to_string()));
     // 未接入的应用没有可发布模型，不能凭空给出别家的名单。
     assert!(published_models(&c, "hermes").is_empty());
 }

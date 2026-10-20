@@ -26,6 +26,7 @@ interface UsageHeatmapProps {
   appType?: string;
   providerName?: string;
   model?: string;
+  bindingId?: string;
   refreshIntervalMs: number;
 }
 
@@ -148,7 +149,12 @@ function cellStyle(level: number) {
  * 起点按周取整，同一周内查询键不变。
  */
 function useAllSpansDailyTrends(
-  filters: { appType?: string; providerName?: string; model?: string },
+  filters: {
+    appType?: string;
+    providerName?: string;
+    model?: string;
+    bindingId?: string;
+  },
   refreshIntervalMs: number,
 ) {
   const refetchInterval = refreshIntervalMs > 0 ? refreshIntervalMs : false;
@@ -228,6 +234,7 @@ export function UsageHeatmap({
   appType,
   providerName,
   model,
+  bindingId,
   refreshIntervalMs,
 }: UsageHeatmapProps) {
   const { t, i18n } = useTranslation();
@@ -252,7 +259,7 @@ export function UsageHeatmap({
   const locale = getLocaleFromLanguage(language);
 
   const { spanCount, trends, isLoading } = useAllSpansDailyTrends(
-    { appType, providerName, model },
+    { appType, providerName, model, bindingId },
     refreshIntervalMs,
   );
 

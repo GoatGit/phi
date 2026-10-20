@@ -162,7 +162,7 @@ const renderSettingsPage = (
   });
   const allProps = {
     section: "general" as const,
-    onExitSettings: vi.fn(),
+    onSelectSection: vi.fn(),
     onOpenApps: vi.fn(),
     ...props,
   };
@@ -206,16 +206,49 @@ describe("SettingsPage", () => {
     expect(document.querySelector(".animate-spin")).toBeInTheDocument();
   });
 
-  it("titles the page with the current section", () => {
+  // 页头与用量页一致：左侧直接是页签行，不放图标与页面标题
+  it("keeps the header title-less like the usage page", () => {
     renderSettingsPage({ section: "network" });
 
     expect(
-      screen.getByRole("heading", {
-        level: 1,
-        name: "settings.sections.network",
-      }),
+      screen.getByRole("tablist", { name: "nav.settings" }),
     ).toBeInTheDocument();
+    // 标题槽位仍由 AppPageHeader 渲染（空 h1 是为保持布局），但不带任何文字
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "nav.settings" }),
+    ).toBeNull();
+    // 分区只在页内标签上露面（且有该分区的测试不传 expertMode，
+    // network 属高级分区，内容仍按传入的 section 渲染）
     expect(screen.getByText("global-proxy-settings")).toBeInTheDocument();
+  });
+
+  it("switches sections with in-page tabs instead of leaving the page", () => {
+    const { props } = renderSettingsPage({ section: "general" });
+
+    const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent);
+    // 授权中心已取消：不再有 auth 页签
+    expect(tabs).toEqual([
+      "settings.sections.general",
+      "nav.apps",
+      "settings.sections.routing",
+      "settings.sections.data",
+      "settings.sections.about",
+    ]);
+    // 专家模式关掉时高级分区（网络）不出标签
+    expect(
+      screen.queryByRole("tab", { name: "settings.sections.network" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "nav.apps" }));
+    expect(props.onSelectSection).toHaveBeenCalledWith("apps");
+  });
+
+  it("shows the expert-only section as a tab in expert mode", () => {
+    renderSettingsPage({ section: "network", expertMode: true });
+
+    expect(
+      screen.getByRole("tab", { name: "settings.sections.network" }),
+    ).toHaveAttribute("aria-selected", "true");
   });
 
   it("saves general switches immediately and links to the Apps page", async () => {

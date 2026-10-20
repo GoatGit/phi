@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { subscriptionFromTemplate } from "./subscriptionTemplates";
+import { SubscriptionSupplierDialog } from "./SubscriptionSupplierDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { gatewayApi, type GatewayCatalog } from "@/lib/api";
@@ -41,6 +43,18 @@ export function AddPoolSupplier({
       throw new Error(describeError(error));
     }
   };
+  const subscription = subscriptionFromTemplate(presetId);
+  if (subscription) {
+    return (
+      <SubscriptionSupplierDialog
+        key={subscription.id}
+        subscription={subscription}
+        revision={revision}
+        onClose={onClose}
+        onBack={() => setTemplate({ appId: "claude" })}
+      />
+    );
+  }
   // System One 没有应用表单：选中后直接打开资源池供应商编辑器。
   if (presetId === SYSTEM_ONE_TEMPLATE_ID) {
     return (

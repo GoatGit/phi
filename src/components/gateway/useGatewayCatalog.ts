@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { LOCAL_ROUTABLE_APP_IDS, ROUTABLE_APP_IDS } from "@/config/appConfig";
 import { gatewayApi, type GatewayCatalog } from "@/lib/api";
+import { subscriptionIdFromBase } from "./subscriptionTemplates";
 
 /** 目录只有一个整体，revision 是乐观锁：读改写都基于同一份缓存。 */
 export const gatewayCatalogKey = ["gateway", "catalog"] as const;
@@ -88,7 +89,9 @@ export function protocolCompatibleWith(app: string, protocol: string): boolean {
 export function supplierDirectCompatible(
   app: string,
   protocol: string,
+  baseUrl?: string,
 ): boolean {
+  if (subscriptionIdFromBase(baseUrl)) return false;
   // 路由专用应用没有供应商直连：只写一个指向本地网关的供应商块。
   if ((LOCAL_ROUTABLE_APP_IDS as string[]).includes(app)) return false;
   // System One 没有客户端原生配置，也不存在供应商直连。

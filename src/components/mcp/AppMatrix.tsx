@@ -144,7 +144,7 @@ export function MatrixCell({
             ) : (
               <Check
                 className={cn(
-                  "h-3 w-3 transition-transform duration-[120ms] ease-out motion-reduce:transition-none",
+                  "h-3 w-3 transition-transform duration-150 ease-out motion-reduce:transition-none",
                   state === "on" ? "scale-100" : "scale-0",
                 )}
                 strokeWidth={3}

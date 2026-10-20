@@ -34,6 +34,9 @@ export interface RequestLog {
   errorMessage?: string;
   createdAt: number;
   dataSource?: string;
+  /** 外部接入密钥的稳定 ID / 写入时的显示名；非密钥流量为空。 */
+  bindingId?: string;
+  bindingName?: string;
 }
 
 export interface SessionSyncResult {
@@ -150,6 +153,8 @@ export interface LogFilters {
   appType?: string;
   providerName?: string;
   model?: string;
+  /** 外部接入密钥的稳定 ID；未选时为 undefined。 */
+  bindingId?: string;
   statusCode?: number;
   startDate?: number;
   endDate?: number;
@@ -161,12 +166,14 @@ export interface LogFilters {
  * - `providerName` 按展示名精确匹配（与 Provider 统计列表同口径，含
  *   "Claude (Session)" 等会话占位名）；
  * - `model` 按「有效计价模型」匹配（pricing_model 优先、回落 model，
- *   与模型统计的分组口径一致）。
+ *   与模型统计的分组口径一致）；
+ * - `bindingId` 只看某条外部接入密钥的流量。
  */
 export interface UsageScopeFilters {
   appType?: string;
   providerName?: string;
   model?: string;
+  bindingId?: string;
 }
 
 export interface ProviderLimitStatus {

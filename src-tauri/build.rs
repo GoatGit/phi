@@ -1,4 +1,8 @@
 fn main() {
+    println!(
+        "cargo:rustc-env=PHI_TARGET_TRIPLE={}",
+        std::env::var("TARGET").expect("missing TARGET")
+    );
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         let sdk = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ghostty-sdk");
         assert!(

@@ -637,9 +637,16 @@ wire_api = "responses"
         config_after_takeover.contains(&codex_proxy_base_url),
         "enabling takeover should point Codex config.toml at the local proxy"
     );
+    // Active takeover writes a per-process bearer token, not the dormant
+    // PROXY_MANAGED placeholder; that placeholder is only for the direct-mode
+    // mirror table so a stale token cannot be reused after a restart.
     assert!(
-        config_after_takeover.contains("PROXY_MANAGED"),
-        "enabling takeover should move the proxy placeholder into config.toml"
+        config_after_takeover.contains("experimental_bearer_token"),
+        "enabling takeover should authenticate Codex to the local proxy"
+    );
+    assert!(
+        !config_after_takeover.contains("PROXY_MANAGED"),
+        "active takeover must not reuse the dormant placeholder token"
     );
     assert!(
         !config_after_takeover.contains("https://api.deepseek.com/v1"),

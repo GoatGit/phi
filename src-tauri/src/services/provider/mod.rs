@@ -2336,6 +2336,11 @@ requires_openai_auth = true
                 .expect("update app proxy config");
         }
 
+        let mut proxy_config = db.get_proxy_config().await.expect("get proxy config");
+        proxy_config.listen_port = 0;
+        db.update_proxy_config(proxy_config)
+            .await
+            .expect("use ephemeral proxy port");
         state
             .proxy_service
             .start()
@@ -2382,9 +2387,15 @@ requires_openai_auth = true
 
         let profile_path = claude_desktop_profile_path(home.dir.path());
         let profile: Value = read_json_file(&profile_path).expect("read desktop profile");
+        let proxy_port = state
+            .proxy_service
+            .get_status()
+            .await
+            .expect("read proxy status")
+            .port;
         assert_eq!(
             profile["inferenceGatewayBaseUrl"],
-            json!("http://127.0.0.1:15821/claude-desktop"),
+            json!(format!("http://127.0.0.1:{proxy_port}/claude-desktop")),
             "desktop profile should stay pointed at the local gateway during takeover"
         );
         assert_eq!(profile["inferenceGatewayAuthScheme"], json!("bearer"));

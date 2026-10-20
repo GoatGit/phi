@@ -47,14 +47,24 @@ export function UsagePage({ initialAppType, onBack }: UsagePageProps = {}) {
       />
       <div
         id="main-content"
-        className="min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-5"
+        className="min-h-0 flex-1 overflow-y-auto scroll-stable pb-0 pt-3"
       >
-        {/* 保持挂载：切签时保留会话与用量面板的状态与查询 */}
+        {/* 保持挂载：切签时保留会话与用量面板的状态与查询。
+            水平留白由各面板自己给（活动面板内层还有一层滚动容器），
+            这样三个页签的左右边缘才能和侧栏其它页面一样落在 24px 上。 */}
         <div className={tab === "activity" ? "space-y-4" : "hidden"}>
           <UsageDashboard initialAppType={initialAppType} />
         </div>
-        {tab === "sessionStats" && <SessionStatsPanel />}
-        {tab === "contextStats" && <ContextStatsPanel />}
+        {tab === "sessionStats" && (
+          <div className="px-6 pb-10">
+            <SessionStatsPanel />
+          </div>
+        )}
+        {tab === "contextStats" && (
+          <div className="px-6 pb-10">
+            <ContextStatsPanel />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ import type { AppId } from "@/lib/api/types";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { isWindows } from "@/lib/platform";
 import { isUpdateAvailable } from "@/lib/version";
+import type { LocalRoutableAppId } from "@/config/appConfig";
 
 /**
  * 「应用」页的安装 / 升级逻辑（原来在设置 → 关于）。任务、确认队列和版本结果放在模块级的
@@ -41,6 +42,14 @@ export const TOOL_NAMES = [
   "hermes",
   "pi",
   "mcode",
+  // 路由专用应用：只写原生配置指向本地网关，没有完整应用页，但它们同样是
+  // 独立 CLI，安装 / 升级走同一套生命周期。
+  "command-code",
+  "crush",
+  "droid",
+  "kimi",
+  "atomcode",
+  "omo",
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 export type ToolLifecycleAction = "install" | "update";
@@ -137,7 +146,19 @@ ${posixScriptInstallCommand("https://raw.githubusercontent.com/NousResearch/herm
 # Pi
 npm i -g @earendil-works/pi-coding-agent@latest
 # MiniMax Code
-${posixScriptInstallCommand("https://filecdn.minimax.chat/public/install.sh")} || ${MCODE_NPM_INSTALL_COMMAND}`;
+${posixScriptInstallCommand("https://filecdn.minimax.chat/public/install.sh")} || ${MCODE_NPM_INSTALL_COMMAND}
+# Command Code
+npm i -g command-code@latest
+# Crush
+npm i -g @charmland/crush@latest
+# Droid
+npm i -g droid@latest
+# Kimi Code
+npm i -g @moonshot-ai/kimi-code@latest
+# AtomCode
+npm i -g @atomgit.com/atomcode@latest
+# OmO
+npm i -g omo-ai@latest`;
 
 const WINDOWS_ONE_CLICK_INSTALL_COMMANDS = `# Claude Code
 ${CLAUDE_NPM_INSTALL_COMMAND}
@@ -156,7 +177,19 @@ ${HERMES_WINDOWS_INSTALL_COMMAND}
 # Pi
 npm i -g @earendil-works/pi-coding-agent@latest
 # MiniMax Code
-${MCODE_WINDOWS_INSTALL_COMMAND}`;
+${MCODE_WINDOWS_INSTALL_COMMAND}
+# Command Code
+npm i -g command-code@latest
+# Crush
+npm i -g @charmland/crush@latest
+# Droid
+npm i -g droid@latest
+# Kimi Code
+npm i -g @moonshot-ai/kimi-code@latest
+# AtomCode
+npm i -g @atomgit.com/atomcode@latest
+# OmO
+npm i -g omo-ai@latest`;
 
 export const ONE_CLICK_INSTALL_COMMANDS = isWindows()
   ? WINDOWS_ONE_CLICK_INSTALL_COMMANDS
@@ -172,6 +205,12 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   hermes: "Hermes",
   pi: "Pi",
   mcode: "MiniMax Code",
+  "command-code": "Command Code",
+  crush: "Crush",
+  droid: "Droid",
+  kimi: "Kimi Code",
+  atomcode: "AtomCode",
+  omo: "OmO",
 };
 
 // 后端返回的 tool 是 string；这里收敛唯一的 ToolName 断言与兜底，供升级确认
@@ -180,7 +219,7 @@ export function toolDisplayName(tool: string): string {
   return TOOL_DISPLAY_NAMES[tool as ToolName] ?? tool;
 }
 
-export const TOOL_APP_IDS: Record<ToolName, AppId> = {
+export const TOOL_APP_IDS: Partial<Record<ToolName, AppId>> = {
   claude: "claude",
   codex: "codex",
   gemini: "gemini",
@@ -192,11 +231,30 @@ export const TOOL_APP_IDS: Record<ToolName, AppId> = {
   mcode: "mcode",
 };
 
+/** 路由专用应用的 CLI → 侧栏 AppId。它们没有完整应用页，不出现在 visibleApps 里。 */
+export const ROUTE_TOOL_APP_IDS: Partial<Record<ToolName, LocalRoutableAppId>> =
+  {
+    "command-code": "commandcode",
+    crush: "crush",
+    droid: "droid",
+    kimi: "kimi",
+    atomcode: "atomcode",
+    omo: "omo",
+  };
+
 /** 应用 ID → CLI 工具名（无 CLI 的应用返回 undefined，如 Claude Desktop / ZCode） */
 export function toolNameForApp(app: AppId): ToolName | undefined {
   const entry = (Object.entries(TOOL_APP_IDS) as [ToolName, AppId][]).find(
     ([, appId]) => appId === app,
   );
+  return entry?.[0];
+}
+
+/** 路由专用应用 ID → CLI 工具名（Command Code / Crush / …）。 */
+export function toolNameForLocalApp(app: string): ToolName | undefined {
+  const entry = (
+    Object.entries(ROUTE_TOOL_APP_IDS) as [ToolName, LocalRoutableAppId][]
+  ).find(([, appId]) => appId === app);
   return entry?.[0];
 }
 

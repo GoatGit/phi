@@ -11,10 +11,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { providersApi } from "@/lib/api/providers";
 import {
+  getSettings,
   resetProviderState,
   setCurrentProviderId,
   setLiveProviderIds,
   setProviders,
+  setSettings,
 } from "../msw/state";
 import { emitTauriEvent } from "../msw/tauriMocks";
 import { server } from "../msw/server";
@@ -174,17 +176,30 @@ vi.mock("@/components/mcp/McpPanel", () => ({
 }));
 
 /** 侧栏里的应用行（v7 侧栏取代了原来页头的应用切换器） */
-/** 点侧栏应用现在落在首页九宫格；供应商列表要点第一个宫格 */
-/** 首页九宫格里的「供应商」宫格（限定主内容区，避免和侧栏「供应商目录」重名） */
-const homeProvidersTile = () =>
-  within(
-    document.getElementById("main-content") as HTMLElement,
-  ).getByRole("button", { name: "gateway.providers", hidden: true });
-
+/** 点侧栏应用现在落在首页九宫格；供应商列表从应用页 ⋯ 菜单进入 */
+/** 应用页 ⋯ 菜单里的「供应商」（首页宫格已统一改成「路由」） */
 const openAppProviders = async (name: string) => {
+  // 侧栏应用列表随 settings 异步加载，等这一行出现再点
+  await waitFor(() => expect(sidebarApp(name)).toBeInTheDocument());
   fireEvent.click(sidebarApp(name));
   // 首次启动提示等模态框会把主内容标成 aria-hidden，所以要 hidden: true
-  await waitFor(() => fireEvent.click(homeProvidersTile()));
+  await waitFor(() =>
+    fireEvent.keyDown(
+      screen.getByRole("button", {
+        name: "appPage.moreActions",
+        hidden: true,
+      }),
+      { key: "Enter" },
+    ),
+  );
+  await waitFor(() =>
+    fireEvent.click(
+      screen.getByRole("menuitem", {
+        name: "gateway.providers",
+        hidden: true,
+      }),
+    ),
+  );
 };
 
 const sidebarApp = (name: string) =>
@@ -278,6 +293,111 @@ describe("App integration with MSW", () => {
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(toastSuccessMock).toHaveBeenCalled();
   }, 10_000);
+
+  it("uses routing as the app home tile instead of providers", async () => {
+    const { default: App } = await import("@/App");
+    renderApp(App);
+
+    await waitFor(() => fireEvent.click(sidebarApp("Codex")));
+    const main = document.getElementById("main-content") as HTMLElement;
+
+    expect(
+      within(main).getByRole("button", {
+        name: "gateway.routing",
+        hidden: true,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(main).queryByRole("button", {
+        name: "gateway.providers",
+        hidden: true,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("starts with an empty app list and adds or removes a sidebar shortcut on demand", async () => {
+    setSettings({ sidebarApps: [] });
+    const { default: App } = await import("@/App");
+    renderApp(App);
+
+    const nav = document.querySelector("nav") as HTMLElement;
+    // 默认不列应用，只留一句空状态和「添加应用」
+    await waitFor(() => expect(nav.textContent).toContain("nav.emptyAppsHint"));
+    expect(
+      within(nav).queryByRole("button", { name: "Codex", hidden: true }),
+    ).not.toBeInTheDocument();
+
+    // 首次启动提示是模态对话框，
+    // 此时侧栏是 aria-hidden + pointer-events:none，用 pointerdown 直接开菜单
+    fireEvent.keyDown(
+      within(nav).getByRole("button", { name: "nav.addApp", hidden: true }),
+      { key: "Enter" },
+    );
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Codex", hidden: true }),
+    );
+
+    await waitFor(() => expect(sidebarApp("Codex")).toBeInTheDocument());
+    expect(getSettings().sidebarApps).toEqual(["codex"]);
+
+    // 行尾 ⋯ →「从侧栏移除」：只删快捷方式
+    fireEvent.keyDown(
+      within(nav).getByRole("button", {
+        name: "nav.appActions",
+        hidden: true,
+      }),
+      { key: "Enter" },
+    );
+    fireEvent.click(
+      screen.getByRole("menuitem", {
+        name: /nav\.removeFromSidebar/,
+        hidden: true,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        within(nav).queryByRole("button", { name: "Codex", hidden: true }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(getSettings().sidebarApps).toEqual([]);
+  }, 15_000);
+
+  it("opens a config page for route-only apps", async () => {
+    const { default: App } = await import("@/App");
+    renderApp(App);
+
+    const nav = document.querySelector("nav") as HTMLElement;
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("button", {
+          name: "nav.moreApps",
+          hidden: true,
+        }),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(
+      within(nav).getByRole("button", {
+        name: "nav.moreApps",
+        hidden: true,
+      }),
+    );
+    await waitFor(() => fireEvent.click(sidebarApp("Crush")));
+
+    const main = document.getElementById("main-content") as HTMLElement;
+    expect(
+      await within(main).findByRole("button", {
+        name: "gateway.routing",
+        hidden: true,
+      }),
+    ).toBeInTheDocument();
+    expect(within(main).getByText("appPage.routeOnlyHint")).toBeInTheDocument();
+    expect(sidebarApp("Crush")).toHaveAttribute("aria-current", "page");
+    expect(sidebarApp("Claude Code")).not.toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
 
   it("resets provider view scroll when switching apps", async () => {
     const { default: App } = await import("@/App");
@@ -430,8 +550,7 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App);
 
-    await waitFor(() => fireEvent.click(sidebarApp("OpenClaw")));
-    await waitFor(() => fireEvent.click(homeProvidersTile()));
+    await openAppProviders("OpenClaw");
 
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
@@ -766,8 +885,7 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App);
 
-    await waitFor(() => fireEvent.click(sidebarApp("OpenClaw")));
-    await waitFor(() => fireEvent.click(homeProvidersTile()));
+    await openAppProviders("OpenClaw");
 
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
@@ -825,9 +943,10 @@ describe("App integration with MSW", () => {
 
     // 首页宫格「配置」打开 env/tools/agents 弹窗
     fireEvent.click(
-      within(
-        document.getElementById("main-content") as HTMLElement,
-      ).getByRole("button", { name: "appPage.openclawConfig", hidden: true }),
+      within(document.getElementById("main-content") as HTMLElement).getByRole(
+        "button",
+        { name: "appPage.openclawConfig", hidden: true },
+      ),
     );
     const configTabs = await screen.findByRole("tablist", {
       name: "appPage.openclawConfig",

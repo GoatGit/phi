@@ -99,7 +99,7 @@ let liveProviderIds: LiveProviderIdsByApp = {
   openclaw: [],
   hermes: [],
 };
-// 模拟「已按老习惯开启全部应用」的存量用户；新用户的默认只露 claude/codex/gemini
+// 模拟「已按老习惯把应用都加进侧栏」的存量用户；新装的侧栏默认一个应用都没有。
 const createDefaultSettings = (): Settings => ({
   showInTray: true,
   minimizeToTrayOnClose: true,
@@ -118,8 +118,27 @@ const createDefaultSettings = (): Settings => ({
     hermes: true,
     pi: true,
     mcode: true,
-  zcode: true,
+    zcode: true,
   },
+  sidebarApps: [
+    "claude",
+    "claude-desktop",
+    "codex",
+    "gemini",
+    "grokbuild",
+    "opencode",
+    "openclaw",
+    "hermes",
+    "pi",
+    "mcode",
+    "zcode",
+    "commandcode",
+    "crush",
+    "droid",
+    "kimi",
+    "atomcode",
+    "omo",
+  ],
 });
 
 let settingsState: Settings = createDefaultSettings();

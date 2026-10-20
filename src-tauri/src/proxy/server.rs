@@ -1724,8 +1724,7 @@ mod tests {
         });
 
         let db = Arc::new(Database::memory().unwrap());
-        let mut catalog = db.gateway_catalog().unwrap();
-        catalog = db
+        let mut catalog = db
             .create_gateway_supplier(SupplierUpsert {
                 name: Some("chat-relay".into()),
                 endpoint: Some(Endpoint {

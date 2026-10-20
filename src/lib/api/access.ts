@@ -30,9 +30,17 @@ export const accessApi = {
     invoke("issue_access_binding", { binding }),
   enabled: (id: string, enabled: boolean): Promise<void> =>
     invoke("set_access_binding_enabled", { id, enabled }),
+  remove: (id: string): Promise<void> =>
+    invoke("delete_access_binding", { id }),
   projects: (): Promise<AccessProject[]> => invoke("get_access_projects"),
   createProject: (path: string): Promise<AccessProject> =>
     invoke("create_access_project", { path }),
+  /** 账本里的按密钥用量（bindingId → totals），用于网关页的 7 天摘要。 */
+  usage: (
+    since: number,
+    until: number,
+  ): Promise<Record<string, LedgerTotals>> =>
+    invoke("get_access_binding_usage", { since, until }),
 };
 
 export interface BillingAdjustment {

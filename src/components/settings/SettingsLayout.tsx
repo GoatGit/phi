@@ -4,7 +4,8 @@ import { HelpTip } from "@/components/ui/help-tip";
 import { cn } from "@/lib/utils";
 
 /**
- * 设置页的版式（v7）：分节标题 15/600 → 带边框的卡片 → 一行一项，左边名称、右边控件。
+ * 设置页的版式（v9）：分节标题在上、卡片在下（上下排列），
+ * 卡片内一行一项，左边名称、右边控件。
  */
 export function SettingsBlock({
   id,
@@ -26,15 +27,17 @@ export function SettingsBlock({
   return (
     <section id={id} className={cn("space-y-3", className)}>
       {(title || actions) && (
-        <div className="flex min-h-7 items-center gap-2">
-          {title && <h2 className="m-0 text-section text-fg-1">{title}</h2>}
-          {help && <HelpTip title={help.title}>{help.body}</HelpTip>}
+        <div className="flex min-h-7 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {title && <h2 className="m-0 text-section text-fg-1">{title}</h2>}
+            {help && <HelpTip title={help.title}>{help.body}</HelpTip>}
+          </div>
           {actions && (
             <div className="ms-auto flex items-center gap-2">{actions}</div>
           )}
         </div>
       )}
-      {children}
+      <div className="space-y-3">{children}</div>
     </section>
   );
 }
@@ -139,10 +142,10 @@ export function SettingsSwitchRow({
   );
 }
 
-/** 设置页正文：最大宽度 760，左右 24 的内边距，分节间距 28。 */
+/** 设置页正文：单个阅读列，不再为左侧分节标题栏保留 1024 的宽屏版式。 */
 export function SettingsBody({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-[760px] space-y-7 px-6 pb-10 pt-6">
+    <div className="mx-auto w-full max-w-[760px] space-y-7 px-6 pb-10 pt-4">
       {children}
     </div>
   );

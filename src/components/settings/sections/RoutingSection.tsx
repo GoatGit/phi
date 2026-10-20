@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HelpTip } from "@/components/ui/help-tip";
 import { RectifierConfigPanel } from "@/components/settings/RectifierConfigPanel";
+import { AccessBindings } from "@/components/gateway/AccessBindings";
 import {
   SettingsBlock,
   SettingsCard,
@@ -61,8 +62,8 @@ function formatUptime(seconds: number, t: TFunction) {
 }
 
 /**
- * 设置 → 网关：服务（状态、统计、监听地址、连接地址、请求用量）→ 整流与优化。
- * 应用和路由组的进出只在「路由」页（流转图）里设置，这里不再罗列路由中的应用。
+ * 设置 → 网关：服务（状态、统计、监听地址、连接地址、请求用量）→ 外部接入密钥
+ * → 整流与优化。应用和路由组的进出只在「路由」页（流转图）里设置。
  */
 export function RoutingSection() {
   const { t } = useTranslation();
@@ -326,6 +327,11 @@ export function RoutingSection() {
           />
         </SettingsCard>
       </SettingsBlock>
+
+      {/* 外部接入：PHI 不写配置的客户端（Cursor、Cline、脚本）用这里的密钥。 */}
+      <div className="rounded-panel border border-border bg-surface p-4">
+        <AccessBindings />
+      </div>
 
       <SettingsBlock
         title={t("settings.advanced.rectifier.title")}

@@ -60,12 +60,12 @@ export function ToolUpgradeConfirmDialog({
           <DialogTitle
             ref={titleRef}
             tabIndex={-1}
-            className="flex items-center gap-2 text-base font-semibold"
+            className="flex items-center gap-2 text-title"
           >
             <AlertTriangle className="h-5 w-5 text-warning-text" />
             {t("settings.toolUpgradeConfirmTitle")}
           </DialogTitle>
-          <DialogDescription className="text-sm leading-relaxed">
+          <DialogDescription className="text-body leading-relaxed">
             {t("settings.toolUpgradeConfirmHint")}
           </DialogDescription>
         </DialogHeader>

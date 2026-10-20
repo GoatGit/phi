@@ -167,7 +167,7 @@ pub const SPEED_ESTIMATE_MIN_DURATION_MS: i64 = 1000;
 fn speed_estimate_eligible_sql(alias: &str) -> String {
     let data_source = data_source_expr(alias);
     format!(
-        "{alias}.first_token_ms IS NULL AND {data_source} <> 'proxy' \
+        "{alias}.first_token_ms IS NULL AND {data_source} NOT IN ('proxy', 'gateway') \
          AND {alias}.output_tokens >= {SPEED_ESTIMATE_MIN_OUTPUT_TOKENS} \
          AND {alias}.latency_ms >= {SPEED_ESTIMATE_MIN_DURATION_MS}"
     )
@@ -198,6 +198,8 @@ pub struct LogFilters {
     pub app_type: Option<String>,
     pub provider_name: Option<String>,
     pub model: Option<String>,
+    /// 外部接入密钥的稳定 ID（`ingress_bindings.id`）。None = 所有来源。
+    pub binding_id: Option<String>,
     pub status_code: Option<u16>,
     pub start_date: Option<i64>,
     pub end_date: Option<i64>,
@@ -250,17 +252,22 @@ pub struct RequestLogDetail {
     /// 写入时实际用于计价的模型名。None = v11 前的历史行，"" = 未计价的错误行。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pricing_model: Option<String>,
+    /// 外部接入密钥归属。空/None = 非密钥流量或该功能上线前的历史行。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binding_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binding_name: Option<String>,
 }
 
-/// 把 26 列的查询结果映射为 `RequestLogDetail`。
+/// 把 28 列的查询结果映射为 `RequestLogDetail`。
 ///
-/// 调用方的 SELECT **必须**按以下顺序返回 26 列：
+/// 调用方的 SELECT **必须**按以下顺序返回 28 列：
 /// `request_id, provider_id, provider_name, app_type, model, request_model,
 ///  cost_multiplier, input_tokens, output_tokens, cache_read_tokens,
 ///  cache_creation_tokens, input_cost_usd, output_cost_usd, cache_read_cost_usd,
 ///  cache_creation_cost_usd, total_cost_usd, is_streaming, latency_ms,
 ///  first_token_ms, duration_ms, status_code, error_message, created_at,
-///  data_source, pricing_model, input_token_semantics`
+///  data_source, pricing_model, input_token_semantics, binding_id, binding_name`
 ///
 /// 不需要 provider_name 时（如 backfill）SELECT `NULL AS provider_name` 占位即可。
 fn row_to_request_log_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestLogDetail> {
@@ -293,6 +300,8 @@ fn row_to_request_log_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reques
         data_source: row.get(23)?,
         pricing_model: row.get(24)?,
         input_token_semantics: row.get::<_, i64>(25)?,
+        binding_id: row.get(26)?,
+        binding_name: row.get(27)?,
     })
 }
 
@@ -346,6 +355,33 @@ fn dedup_app_type_match_sql(left: &str, right: &str) -> String {
 /// 注意：包裹后该列上的索引在此比较中失效，但这些都是已带时间过滤的聚合扫描，
 /// app_type 本就不是主访问路径，可接受。仅用于读侧；跨源去重使用更窄的
 /// [`dedup_app_type_match_sql`]，额度检查（`check_provider_limits`）仍保留原始精确比较。
+/// SQL 条件：外部接入（三方应用）的请求在**按应用看用量**时并入它实际使用的
+/// 应用身份。
+///
+/// 三方应用用一枚令牌按入口协议接入：Chat 记成 opencode、Responses 记成 codex、
+/// Messages 记成 claude……凭证由 PHI 注入，请求本质上就是那个应用的流量，只是
+/// 来源换成了外部客户端。用量明细行因此写成 `app_type = 'external'`（见
+/// `log_external_usage`），并把真实身份放在 `binding_name` 里；按应用统计时
+/// 要把它并回那个应用，否则所有外部客户端的流量都不计入任何应用。
+///
+/// 只在**没有**限定三方应用（未按 `binding_id` 过滤）时使用：限定某个令牌时，
+/// 那一层已经按 `binding_id` 过滤，这里再并回应用就等于把两个互斥的筛选范围
+/// 混在一起。
+///
+/// `app_type` 必须是已折叠的展示身份（见 [`folded_app_type_sql`]）。
+fn external_key_identity(alias: &str) -> String {
+    format!("COALESCE(NULLIF({alias}.binding_name, ''), {alias}.binding_id)")
+}
+
+/// 三方应用的请求在**按应用**看用量时并入它实际使用的应用身份：这类请求靠
+/// 入口协议确定身份（Chat → opencode、Responses → codex、Messages → claude…），
+/// 凭证由 PHI 注入，本质就是那个应用的流量。明细行因此写成
+/// `app_type = 'external'`，真实身份留在 `binding_name` 里（见
+/// `log_external_usage`），不并回去的话外部客户端的流量不会计入任何应用。
+fn external_traffic_sql(app_type: &str, identity: &str) -> String {
+    format!("({app_type} = 'external' AND {identity} = (?))")
+}
+
 fn folded_app_type_sql(column: &str) -> String {
     format!("CASE WHEN {column} = 'claude-desktop' THEN 'claude' ELSE {column} END")
 }
@@ -375,6 +411,49 @@ fn effective_model_sql(alias: &str) -> String {
 /// 可读名如 "Claude (Session)" 也能选中）；模型按 [`effective_model_sql`] 匹配。
 /// 注意：传入 `provider_name` 时调用方必须把 [`providers_join`] 拼进 FROM，
 /// 否则 `{provider_alias}.name` 无法解析。
+///
+/// 「按应用」维度的条件：选中某个应用时，把三方应用（外部接入）里属于这个应用
+/// 身份的流量并进来；未选应用（全部）时，三方应用流量不设限制，一律算进来。
+///
+/// `include_external` 由调用方决定：限定某个三方应用（按 `binding_id` 过滤）时
+/// 必须传 `false`，否则「按应用」与「按三方应用」两个互斥范围会重复计数。
+fn push_app_scoped_conditions(
+    conditions: &mut Vec<String>,
+    params: &mut Vec<Box<dyn rusqlite::ToSql>>,
+    app_column: String,
+    alias: &str,
+    app_type: Option<&str>,
+    include_external: bool,
+) {
+    match app_type {
+        Some(app) if include_external => {
+            conditions.push(format!(
+                "({app_column} = ? OR {})",
+                external_traffic_sql(&app_column, &external_key_identity(alias))
+            ));
+            params.push(Box::new(app.to_string()));
+            params.push(Box::new(app.to_string()));
+        }
+        Some(app) => {
+            conditions.push(format!("{app_column} = ?"));
+            params.push(Box::new(app.to_string()));
+        }
+        None => {}
+    }
+}
+
+fn push_binding_filter(
+    conditions: &mut Vec<String>,
+    params: &mut Vec<Box<dyn rusqlite::ToSql>>,
+    alias: &str,
+    binding_id: Option<&str>,
+) {
+    if let Some(id) = binding_id {
+        conditions.push(format!("{alias}.binding_id = ?"));
+        params.push(Box::new(id.to_string()));
+    }
+}
+
 fn push_provider_model_filters(
     conditions: &mut Vec<String>,
     params: &mut Vec<Box<dyn rusqlite::ToSql>>,
@@ -551,10 +630,11 @@ fn connection_total_changes(conn: &Connection) -> Result<u64, AppError> {
 
 fn log_count_cache_key(filters: &LogFilters) -> String {
     format!(
-        "{:?}|{:?}|{:?}|{:?}|{:?}",
+        "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
         filters.app_type,
         filters.provider_name,
         filters.model,
+        filters.binding_id,
         filters.status_code,
         filters.start_date
     )
@@ -868,6 +948,19 @@ impl Database {
         provider_name: Option<&str>,
         model: Option<&str>,
     ) -> Result<UsageSummary, AppError> {
+        self.get_usage_summary_filtered(start_date, end_date, app_type, provider_name, model, None)
+    }
+
+    /// 获取使用量汇总，可限定外部接入密钥。
+    pub fn get_usage_summary_filtered(
+        &self,
+        start_date: Option<i64>,
+        end_date: Option<i64>,
+        app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
+        binding_id: Option<&str>,
+    ) -> Result<UsageSummary, AppError> {
         let conn = lock_conn!(self.conn);
 
         // Build detail WHERE clause
@@ -884,9 +977,17 @@ impl Database {
             conditions.push("l.created_at <= ?".to_string());
             params_vec.push(Box::new(end));
         }
-        if let Some(at) = app_type {
-            conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
-            params_vec.push(Box::new(at.to_string()));
+        // 「按应用」与「按三方应用」是互斥的两个范围：给了 binding_id 就只按令牌
+        // 统计，不再叠加应用条件（否则两者交集恒为空）。
+        if let Some(at) = app_type.filter(|_| binding_id.is_none()) {
+            push_app_scoped_conditions(
+                &mut conditions,
+                &mut params_vec,
+                folded_app_type_sql("l.app_type"),
+                "l",
+                Some(at),
+                true,
+            );
         }
         push_provider_model_filters(
             &mut conditions,
@@ -896,6 +997,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut conditions, &mut params_vec, "l", binding_id);
 
         let where_clause = if conditions.is_empty() {
             String::new()
@@ -919,10 +1021,14 @@ impl Database {
             "r.date",
             &rollup_bounds,
         );
-        if let Some(at) = app_type {
-            rollup_conditions.push(format!("{} = ?", folded_app_type_sql("r.app_type")));
-            rollup_params.push(Box::new(at.to_string()));
-        }
+        push_app_scoped_conditions(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            folded_app_type_sql("r.app_type"),
+            "r",
+            app_type.filter(|_| binding_id.is_none()),
+            true,
+        );
         push_provider_model_filters(
             &mut rollup_conditions,
             &mut rollup_params,
@@ -931,6 +1037,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut rollup_conditions, &mut rollup_params, "r", binding_id);
 
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
@@ -1033,6 +1140,18 @@ impl Database {
         provider_name: Option<&str>,
         model: Option<&str>,
     ) -> Result<Vec<UsageSummaryByApp>, AppError> {
+        self.get_usage_summary_by_app_filtered(start_date, end_date, provider_name, model, None)
+    }
+
+    /// 按 app_type 拆分的使用量汇总，可限定外部接入密钥。
+    pub fn get_usage_summary_by_app_filtered(
+        &self,
+        start_date: Option<i64>,
+        end_date: Option<i64>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
+        binding_id: Option<&str>,
+    ) -> Result<Vec<UsageSummaryByApp>, AppError> {
         let conn = lock_conn!(self.conn);
 
         let mut detail_conditions = vec![effective_usage_log_filter_for_range(
@@ -1055,6 +1174,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut detail_conditions, &mut detail_params, "l", binding_id);
         let detail_where = format!("WHERE {}", detail_conditions.join(" AND "));
         let detail_join = if provider_name.is_some() {
             providers_join("l", "p")
@@ -1079,6 +1199,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut rollup_conditions, &mut rollup_params, "r", binding_id);
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
@@ -1093,8 +1214,25 @@ impl Database {
         let fresh_input_detail = fresh_input_sql("l");
         let fresh_input_rollup = fresh_input_sql("r");
         // 折叠 claude-desktop → claude：内层投影成同一桶名，外层 GROUP BY 自然合并。
-        let detail_app_type = folded_app_type_sql("l.app_type");
-        let rollup_app_type = folded_app_type_sql("r.app_type");
+        // 三方应用（外部接入）的行记成 external，但要并回它实际使用的应用身份，
+        // 否则 Chat 入口的流量会被单独算成一个叫「external」的应用；按某个三方
+        // 应用筛选时那一层已经按 binding_id 过滤，不再并回，避免两个范围重复计数。
+        let fold_detail = folded_app_type_sql("l.app_type");
+        let fold_rollup = folded_app_type_sql("r.app_type");
+        let (detail_app_type, rollup_app_type) = if binding_id.is_some() {
+            (fold_detail, fold_rollup)
+        } else {
+            (
+                format!(
+                    "CASE WHEN {fold_detail} = 'external' THEN {} ELSE {fold_detail} END",
+                    external_key_identity("l")
+                ),
+                format!(
+                    "CASE WHEN {fold_rollup} = 'external' THEN {} ELSE {fold_rollup} END",
+                    external_key_identity("r")
+                ),
+            )
+        };
 
         let sql = format!(
             "SELECT app_type,
@@ -1115,7 +1253,7 @@ impl Database {
                     COALESCE(SUM(l.cache_read_tokens), 0) as cache_read_t,
                     COALESCE(SUM(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 ELSE 0 END), 0) as success_count
                 FROM proxy_request_logs l {detail_join} {detail_where}
-                GROUP BY l.app_type
+                GROUP BY {detail_app_type}
                 UNION ALL
                 SELECT {rollup_app_type} as app_type,
                     COALESCE(SUM(r.request_count), 0),
@@ -1126,7 +1264,7 @@ impl Database {
                     COALESCE(SUM(r.cache_read_tokens), 0),
                     COALESCE(SUM(r.success_count), 0)
                 FROM usage_daily_rollups r {rollup_join} {rollup_where}
-                GROUP BY r.app_type
+                GROUP BY {rollup_app_type}
             )
             GROUP BY app_type"
         );
@@ -1199,6 +1337,19 @@ impl Database {
         provider_name: Option<&str>,
         model: Option<&str>,
     ) -> Result<Vec<DailyStats>, AppError> {
+        self.get_daily_trends_filtered(start_date, end_date, app_type, provider_name, model, None)
+    }
+
+    /// 获取每日趋势，可限定外部接入密钥。
+    pub fn get_daily_trends_filtered(
+        &self,
+        start_date: Option<i64>,
+        end_date: Option<i64>,
+        app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
+        binding_id: Option<&str>,
+    ) -> Result<Vec<DailyStats>, AppError> {
         let conn = lock_conn!(self.conn);
 
         let end_ts = end_date.unwrap_or_else(|| Local::now().timestamp());
@@ -1224,8 +1375,14 @@ impl Database {
             let mut extra_conditions: Vec<String> = Vec::new();
             let mut extra_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
             if let Some(at) = app_type {
-                extra_conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
-                extra_params.push(Box::new(at.to_string()));
+                push_app_scoped_conditions(
+                    &mut extra_conditions,
+                    &mut extra_params,
+                    folded_app_type_sql("l.app_type"),
+                    "l",
+                    Some(at),
+                    binding_id.is_none(),
+                );
             }
             push_provider_model_filters(
                 &mut extra_conditions,
@@ -1235,6 +1392,7 @@ impl Database {
                 provider_name,
                 model,
             );
+            push_binding_filter(&mut extra_conditions, &mut extra_params, "l", binding_id);
             let extra_filter = extra_conditions
                 .iter()
                 .map(|c| format!("AND {c}"))
@@ -1338,8 +1496,14 @@ impl Database {
         let mut extra_conditions: Vec<String> = Vec::new();
         let mut extra_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(at) = app_type {
-            extra_conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
-            extra_params.push(Box::new(at.to_string()));
+            push_app_scoped_conditions(
+                &mut extra_conditions,
+                &mut extra_params,
+                folded_app_type_sql("l.app_type"),
+                "l",
+                Some(at),
+                binding_id.is_none(),
+            );
         }
         push_provider_model_filters(
             &mut extra_conditions,
@@ -1349,6 +1513,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut extra_conditions, &mut extra_params, "l", binding_id);
         let extra_filter = extra_conditions
             .iter()
             .map(|c| format!("AND {c}"))
@@ -1433,6 +1598,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut rollup_conditions, &mut rollup_params, "r", binding_id);
 
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
@@ -1542,14 +1708,29 @@ impl Database {
         provider_name: Option<&str>,
         model: Option<&str>,
     ) -> Result<Option<String>, AppError> {
+        self.get_first_usage_date_filtered(app_type, provider_name, model, None)
+    }
+
+    /// 最早有用量记录的日期，可限定外部接入密钥。
+    pub fn get_first_usage_date_filtered(
+        &self,
+        app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
+        binding_id: Option<&str>,
+    ) -> Result<Option<String>, AppError> {
         let conn = lock_conn!(self.conn);
 
         let mut detail_conditions = Vec::new();
         let mut detail_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-        if let Some(at) = app_type {
-            detail_conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
-            detail_params.push(Box::new(at.to_string()));
-        }
+        push_app_scoped_conditions(
+            &mut detail_conditions,
+            &mut detail_params,
+            folded_app_type_sql("l.app_type"),
+            "l",
+            app_type,
+            binding_id.is_none(),
+        );
         push_provider_model_filters(
             &mut detail_conditions,
             &mut detail_params,
@@ -1558,6 +1739,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut detail_conditions, &mut detail_params, "l", binding_id);
         let detail_where = if detail_conditions.is_empty() {
             String::new()
         } else {
@@ -1595,6 +1777,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut rollup_conditions, &mut rollup_params, "r", binding_id);
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
@@ -1635,6 +1818,19 @@ impl Database {
         provider_name: Option<&str>,
         model: Option<&str>,
     ) -> Result<Vec<ProviderStats>, AppError> {
+        self.get_provider_stats_filtered(start_date, end_date, app_type, provider_name, model, None)
+    }
+
+    /// Provider 统计，可限定外部接入密钥。
+    pub fn get_provider_stats_filtered(
+        &self,
+        start_date: Option<i64>,
+        end_date: Option<i64>,
+        app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
+        binding_id: Option<&str>,
+    ) -> Result<Vec<ProviderStats>, AppError> {
         let conn = lock_conn!(self.conn);
 
         let mut detail_conditions = vec![effective_usage_log_filter_for_range(
@@ -1661,6 +1857,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut detail_conditions, &mut detail_params, "l", binding_id);
         let detail_where = if detail_conditions.is_empty() {
             String::new()
         } else {
@@ -1688,6 +1885,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut rollup_conditions, &mut rollup_params, "r", binding_id);
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
@@ -1800,6 +1998,19 @@ impl Database {
         provider_name: Option<&str>,
         model: Option<&str>,
     ) -> Result<Vec<ModelStats>, AppError> {
+        self.get_model_stats_filtered(start_date, end_date, app_type, provider_name, model, None)
+    }
+
+    /// 模型统计，可限定外部接入密钥。
+    pub fn get_model_stats_filtered(
+        &self,
+        start_date: Option<i64>,
+        end_date: Option<i64>,
+        app_type: Option<&str>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
+        binding_id: Option<&str>,
+    ) -> Result<Vec<ModelStats>, AppError> {
         let conn = lock_conn!(self.conn);
 
         let mut detail_conditions = vec![effective_usage_log_filter_for_range(
@@ -1814,10 +2025,14 @@ impl Database {
             detail_conditions.push("l.created_at <= ?".to_string());
             detail_params.push(Box::new(end));
         }
-        if let Some(at) = app_type {
-            detail_conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
-            detail_params.push(Box::new(at.to_string()));
-        }
+        push_app_scoped_conditions(
+            &mut detail_conditions,
+            &mut detail_params,
+            folded_app_type_sql("l.app_type"),
+            "l",
+            app_type,
+            binding_id.is_none(),
+        );
         push_provider_model_filters(
             &mut detail_conditions,
             &mut detail_params,
@@ -1826,6 +2041,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut detail_conditions, &mut detail_params, "l", binding_id);
         let detail_where = if detail_conditions.is_empty() {
             String::new()
         } else {
@@ -1858,6 +2074,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_binding_filter(&mut rollup_conditions, &mut rollup_params, "r", binding_id);
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
@@ -1988,7 +2205,13 @@ impl Database {
         if let Some(ref app_type) = filters.app_type {
             // 仅过滤口径折叠 claude-desktop→claude；行投影仍返回原始 app_type，
             // 详情面板据此展示真实入口（路由接管账单审计需要）。
-            conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
+            // 三方应用的请求虽然记成 external，本质仍是该应用流量，一并命中。
+            let folded = folded_app_type_sql("l.app_type");
+            conditions.push(format!(
+                "({folded} = ? OR {})",
+                external_traffic_sql(&folded, &external_key_identity("l"))
+            ));
+            params.push(Box::new(app_type.clone()));
             params.push(Box::new(app_type.clone()));
         }
         // 与 Dashboard 顶部下拉筛选同口径：Provider 按展示名精确匹配（会话占位
@@ -2001,6 +2224,10 @@ impl Database {
             filters.provider_name.as_deref(),
             filters.model.as_deref(),
         );
+        if let Some(binding_id) = filters.binding_id.as_deref() {
+            conditions.push("l.binding_id = ?".to_string());
+            params.push(Box::new(binding_id.to_string()));
+        }
         if let Some(status) = filters.status_code {
             conditions.push("l.status_code = ?".to_string());
             params.push(Box::new(status as i64));
@@ -2060,7 +2287,7 @@ impl Database {
                     l.input_cost_usd, l.output_cost_usd, l.cache_read_cost_usd, l.cache_creation_cost_usd, l.total_cost_usd,
                     l.is_streaming, l.latency_ms, l.first_token_ms, l.duration_ms,
                     l.status_code, l.error_message, l.created_at, l.data_source, l.pricing_model,
-                    l.input_token_semantics
+                    l.input_token_semantics, l.binding_id, l.binding_name
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              {where_clause}
@@ -2104,7 +2331,7 @@ impl Database {
                     l.input_cost_usd, l.output_cost_usd, l.cache_read_cost_usd, l.cache_creation_cost_usd, l.total_cost_usd,
                     l.is_streaming, l.latency_ms, l.first_token_ms, l.duration_ms,
                     l.status_code, l.error_message, l.created_at, l.data_source, l.pricing_model,
-                    l.input_token_semantics
+                    l.input_token_semantics, l.binding_id, l.binding_name
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              WHERE l.request_id = ?"
@@ -2260,7 +2487,7 @@ impl Database {
                         input_cost_usd, output_cost_usd, cache_read_cost_usd,
                         cache_creation_cost_usd, total_cost_usd, is_streaming, latency_ms,
                         first_token_ms, duration_ms, status_code, error_message, created_at,
-                        data_source, pricing_model, input_token_semantics
+                        data_source, pricing_model, input_token_semantics, binding_id, binding_name
              FROM proxy_request_logs
              WHERE CAST(total_cost_usd AS REAL) <= 0
                AND (input_tokens > 0 OR output_tokens > 0
@@ -2871,6 +3098,90 @@ mod tests {
             )",
             [],
         )?;
+        Ok(())
+    }
+
+    /// 外部接入密钥维度必须同时作用于明细和日聚合；否则明细 30 天后
+    /// 被剪枝时，按密钥的统计会静默少算。
+    #[test]
+    fn binding_filter_survives_detail_rollup_and_prune() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let now = Local::now().timestamp();
+        let old = now - 3 * 86_400;
+        {
+            let conn = lock_conn!(db.conn);
+            for (id, app, provider, tokens) in [
+                ("key-a", "external", "gateway:a", 10),
+                ("key-b", "external", "gateway:b", 20),
+                ("no-key", "codex", "gateway:c", 30),
+            ] {
+                conn.execute(
+                    "INSERT INTO proxy_request_logs (
+                        request_id, provider_id, app_type, model, request_model,
+                        input_tokens, output_tokens, total_cost_usd, latency_ms,
+                        status_code, created_at, data_source, binding_id, binding_name,
+                        input_token_semantics
+                    ) VALUES (?1, ?2, ?3, 'm', 'm', ?4, 1, '1', 100, 200, ?5, 'gateway', ?6, ?6, 2)",
+                    params![id, provider, app, tokens, old, if id == "no-key" { "" } else { id }],
+                )?;
+            }
+        }
+        let since = old - 86_400;
+        let until = now + 60;
+        let summary = db.get_usage_summary_filtered(
+            Some(since),
+            Some(until),
+            None,
+            None,
+            None,
+            Some("key-a"),
+        )?;
+        assert_eq!(summary.total_requests, 1);
+        assert_eq!(summary.total_input_tokens, 10);
+        assert_eq!(
+            db.get_request_logs(
+                &LogFilters {
+                    binding_id: Some("key-a".into()),
+                    start_date: Some(since),
+                    end_date: Some(until),
+                    ..Default::default()
+                },
+                0,
+                10,
+            )?
+            .total,
+            1
+        );
+        // 3 天前的明细会被聚合进日汇总并删除；密钥维度必须跟着进汇总表。
+        assert!(db.rollup_and_prune(1)? >= 3);
+        let after = db.get_usage_summary_filtered(
+            Some(since),
+            Some(until),
+            None,
+            None,
+            None,
+            Some("key-a"),
+        )?;
+        assert_eq!(after.total_requests, 1);
+        assert_eq!(after.total_input_tokens, 10);
+        assert_eq!(
+            db.get_usage_summary_filtered(Some(since), Some(until), None, None, None, None)?
+                .total_requests,
+            3
+        );
+        // 没有密钥归属的历史行不会被密钥筛选命中。
+        assert_eq!(
+            db.get_usage_summary_filtered(
+                Some(since),
+                Some(until),
+                None,
+                None,
+                None,
+                Some("missing")
+            )?
+            .total_requests,
+            0
+        );
         Ok(())
     }
 
@@ -3923,6 +4234,65 @@ mod tests {
         let summary = db.get_usage_summary(None, None, None, None, None)?;
         assert_eq!(summary.total_requests, 2);
         assert_eq!(summary.success_rate, 100.0);
+
+        Ok(())
+    }
+
+    /// 三方应用（外部接入）的请求记成 `app_type = 'external'`，真实身份在
+    /// `binding_name`：按应用看用量时必须并回那个应用，按三方应用筛选时不能重复计数。
+    #[test]
+    fn external_binding_traffic_rolls_into_its_app_identity() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        {
+            let conn = lock_conn!(db.conn);
+            for (id, app, name) in [
+                ("native", "codex", ""),
+                ("external-codex", "external", "codex"),
+                ("external-claude", "external", "claude"),
+                ("legacy-external", "external", ""),
+            ] {
+                conn.execute(
+                    "INSERT INTO proxy_request_logs (
+                        request_id, provider_id, app_type, model, binding_id, binding_name,
+                        input_tokens, output_tokens, total_cost_usd,
+                        latency_ms, status_code, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    params![id, "p1", app, "m1", id, name, 100, 50, "0.01", 100, 200, 1000],
+                )?;
+            }
+        }
+
+        // 全部应用：三方应用的流量照样计入总量。
+        let all = db.get_usage_summary(None, None, None, None, None)?;
+        assert_eq!(all.total_requests, 4);
+
+        // 选中 codex：原生 + 外部客户端的 Codex 入口都算 codex。
+        let codex = db.get_usage_summary(None, None, Some("codex"), None, None)?;
+        assert_eq!(codex.total_requests, 2);
+
+        // 选中 claude：只有从外部 Chat/Messages 入口进来的那条。
+        let claude = db.get_usage_summary(None, None, Some("claude"), None, None)?;
+        assert_eq!(claude.total_requests, 1);
+
+        // 按应用拆分时并入身份，不再出现一个叫 external 的独立应用。
+        let by_app = db.get_usage_summary_by_app(None, None, None, None)?;
+        let counts: std::collections::BTreeMap<_, _> = by_app
+            .iter()
+            .map(|item| (item.app_type.as_str(), item.summary.total_requests))
+            .collect();
+        assert_eq!(counts.get("codex"), Some(&2));
+        assert_eq!(counts.get("claude"), Some(&1));
+        assert!(!counts.contains_key("external"));
+        // 没有可识别身份的历史行回落到 binding_id，仍留在总量里、也仍按自己的
+        // 应用名出现，不会因为并入身份而丢掉。
+        assert_eq!(counts.get("external-codex"), None);
+        let total: u64 = by_app.iter().map(|item| item.summary.total_requests).sum();
+        assert_eq!(total, 4);
+
+        // 限定某个三方应用时只数它自己的行，不和上面两个范围重复。
+        let one_key =
+            db.get_usage_summary_filtered(None, None, None, None, None, Some("external-codex"))?;
+        assert_eq!(one_key.total_requests, 1);
 
         Ok(())
     }

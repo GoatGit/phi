@@ -16,6 +16,14 @@ import _atomcode from "./atomcode.png";
 import _crush from "./crush.png";
 import _factory from "./factory.svg?raw";
 import _omo from "./omo.svg?raw";
+import _antigravity from "./antigravity.svg?raw";
+import _codex from "./codex.svg?raw";
+import _cursor from "./cursor.svg?raw";
+import _devin from "./devin.svg?raw";
+import _kiro from "./kiro.svg?raw";
+import _qoder from "./qoder.svg?raw";
+import _workbuddy from "./workbuddy.svg?raw";
+import _zed from "./zed.svg?raw";
 import _cherryin from "./cherryin.png";
 import _code0 from "./code0.png";
 import _dmxapi from "./dmxapi.png";
@@ -137,6 +145,16 @@ export const icons: Record<string, string> = {
   // Droid 的官方图标就叫 Factory；OmO 自带 currentColor，按内联 SVG 注册才能跟随主题
   factory: _factory,
   omo: _omo,
+  // 订阅供应商：Cursor / Devin / Qoder / Zed 是透明底的单色标，内联注册才能跟
+  // 随主题；Antigravity / Codex / Kiro / WorkBuddy 自带配色与底色。
+  antigravity: _antigravity,
+  codex: _codex,
+  cursor: _cursor,
+  devin: _devin,
+  kiro: _kiro,
+  qoder: _qoder,
+  workbuddy: _workbuddy,
+  zed: _zed,
 };
 
 export const iconUrls: Record<string, string> = {

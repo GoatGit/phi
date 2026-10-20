@@ -8,30 +8,24 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
-import { getVersion } from "@tauri-apps/api/app";
 import {
   BookOpen,
   ChartColumn,
   ChevronDown,
   Database,
-  Globe,
   History,
-  Info,
-  KeyRound,
   Layers,
-  LayoutGrid,
+  MoreHorizontal,
+  Plus,
   Route,
-  Router,
   Server,
   Settings,
-  SlidersHorizontal,
   ToolCase,
+  X,
 } from "lucide-react";
 import type { AppId } from "@/lib/api";
-import type { VisibleApps } from "@/types";
-import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
-import { isAppPage, visibleSettingsSections } from "@/lib/navigation";
+import type { GlobalPage, View } from "@/lib/navigation";
+import { isAppPage } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
 import {
   DropdownMenu,
@@ -45,9 +39,11 @@ import { useSidebarStatus, type AppNavStatus } from "@/hooks/useSidebarStatus";
 import { useSidebarApps } from "@/hooks/useSidebarApps";
 import {
   collapseSidebarApps,
+  SIDEBAR_CANDIDATE_APP_IDS,
   SIDEBAR_VISIBLE_APP_LIMIT,
   type SidebarAppEntry,
 } from "./sidebarApps";
+import { SidebarEmptyHint } from "./SidebarEmptyHint";
 import { fmtUsd } from "@/components/usage/format";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { DRAG_REGION_ATTR, DRAG_REGION_STYLE, isMac } from "@/lib/platform";
@@ -64,27 +60,30 @@ type IconComponent = ComponentType<{ className?: string }>;
 interface SidebarProps {
   activeApp: AppId;
   view: View;
-  visibleApps: VisibleApps;
-  settingsSection: SettingsSection;
-  /** 设置目录显示高级分区（应用管理/目录定位/全局代理），默认关 */
-  expertMode?: boolean;
+  /** 用户自己添加进侧栏的应用（默认空：侧栏不列任何应用） */
+  sidebarApps: string[];
   onSelectApp: (app: AppId) => void;
   onSelectPage: (page: GlobalPage | "settings") => void;
-  onSelectSettingsSection: (section: SettingsSection) => void;
+  /** 在侧栏「添加应用」里选中一个应用 */
+  onAddSidebarApp: (appId: string) => void;
+  /** 侧栏应用行 ⋯ →「从侧栏移除」 */
+  onRemoveSidebarApp: (appId: string) => void;
   /** 打开了「启动时检查应用更新」并且查到了新版本 */
   appsUpdateAvailable?: boolean;
   terminalCounts?: Partial<Record<string, number>>;
   /** 路由页当前从侧栏打开的路由专用应用（用于选中态） */
   activeRoutingApp?: string | null;
-  /** 点击路由专用应用：跳到路由页并打开它的「设置应用路由」 */
-  onSelectRoutingApp?: (appId: string) => void;
+  /** 侧栏当前打开配置页的路由专用应用 */
+  activeLocalApp?: string | null;
+  /** 点击路由专用应用：进入它的配置页 */
+  onSelectLocalApp?: (appId: string) => void;
 }
 
 type DirectoryProps = SidebarProps & { collapsed: boolean };
 
 /**
- * 主导航（v7）：顶条 44 → 供应商/路由/工具箱/用量统计/设置 → 滚动区（应用列表）。
- * 进入设置后整条侧栏换成设置目录。收起时是 52px 的图标轨；
+ * 主导航（v8）：顶条 44 → 供应商/路由/工具箱/用量统计/设置 → 滚动区（应用列表）。
+ * 设置是一级菜单项，它的分区是页内标签，进入设置后侧栏不变。收起时是 52px 的图标轨；
  * 展开 / 收起时宽度一步到位，边缘的滑动由盖板的 transform 动画画出（见 useSidebarCollapsed），文字不换行、被裁掉而不是挤成两行。
  * 收起时各行只剩图标，名字由 HoverTip 从右侧报；展开时文字可见，不再挂提示。
  */
@@ -92,8 +91,6 @@ export function Sidebar(props: SidebarProps) {
   const { t } = useTranslation();
   const navRef = useRef<HTMLElement>(null);
   const { collapsed, toggle } = useSidebarCollapsed(navRef);
-  const { view } = props;
-  const inSettings = view === "settings";
 
   return (
     <nav
@@ -112,11 +109,7 @@ export function Sidebar(props: SidebarProps) {
         {t("nav.skipToContent")}
       </a>
       <SidebarTopBar collapsed={collapsed} onToggle={toggle} />
-      {inSettings ? (
-        <SettingsDirectory {...props} collapsed={collapsed} />
-      ) : (
-        <MainDirectory {...props} collapsed={collapsed} />
-      )}
+      <MainDirectory {...props} collapsed={collapsed} />
     </nav>
   );
 }
@@ -282,32 +275,35 @@ function MainDirectory({
   collapsed,
   activeApp,
   view,
-  visibleApps,
+  sidebarApps,
   onSelectApp,
   onSelectPage,
+  onAddSidebarApp,
+  onRemoveSidebarApp,
   appsUpdateAvailable = false,
   terminalCounts = EMPTY_TERMINAL_COUNTS,
   activeRoutingApp = null,
-  onSelectRoutingApp,
+  activeLocalApp = null,
+  onSelectLocalApp,
 }: DirectoryProps) {
   const { t } = useTranslation();
   const { hasUpdate } = useUpdate();
-  const { appStatus, todayCost, authNeedsAttention, serviceRunning } =
-    useSidebarStatus();
-  // 可见应用 + 路由专用应用，按“进行中 → 最近有流量 → 已接入路由组 → 其余”排序。
-  const sidebarApps = useSidebarApps(visibleApps);
+  const { appStatus, todayCost, serviceRunning } = useSidebarStatus();
+  // 只列用户添加过的应用，按“进行中 → 最近有流量 → 已接入路由组 → 其余”排序。
+  const sidebarEntries = useSidebarApps(sidebarApps);
   const onAppPage = isAppPage(view);
   const appListId = useId();
   const [appsExpanded, setAppsExpanded] = useState(false);
   // 折叠只影响显示；当前应用、侧栏打开的路由专用应用、进行中的请求不藏。
   const { shown: shownApps, hiddenCount } = useMemo(
     () =>
-      collapseSidebarApps(sidebarApps, {
+      collapseSidebarApps(sidebarEntries, {
         expanded: appsExpanded,
         pinned: [
           activeApp,
+          ...(activeLocalApp ? [activeLocalApp] : []),
           ...(activeRoutingApp ? [activeRoutingApp] : []),
-          ...sidebarApps
+          ...sidebarEntries
             .filter((entry) => entry.live)
             .map((entry) => entry.appId),
           // 跑着终端的应用也不能被折叠藏掉，否则看不见它还在运行。
@@ -316,13 +312,20 @@ function MainDirectory({
             .map(([appId]) => appId),
         ],
       }),
-    [sidebarApps, appsExpanded, activeApp, activeRoutingApp, terminalCounts],
+    [
+      sidebarEntries,
+      appsExpanded,
+      activeApp,
+      activeLocalApp,
+      activeRoutingApp,
+      terminalCounts,
+    ],
   );
   const canCollapse =
-    sidebarApps.length > SIDEBAR_VISIBLE_APP_LIMIT &&
+    sidebarEntries.length > SIDEBAR_VISIBLE_APP_LIMIT &&
     (appsExpanded || hiddenCount > 0);
 
-  // 路由专用应用没有应用页：已接入路由组时显示「路由」，服务没跑就是提醒。
+  // 路由专用应用在自己的配置页里显示「路由」，服务没跑就是提醒。
   const statusFor = (entry: SidebarAppEntry): AppNavStatus =>
     entry.local
       ? {
@@ -379,11 +382,10 @@ function MainDirectory({
         />
         <NavItem
           collapsed={collapsed}
-          selected={false}
+          selected={view === "settings"}
           icon={Settings}
           label={t("nav.settings")}
           title={hasUpdate ? t("nav.settingsHasUpdate") : t("nav.settings")}
-          alert={authNeedsAttention ? t("nav.authNeedsReauth") : undefined}
           dot={hasUpdate || appsUpdateAvailable}
           dotTone={hasUpdate ? "success" : "neutral"}
           onClick={() => onSelectPage("settings")}
@@ -391,7 +393,7 @@ function MainDirectory({
       </div>
       <div
         className={cn(
-          "flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pb-2 pt-0.5",
+          "flex min-h-0 flex-1 flex-col overflow-y-auto scroll-stable overflow-x-hidden pb-2 pt-0.5",
           // 图标轨只有 52px 宽，隐藏滚动条
           collapsed && "no-scrollbar",
         )}
@@ -402,6 +404,9 @@ function MainDirectory({
           aria-label={t("nav.appsGroup")}
           className="flex shrink-0 flex-col"
         >
+          <SidebarEmptyHint
+            visible={!collapsed && sidebarEntries.length === 0}
+          />
           {shownApps.map((entry) => (
             <AppNavItem
               key={entry.appId}
@@ -410,15 +415,20 @@ function MainDirectory({
               selected={
                 view === "routingOverview"
                   ? activeRoutingApp === entry.appId
-                  : onAppPage && activeApp === entry.appId
+                  : view === "home"
+                    ? entry.local
+                      ? activeLocalApp === entry.appId
+                      : !activeLocalApp && activeApp === entry.appId
+                    : onAppPage && activeApp === entry.appId
               }
               status={statusFor(entry)}
               terminalCount={terminalCounts[entry.appId] ?? 0}
               onSelect={() =>
                 entry.local
-                  ? onSelectRoutingApp?.(entry.appId)
+                  ? onSelectLocalApp?.(entry.appId)
                   : onSelectApp(entry.appId as AppId)
               }
+              onRemove={() => onRemoveSidebarApp(entry.appId)}
             />
           ))}
         </div>
@@ -431,8 +441,89 @@ function MainDirectory({
             onToggle={() => setAppsExpanded((value) => !value)}
           />
         )}
+        <SidebarAddApp
+          collapsed={collapsed}
+          added={sidebarApps}
+          onAdd={onAddSidebarApp}
+        />
       </div>
     </>
+  );
+}
+
+/**
+ * 「添加应用」：侧栏默认不列应用，用户从这里自己挑一个加进左侧菜单。
+ * 弹出的菜单只列还没添加过的应用；全部添加完就只剩一句提示。
+ */
+function SidebarAddApp({
+  collapsed,
+  added,
+  onAdd,
+}: {
+  collapsed: boolean;
+  added: string[];
+  onAdd: (appId: string) => void;
+}) {
+  const { t } = useTranslation();
+  const addedSet = new Set(added);
+  const available = SIDEBAR_CANDIDATE_APP_IDS.filter(
+    (appId) => !addedSet.has(appId),
+  );
+  const label = t("nav.addApp");
+
+  const trigger = collapsed ? (
+    <button
+      type="button"
+      aria-label={label}
+      aria-haspopup="menu"
+      className="mx-auto flex h-8 w-10 shrink-0 items-center justify-center rounded-control text-fg-3 transition-colors hover:bg-subtle hover:text-fg-1"
+    >
+      <Plus aria-hidden className="h-4 w-4" />
+    </button>
+  ) : (
+    <button
+      type="button"
+      aria-label={label}
+      aria-haspopup="menu"
+      className="mx-2 mt-1 flex h-7 w-[184px] shrink-0 items-center gap-2 rounded-control border border-dashed border-border px-2 text-start text-caption text-fg-3 transition-colors hover:bg-subtle hover:text-fg-1"
+    >
+      <Plus aria-hidden className="h-4 w-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
+  );
+
+  return (
+    <DropdownMenu>
+      <HoverTip
+        content={collapsed ? label : undefined}
+        side="right"
+        disableHoverableContent
+      >
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      </HoverTip>
+      <DropdownMenuContent
+        side={collapsed ? "right" : "bottom"}
+        align="start"
+        className="max-h-[min(60vh,420px)] w-56 overflow-y-auto"
+      >
+        {available.length === 0 ? (
+          <DropdownMenuItem disabled>{t("nav.allAppsAdded")}</DropdownMenuItem>
+        ) : (
+          available.map((appId) => (
+            <DropdownMenuItem
+              key={appId}
+              onSelect={() => onAdd(appId)}
+              className="gap-2"
+            >
+              <AppGlyph app={appId} size={16} />
+              <span className="min-w-0 flex-1 truncate">
+                {getAppDisplayName(appId)}
+              </span>
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -529,6 +620,7 @@ function AppNavItem({
   selected,
   status,
   onSelect,
+  onRemove,
   terminalCount,
 }: {
   app: string;
@@ -536,6 +628,8 @@ function AppNavItem({
   selected: boolean;
   status: AppNavStatus;
   onSelect: () => void;
+  /** 从侧栏移除这个应用的快捷方式（不动应用本身的配置） */
+  onRemove: () => void;
   terminalCount: number;
 }) {
   const { t } = useTranslation();
@@ -596,46 +690,74 @@ function AppNavItem({
   }
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={selected ? "page" : undefined}
+    <div
       className={cn(
-        "mx-2 flex h-7 w-[184px] shrink-0 items-center gap-2 rounded-control px-2 text-start transition-colors hover:bg-subtle",
+        "group mx-2 flex h-7 w-[184px] shrink-0 items-center rounded-control transition-colors hover:bg-subtle",
         selected && "bg-selected font-medium hover:bg-selected",
       )}
     >
-      <AppGlyph app={app} size={16} badgeClassName={badgeBg} />
-      <span className="min-w-0 flex-1 truncate">{name}</span>
-      {terminalCount > 0 && (
-        <span
-          className="text-caption text-success-text"
-          title={t("terminal.runningCount", { count: terminalCount })}
-        >
-          {terminalCount}
-        </span>
-      )}
-      {status.alert ? (
-        <span
-          role="img"
-          aria-label={t("nav.needsAttention")}
-          className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger"
-        />
-      ) : (
-        // 选中的应用不再显示模式标签：页头下面的模式行已经写明
-        tag &&
-        !selected && (
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={selected ? "page" : undefined}
+        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-control px-2 text-start"
+      >
+        <AppGlyph app={app} size={16} badgeClassName={badgeBg} />
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+        {terminalCount > 0 && (
           <span
-            className={cn(
-              "h-[18px] whitespace-nowrap rounded-full px-1.5 text-badge leading-[18px]",
-              tag.className,
-            )}
+            className="text-caption text-success-text"
+            title={t("terminal.runningCount", { count: terminalCount })}
           >
-            {tag.label}
+            {terminalCount}
           </span>
-        )
-      )}
-    </button>
+        )}
+        {status.alert ? (
+          <span
+            role="img"
+            aria-label={t("nav.needsAttention")}
+            className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger"
+          />
+        ) : (
+          // 选中的应用不再显示模式标签：页头下面的模式行已经写明
+          tag &&
+          !selected && (
+            <span
+              className={cn(
+                "h-[18px] whitespace-nowrap rounded-full px-1.5 text-badge leading-[18px]",
+                tag.className,
+              )}
+            >
+              {tag.label}
+            </span>
+          )
+        )}
+      </button>
+      <DropdownMenu>
+        <HoverTip content={t("common.more")} align="end">
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("nav.appActions", { name })}
+              className="me-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-fg-3 opacity-0 transition-[opacity,background-color,color] hover:bg-subtle hover:text-fg-1 focus-visible:opacity-100 data-[state=open]:opacity-100 group-hover:opacity-100"
+            >
+              <MoreHorizontal aria-hidden className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+        </HoverTip>
+        <DropdownMenuContent align="end" className="min-w-[200px]">
+          <DropdownMenuItem onSelect={onRemove} className="py-2">
+            <X aria-hidden className="h-4 w-4 shrink-0 self-start" />
+            <span className="flex min-w-0 flex-col">
+              <span>{t("nav.removeFromSidebar")}</span>
+              <span className="text-caption text-fg-3">
+                {t("nav.removeFromSidebarHint")}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
@@ -882,91 +1004,6 @@ function NavItem({
         )}
       </button>
     </HoverTip>
-  );
-}
-
-// ─── 设置目录 ──────────────────────────────────────────────────────────────
-
-const SETTINGS_ITEMS: { section: SettingsSection; icon: IconComponent }[] = [
-  { section: "general", icon: SlidersHorizontal },
-  { section: "auth", icon: KeyRound },
-  { section: "apps", icon: LayoutGrid },
-  { section: "routing", icon: Router },
-  { section: "network", icon: Globe },
-  { section: "data", icon: Database },
-  { section: "about", icon: Info },
-];
-
-function SettingsDirectory({
-  collapsed,
-  settingsSection,
-  expertMode = false,
-  onSelectSettingsSection,
-  appsUpdateAvailable = false,
-}: DirectoryProps) {
-  const { t } = useTranslation();
-  const { hasUpdate } = useUpdate();
-  const { authNeedsAttention } = useSidebarStatus();
-  const { data: version } = useQuery({
-    queryKey: ["app-version"],
-    queryFn: () => getVersion(),
-    staleTime: Infinity,
-  });
-  const visibleSections = new Set(visibleSettingsSections(expertMode));
-
-  return (
-    <>
-      {!collapsed && (
-        <div className="mt-3 px-4 pb-1 text-badge text-fg-3">
-          {t("nav.settings")}
-        </div>
-      )}
-      <div
-        role="group"
-        aria-label={t("nav.settings")}
-        className={cn("flex min-h-0 flex-1 flex-col", collapsed && "mt-2")}
-      >
-        {SETTINGS_ITEMS.filter(({ section }) =>
-          visibleSections.has(section),
-        ).map(({ section, icon }) => (
-          <NavItem
-            key={section}
-            collapsed={collapsed}
-            selected={settingsSection === section}
-            icon={icon}
-            label={t(
-              section === "auth" || section === "apps"
-                ? `nav.${section}`
-                : `settings.sections.${section}`,
-            )}
-            alert={
-              section === "auth" && authNeedsAttention
-                ? t("nav.authNeedsReauth")
-                : undefined
-            }
-            dot={
-              (section === "about" && hasUpdate) ||
-              (section === "apps" && appsUpdateAvailable)
-            }
-            dotTone={section === "about" ? "success" : "neutral"}
-            endDot
-            title={
-              section === "about" && hasUpdate
-                ? t("nav.settingsHasUpdate")
-                : section === "apps" && appsUpdateAvailable
-                  ? t("nav.appsHasUpdate")
-                  : undefined
-            }
-            onClick={() => onSelectSettingsSection(section)}
-          />
-        ))}
-      </div>
-      {!collapsed && version && (
-        <div className="shrink-0 px-4 pb-4 text-caption text-fg-3">
-          PHI v{version}
-        </div>
-      )}
-    </>
   );
 }
 

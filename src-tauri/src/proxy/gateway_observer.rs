@@ -250,6 +250,8 @@ mod tests {
             id: uuid::Uuid::new_v4().to_string(),
             created_at: chrono::Utc::now().timestamp_millis(),
             app_id: "claude".into(),
+            binding_id: None,
+            binding_name: None,
             request_model: "alias".into(),
             catalog_revision: 1,
             policy: crate::gateway::RoutePolicy {

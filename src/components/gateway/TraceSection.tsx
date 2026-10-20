@@ -13,6 +13,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { DecisionDetails } from "./DecisionDetails";
+import { readableRequestModel } from "./routingFlowModel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -143,7 +144,8 @@ export function TraceSection({
             <DialogHeader>
               <DialogTitle>{t("gateway.decisions.details")}</DialogTitle>
               <DialogDescription>
-                {getAppLabel(selected.appId)} · {selected.requestModel} ·{" "}
+                {getAppLabel(selected.appId)} ·{" "}
+                {readableRequestModel(selected.requestModel, catalog)} ·{" "}
                 {selected.policy.name} ·{" "}
                 {t("gateway.preview.revision", {
                   revision: selected.catalogRevision,
@@ -270,7 +272,7 @@ function TraceRows({
               </span>
             )}
           <span className="block font-mono text-[11px] text-fg-3">
-            {trace.requestModel || "—"}
+            {readableRequestModel(trace.requestModel, catalog) || "—"}
           </span>
         </TableCell>
         <TableCell>

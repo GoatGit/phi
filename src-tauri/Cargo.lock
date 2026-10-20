@@ -3742,7 +3742,7 @@ dependencies = [
 
 [[package]]
 name = "phi"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "arboard",

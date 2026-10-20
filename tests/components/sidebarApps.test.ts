@@ -3,7 +3,9 @@ import {
   buildSidebarApps,
   collapseSidebarApps,
   compareSidebarApps,
+  isSidebarAppId,
   sidebarAppRank,
+  SIDEBAR_CANDIDATE_APP_IDS,
   SIDEBAR_VISIBLE_APP_LIMIT,
 } from "@/components/shell/sidebarApps";
 import type {
@@ -12,22 +14,9 @@ import type {
   GatewayRouteGroup,
   GatewayRoutePolicy,
 } from "@/lib/api/gateway";
-import type { VisibleApps } from "@/types";
 
-const visibleApps = (overrides: Partial<VisibleApps> = {}): VisibleApps => ({
-  claude: true,
-  "claude-desktop": true,
-  codex: true,
-  gemini: true,
-  grokbuild: true,
-  opencode: true,
-  openclaw: true,
-  hermes: true,
-  pi: true,
-  mcode: true,
-  zcode: true,
-  ...overrides,
-});
+/** 全部可添加的应用（默认一个都不在侧栏里）。 */
+const everyApp = SIDEBAR_CANDIDATE_APP_IDS;
 
 const group = (
   id: string,
@@ -92,32 +81,38 @@ const trace = (
 });
 
 describe("sidebar app priority", () => {
-  it("lists visible apps plus every routing-only app", () => {
+  it("starts empty until the user adds an app", () => {
+    expect(buildSidebarApps({ appIds: [], traces: [] })).toEqual([]);
+  });
+
+  it("lists only the apps the user added, in the order they were added", () => {
     const apps = buildSidebarApps({
-      visibleApps: visibleApps({ codex: false }),
+      appIds: ["zcode", "codex", "crush"],
       traces: [],
     });
-    const ids = apps.map((entry) => entry.appId);
 
-    expect(ids).toContain("claude");
-    expect(ids).not.toContain("codex");
-    // 路由专用应用即使不在 VisibleApps 里也始终可见
-    expect(ids).toEqual(
-      expect.arrayContaining([
-        "commandcode",
-        "crush",
-        "droid",
-        "kimi",
-        "atomcode",
-        "omo",
-      ]),
-    );
-    expect(ids).toHaveLength(10 + 6);
+    expect(apps.map((entry) => entry.appId)).toEqual([
+      "zcode",
+      "codex",
+      "crush",
+    ]);
+    expect(apps.find((entry) => entry.appId === "crush")?.local).toBe(true);
+  });
+
+  it("ignores unknown ids and duplicates from the saved list", () => {
+    const apps = buildSidebarApps({
+      appIds: ["codex", "codex", "nope", "omO"],
+      traces: [],
+    });
+
+    expect(apps.map((entry) => entry.appId)).toEqual(["codex"]);
+    expect(isSidebarAppId("omo")).toBe(true);
+    expect(isSidebarAppId("typesafe")).toBe(false);
   });
 
   it("orders live traffic, then recent traffic, then connected groups, then the rest", () => {
     const apps = buildSidebarApps({
-      visibleApps: visibleApps(),
+      appIds: everyApp,
       catalog: catalog([
         connection("claude", "g-core"),
         connection("pi", "g-pi"),
@@ -145,7 +140,7 @@ describe("sidebar app priority", () => {
   it("ignores traffic older than the 24-hour window", () => {
     const day = 24 * 60 * 60 * 1000;
     const apps = buildSidebarApps({
-      visibleApps: visibleApps(),
+      appIds: everyApp,
       traces: [trace("zcode", "completed", 1)],
       now: 2 * day,
     });
@@ -155,8 +150,8 @@ describe("sidebar app priority", () => {
     ).toBeNull();
   });
 
-  it("keeps the configured order as a stable tie-breaker", () => {
-    const apps = buildSidebarApps({ visibleApps: visibleApps(), traces: [] });
+  it("keeps the add order as a stable tie-breaker", () => {
+    const apps = buildSidebarApps({ appIds: everyApp, traces: [] });
     expect(apps.slice(0, 5).map((entry) => entry.appId)).toEqual([
       "claude",
       "claude-desktop",
@@ -165,16 +160,23 @@ describe("sidebar app priority", () => {
       "grokbuild",
     ]);
     // 同一份输入重复构图不会改变顺序
-    const again = buildSidebarApps({ visibleApps: visibleApps(), traces: [] });
+    const again = buildSidebarApps({ appIds: everyApp, traces: [] });
     expect(again.map((entry) => entry.appId)).toEqual(
       apps.map((entry) => entry.appId),
     );
     expect([...apps].sort(compareSidebarApps)).toEqual(apps);
+
+    // 用户自己先加 Pi 再加 Claude，就按这个顺序
+    const custom = buildSidebarApps({
+      appIds: ["pi", "claude"],
+      traces: [],
+    });
+    expect(custom.map((entry) => entry.appId)).toEqual(["pi", "claude"]);
   });
 });
 
 describe("sidebar app collapse", () => {
-  const apps = buildSidebarApps({ visibleApps: visibleApps(), traces: [] });
+  const apps = buildSidebarApps({ appIds: everyApp, traces: [] });
 
   it("shows the first N and collapses the tail by default", () => {
     const { shown, hiddenCount } = collapseSidebarApps(apps, {
@@ -190,7 +192,23 @@ describe("sidebar app collapse", () => {
       pinned: ["omo"],
     });
     expect(shown.map((entry) => entry.appId)).toContain("omo");
-    expect(hiddenCount).toBe(apps.length - SIDEBAR_VISIBLE_APP_LIMIT - 1);
+    // 固定项只是优先占位，总数仍是硬上限。
+    expect(shown).toHaveLength(SIDEBAR_VISIBLE_APP_LIMIT);
+    expect(hiddenCount).toBe(apps.length - SIDEBAR_VISIBLE_APP_LIMIT);
+  });
+
+  it("keeps the cap when every app belongs to a route group", () => {
+    // 一个路由组挂了很多应用：已配置不能让侧栏整体展开。
+    const shared = apps.map((entry) => ({
+      ...entry,
+      groupId: "root",
+      groupName: "Root",
+    }));
+    const { shown, hiddenCount } = collapseSidebarApps(shared, {
+      expanded: false,
+    });
+    expect(shown).toHaveLength(SIDEBAR_VISIBLE_APP_LIMIT);
+    expect(hiddenCount).toBe(shared.length - SIDEBAR_VISIBLE_APP_LIMIT);
   });
 
   it("shows everything when expanded and reports no hidden rows", () => {

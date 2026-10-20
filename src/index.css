@@ -7,7 +7,7 @@
     position: relative;
     display: grid;
     /* 四列节点，列间留出画线空间；连线由 JS 实测位置后绝对定位绘制。 */
-    grid-template-columns: minmax(128px, 0.9fr) 104px minmax(150px, 1fr) minmax(
+    grid-template-columns: minmax(128px, 0.9fr) 152px minmax(150px, 1fr) minmax(
         240px,
         1.5fr
       );
@@ -15,6 +15,17 @@
     align-items: center;
     min-width: 720px;
     padding-block: 12px;
+  }
+  /* 窄窗（900 级）把四列压窄一点，整张图不用横向滚动就能看全；
+     1280 以上仍是原来的列宽，视觉不变。 */
+  @media (max-width: 1100px) {
+    .phi-flow-stage {
+      grid-template-columns:
+        minmax(104px, 0.9fr) 104px minmax(120px, 1fr)
+        minmax(190px, 1.45fr);
+      column-gap: 22px;
+      min-width: 0;
+    }
   }
   .phi-flow-col {
     display: flex;
@@ -43,6 +54,44 @@
     margin: 0;
     padding: 0;
     list-style: none;
+  }
+  /* 应用列标题：列名 + 挑选按钮。列名本身读屏与视觉都用得到，所以是真实文本，
+     只是小一号、弱一档，不抢节点。 */
+  .phi-flow-app-tools {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding-inline: 2px;
+    color: var(--text-3);
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .phi-flow-pick {
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-3);
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease;
+  }
+  .phi-flow-pick:hover {
+    background: var(--bg-subtle);
+    color: var(--text-1);
+  }
+  .phi-flow-pick:focus-visible {
+    outline: 2px solid var(--action-text);
+    outline-offset: 1px;
+  }
+  .phi-flow-pick svg {
+    width: 13px;
+    height: 13px;
   }
   .phi-flow-more {
     display: flex;
@@ -122,7 +171,10 @@
   }
   /* 有动作时把文字区收窄一点，图标不会压住截断后的名称。 */
   .phi-flow-node[data-has-action="true"] .phi-flow-hit,
-  .phi-flow-node[data-has-action="true"] .phi-flow-node-text {
+  .phi-flow-node[data-has-action="true"] .phi-flow-node-text,
+  /* 三方应用没有路由齿轮，只有右上角的编辑铅笔：令牌名称要避开它。 */
+  .phi-flow-node[data-app-kind="binding"] .phi-flow-hit,
+  .phi-flow-node[data-app-kind="binding"] .phi-flow-node-text {
     padding-inline-end: 18px;
   }
   .phi-flow-node-text {
@@ -200,6 +252,30 @@
     min-height: 72px;
     border-color: var(--border-strong);
   }
+  .phi-flow-address {
+    max-width: 100%;
+    /* 地址是让用户照着抄的：宁可省略号截断，也不要在中间硬折行，否则
+       `http://` 会被拆到另一行，看起来像缺了协议头。完整值见 title 与
+       点击复制的内容。 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: none;
+    border: 0;
+    padding: 0;
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-3);
+    text-align: center;
+    cursor: copy;
+    user-select: all;
+  }
+  .phi-flow-address:hover,
+  .phi-flow-address:focus-visible {
+    color: var(--text-1);
+    text-decoration: underline;
+  }
   .phi-flow-hit {
     display: flex;
     width: 100%;
@@ -213,6 +289,13 @@
     font: inherit;
     color: inherit;
     cursor: pointer;
+  }
+  /* 应用图标与名称同一行：节点高度不变，连线位置也不受影响。 */
+  .phi-flow-app-icon {
+    width: 18px;
+    height: 18px;
+    margin-inline-end: 6px;
+    vertical-align: -4px;
   }
   .phi-flow-hit:focus-visible {
     outline: 2px solid var(--action-text);
@@ -732,7 +815,7 @@ html {
 }
 
 body {
-  @apply m-0 p-0 text-sm;
+  @apply m-0 p-0 text-body;
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
 }
@@ -810,6 +893,23 @@ html[data-window-active="false"] .status-heartbeat {
 
   .pi-thinking-popover[data-state] {
     animation: none;
+  }
+
+  /* 系统开了「减少动态效果」：颜色 / 位移过渡一律即时完成，
+     菜单 / 弹层 / 对话框的进出场动画也不播；加载指示器（animate-spin 等）保持原样。 */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  /* tailwindcss-animate 的进场类带 data-[state=open]: 之类的变体前缀，
+     只能按 class 文本片段匹配，不能写 .animate-in。 */
+  [class*="animate-in"],
+  [class*="animate-out"],
+  [class*="animate-accordion-"] {
+    animation: none !important;
   }
 }
 

@@ -68,7 +68,6 @@ import { V7ConfirmDialog } from "@/components/mcp/formBits";
 import { useVisibleAppIds } from "@/components/mcp/useVisibleAppIds";
 import { SkillsPage, useSkillRepoActions } from "./SkillsPage";
 import { RepoManagerPanel } from "./RepoManagerPanel";
-import { SkillImportDialog } from "./SkillImportDialog";
 import { SkillRestoreDialog } from "./SkillRestoreDialog";
 import { SkillsStorageSheet } from "./SkillsStorageSheet";
 import { useSkillInstallTargets } from "./useSkillInstallTargets";
@@ -144,13 +143,10 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [fails, setFails] = useState<Record<string, WriteFailure>>({});
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [storageOpen, setStorageOpen] = useState(false);
   const [repoManagerOpen, setRepoManagerOpen] = useState(false);
-  const [dismissedUnmanaged, setDismissedUnmanaged] = useState<number | null>(
-    null,
-  );
+  const [autoImporting, setAutoImporting] = useState(false);
   /** 关掉的是哪一次检查的「仓库没读到」横幅（按检查时间记） */
   const [dismissedRepoFailAt, setDismissedRepoFailAt] = useState<number | null>(
     null,
@@ -165,6 +161,9 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
   } | null>(null);
   const writeLockRef = useRef(false);
   const checkUpdatesLockRef = useRef(false);
+  /** 自动导入只对同一批目录尝试一次，失败后不反复重试 */
+  const autoImportAttemptRef = useRef<string | null>(null);
+  const autoImportInFlightRef = useRef(false);
 
   const {
     data: skills,
@@ -183,9 +182,12 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
   const bulkToggleAppMutation = useBulkToggleSkillApp();
   const uninstallMutation = useUninstallSkill();
   const restoreBackupMutation = useRestoreSkillBackup();
-  // 进入页面时静默扫描一次「本机已有但未管理」的 Skill
-  const { data: unmanagedSkills, refetch: scanUnmanaged } =
-    useScanUnmanagedSkills({ enabled: true });
+  // 进入页面时静默扫描「本机已有但未管理」的 Skill，扫到就全部自动导入
+  const {
+    data: unmanagedSkills,
+    isLoading: scanningUnmanaged,
+    isFetchedAfterMount: scanFetchedAfterMount,
+  } = useScanUnmanagedSkills({ enabled: true });
   const importMutation = useImportSkillsFromApps();
   const installFromZipMutation = useInstallSkillsFromZip();
   const {
@@ -208,13 +210,66 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
     installFromZipMutation.isPending ||
     updateSkillMutation.isPending ||
     isUpdatingMany;
-  const dialogOpen =
-    importOpen || restoreOpen || confirm !== null || repoManagerOpen;
+  const dialogOpen = restoreOpen || confirm !== null || repoManagerOpen;
   const navigationBlocked = writePending || mutationPending || dialogOpen;
   const interactionBlocked = navigationBlocked || isCheckingUpdates;
   // 外观上的禁用晚 300ms 才出现：点一个格子写得很快时不让整页按钮闪一下变灰。
   // 写入本身仍由写锁（writeLockRef / interactionBlocked）拦着。
   const controlsDisabled = useDelayedFlag(interactionBlocked);
+
+  // 本机已有的 Skill 进页面就全部自动导入，不再让用户先点「导入」。
+  // 一批目录只尝试一次；启用范围沿用原默认值——在发现它的应用里启用，
+  // Pi 由后端按原生目录判断（这里传 false）。
+  useEffect(() => {
+    if (autoImportInFlightRef.current) return;
+    // 只认本次打开页面后重新扫到的结果：缓存里的旧列表可能已经被导入过，
+    // 照着它再导一次会把用户刚调过的应用开关重置回默认值。
+    if (!scanFetchedAfterMount) return;
+    const pending = unmanagedSkills ?? [];
+    if (pending.length === 0) return;
+    const signature = pending
+      .map((skill) => skill.directory)
+      .sort()
+      .join("\u0000");
+    if (autoImportAttemptRef.current === signature) return;
+    autoImportAttemptRef.current = signature;
+    autoImportInFlightRef.current = true;
+    setAutoImporting(true);
+    const imports: ImportSkillSelection[] = pending.map((skill) => ({
+      directory: skill.directory,
+      apps: {
+        claude: skill.foundIn.includes("claude"),
+        codex: skill.foundIn.includes("codex"),
+        gemini: skill.foundIn.includes("gemini"),
+        grokbuild: skill.foundIn.includes("grokbuild"),
+        opencode: skill.foundIn.includes("opencode"),
+        openclaw: false,
+        hermes: skill.foundIn.includes("hermes"),
+        pi: false,
+        mcode: skill.foundIn.includes("mcode"),
+      },
+    }));
+    void (async () => {
+      try {
+        const imported = await importMutation.mutateAsync(imports);
+        if (imported.length > 0) {
+          toast.success(
+            t("skillsPage.autoImport.done", { count: imported.length }),
+            { closeButton: true },
+          );
+        }
+      } catch (error) {
+        // 部分失败时后端也会整批报错；已经导入的仍会出现在列表里
+        toast.warning(t("skillsPage.autoImport.partial"), {
+          description: extractErrorMessage(error),
+          closeButton: true,
+        });
+      } finally {
+        autoImportInFlightRef.current = false;
+        setAutoImporting(false);
+      }
+    })();
+  }, [unmanagedSkills, importMutation, t, scanFetchedAfterMount]);
 
   useEffect(() => {
     onInteractionBlockedChange?.(interactionBlocked);
@@ -649,38 +704,7 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
     }
   };
 
-  // ─── 导入 / ZIP / 备份 ───────────────────────────────────────────────
-  const handleOpenImport = async () => {
-    if (!beginWrite()) return;
-    try {
-      const result = await scanUnmanaged();
-      if (!result.data || result.data.length === 0) {
-        toast.success(t("skills.noUnmanagedFound"), { closeButton: true });
-        return;
-      }
-      setImportOpen(true);
-    } catch (error) {
-      toast.error(t("common.error"), { description: String(error) });
-    } finally {
-      endWrite();
-    }
-  };
-
-  const handleImport = async (imports: ImportSkillSelection[]) => {
-    if (!beginWrite(true)) return;
-    try {
-      const imported = await importMutation.mutateAsync(imports);
-      setImportOpen(false);
-      toast.success(t("skills.importSuccess", { count: imported.length }), {
-        closeButton: true,
-      });
-    } catch (error) {
-      toast.error(t("common.error"), { description: String(error) });
-    } finally {
-      endWrite();
-    }
-  };
-
+  // ─── ZIP / 备份 ─────────────────────────────────────────────────────
   const reportEnableFailures = (
     failures: Array<{ id: string; app: AppId; error: unknown }>,
   ) => {
@@ -883,7 +907,6 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
   // ─── 渲染：页头 ─────────────────────────────────────────────────────
   const nInstalled = installedSkills.length;
   const nUpdates = applicableSkillUpdates.length;
-  const nUnmanaged = unmanagedSkills?.length ?? 0;
   const loadOk = !isLoading && !isError;
   const updatesOnly = view === "installed" && statusFilter === "updates";
   const toggleUpdatesFilter = () => {
@@ -956,10 +979,6 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleInstallFromZip()}>
                 {t("skillsPage.addMenu.zip")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void handleOpenImport()}>
-                <span className="flex-1">{t("skillsPage.addMenu.import")}</span>
-                {nUnmanaged > 0 && <NeutralBadge>{nUnmanaged}</NeutralBadge>}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1081,6 +1100,23 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
         </div>
       );
     }
+    if (nInstalled === 0 && (scanningUnmanaged || autoImporting)) {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-10 pb-12 text-center">
+          <Loader2 className="h-5 w-5 animate-spin text-fg-2" />
+          <h2 className="m-0 text-section">
+            {t("skillsPage.autoImport.running")}
+          </h2>
+          <p className="m-0 text-body text-fg-2">
+            {unmanagedSkills?.length
+              ? t("skillsPage.autoImport.runningBody", {
+                  count: unmanagedSkills.length,
+                })
+              : t("skills.loading")}
+          </p>
+        </div>
+      );
+    }
     if (nInstalled === 0) {
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-10 pb-12 text-center">
@@ -1094,17 +1130,6 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
               onClick={() => setView("discover")}
             >
               {t("skillsPage.goDiscover")}
-            </Button>
-            <Button
-              type="button"
-              variant="neutral"
-              size="regular"
-              disabled={controlsDisabled}
-              onClick={() => void handleOpenImport()}
-            >
-              {nUnmanaged
-                ? t("skillsPage.importCount", { count: nUnmanaged })
-                : t("skillsPage.addMenu.import")}
             </Button>
           </div>
         </div>
@@ -1426,8 +1451,6 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
     );
   };
 
-  const showUnmanagedBanner =
-    nUnmanaged > 0 && dismissedUnmanaged !== nUnmanaged && nInstalled > 0;
   const showUpdateRepoFailBanner =
     updateRepoFailures.length > 0 && dismissedRepoFailAt !== updatesCheckedAt;
 
@@ -1555,9 +1578,24 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
 
           <NoticeSlot
             className={cn(
-              (showUnmanagedBanner || showUpdateRepoFailBanner) && "px-6 pt-3",
+              (showUpdateRepoFailBanner || (autoImporting && nInstalled > 0)) &&
+                "px-6 pt-3",
             )}
           >
+            {autoImporting && nInstalled > 0 && (
+              <Notice
+                title={
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {t("skillsPage.autoImport.running")}
+                  </span>
+                }
+              >
+                {t("skillsPage.autoImport.runningBody", {
+                  count: unmanagedSkills?.length ?? 0,
+                })}
+              </Notice>
+            )}
             {showUpdateRepoFailBanner && (
               <Notice
                 tone="warning"
@@ -1582,38 +1620,9 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
                 {t("skillsPage.repoFail.updatesBody")}
               </Notice>
             )}
-            {showUnmanagedBanner && (
-              <Notice
-                title={t("skillsPage.banner.unmanaged", {
-                  count: nUnmanaged,
-                })}
-                actions={
-                  <>
-                    <Button
-                      type="button"
-                      variant="quiet"
-                      size="compact"
-                      disabled={controlsDisabled}
-                      onClick={() => void handleOpenImport()}
-                    >
-                      {t("skillsPage.banner.reviewImport")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="quiet"
-                      size="compact"
-                      className="text-fg-2"
-                      onClick={() => setDismissedUnmanaged(nUnmanaged)}
-                    >
-                      {t("skillsPage.banner.ignore")}
-                    </Button>
-                  </>
-                }
-              />
-            )}
           </NoticeSlot>
 
-          <div className="flex min-h-0 flex-1 flex-col px-6 pb-5 pt-3">
+          <div className="flex min-h-0 flex-1 flex-col px-6 pb-10 pt-4">
             {renderInstalledBody()}
           </div>
         </div>
@@ -1700,16 +1709,6 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
         }
         onCancel={() => setConfirm(null)}
       />
-
-      {importOpen && unmanagedSkills && (
-        <SkillImportDialog
-          skills={unmanagedSkills}
-          visibleAppIds={appIds}
-          isImporting={importMutation.isPending}
-          onImport={(imports) => void handleImport(imports)}
-          onClose={() => setImportOpen(false)}
-        />
-      )}
 
       <SkillRestoreDialog
         open={restoreOpen}

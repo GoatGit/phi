@@ -48,8 +48,6 @@ pub mod transform_codex_chat_moonshot_schema;
 
 // 仅测试代码仍在用旧模块名；生产路径只暴露协议方向名。
 #[cfg(test)]
-pub use responses_to_anthropic as transform_codex_anthropic;
-#[cfg(test)]
 pub use responses_to_chat as transform_codex_chat;
 
 pub mod transform_codex_responses_namespace;

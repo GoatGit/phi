@@ -32,6 +32,8 @@ interface RequestLogTableProps {
   appType?: string;
   providerName?: string;
   model?: string;
+  /** 外部接入密钥筛选 */
+  bindingId?: string;
   /** 状态码筛选（页签行右侧的下拉） */
   statusCode?: number;
   refreshIntervalMs: number;
@@ -106,6 +108,7 @@ export function RequestLogTable({
   appType: dashboardAppType,
   providerName,
   model,
+  bindingId,
   statusCode,
   refreshIntervalMs,
   onOpenDetail,
@@ -121,6 +124,7 @@ export function RequestLogTable({
         : undefined,
     providerName,
     model,
+    bindingId,
     statusCode,
   };
 
@@ -144,6 +148,7 @@ export function RequestLogTable({
     dashboardAppType,
     providerName,
     model,
+    bindingId,
     statusCode,
     range.customEndDate,
     range.customStartDate,
@@ -167,6 +172,13 @@ export function RequestLogTable({
     const fullTime = formatLogFullTime(log.createdAt);
     const providerLabel = getUsageProviderLabel(log.providerName, t);
     const provider = providerLabel.shortLabel;
+    const isExternalApp = log.appType === "external";
+    const appName = isExternalApp
+      ? t("usage.externalApp")
+      : appDisplayName(log.appType);
+    const appShort = isExternalApp
+      ? t("usage.externalApp")
+      : appShortName(log.appType);
     const exactTps = formatOutputTokensPerSecond(log);
     // 会话日志导入的请求没有首字计时，速度是按日志时间戳估的，前面带 ≈
     const estimatedTps =
@@ -227,7 +239,7 @@ export function RequestLogTable({
         <td className={cn(usageTable.td, "w-px")}>
           <span
             className="flex max-w-[88px] items-center gap-1.5"
-            title={appDisplayName(log.appType)}
+            title={appName}
           >
             {isKnownAppId(log.appType) && (
               <AppGlyph
@@ -237,9 +249,9 @@ export function RequestLogTable({
               />
             )}
             <span className="truncate" aria-hidden="true">
-              {appShortName(log.appType)}
+              {appShort}
             </span>
-            <span className="sr-only">{appDisplayName(log.appType)}</span>
+            <span className="sr-only">{appName}</span>
           </span>
         </td>
         {/* 供应商、模型两列按比例取宽（max-w-0 让百分比宽度生效、内容截断）；

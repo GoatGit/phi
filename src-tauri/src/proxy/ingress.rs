@@ -1,5 +1,6 @@
-//! Local access identities. Tokens live only for this application process;
-//! attaching a client writes its identity into the client's native configuration.
+//! Local access identities. Tokens are generated once and kept in `~/.phi`, so
+//! restarting PHI no longer invalidates the identities already written into each
+//! client's native configuration. Attaching a client still rewrites its config.
 use axum::{
     extract::Request,
     http::StatusCode,
@@ -32,20 +33,91 @@ const APPS: [&str; 17] = [
     // System One 虚拟应用：只经 /typesafe/v1/systemone 进入决策组。
     "typesafe",
 ];
-static TOKENS: LazyLock<Vec<String>> = LazyLock::new(|| {
-    APPS.iter()
-        .map(|app| {
-            // Three independent UUID v4 values provide more than 256 bits of entropy.
-            let seed = format!(
-                "{}{}{}",
-                uuid::Uuid::new_v4(),
-                uuid::Uuid::new_v4(),
-                uuid::Uuid::new_v4()
-            );
-            format!("phi-local-v1:{app}:{:x}", Sha256::digest(seed.as_bytes()))
+/// Written next to the other PHI state so a restart reuses the same identities.
+const TOKEN_FILE: &str = "local-tokens.json";
+
+static TOKENS: LazyLock<Vec<String>> = LazyLock::new(|| load_tokens());
+
+fn generate(app: &str) -> String {
+    // Three independent UUID v4 values provide more than 256 bits of entropy.
+    let seed = format!(
+        "{}{}{}",
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4()
+    );
+    format!("phi-local-v1:{app}:{:x}", Sha256::digest(seed.as_bytes()))
+}
+
+fn token_path() -> std::path::PathBuf {
+    crate::config::get_app_config_dir().join(TOKEN_FILE)
+}
+
+/// Reads the stored identities, keeping the ones that still look like our own and
+/// minting the rest. A missing, unreadable or damaged file falls back to fresh
+/// tokens instead of failing the gateway.
+fn load_tokens() -> Vec<String> {
+    let stored: std::collections::HashMap<String, String> = std::fs::read_to_string(token_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    let mut changed = false;
+    let tokens: Vec<String> = APPS
+        .iter()
+        .map(|app| match stored.get(*app) {
+            Some(value) if value.starts_with(&format!("phi-local-v1:{app}:")) => value.clone(),
+            _ => {
+                changed = true;
+                generate(app)
+            }
         })
-        .collect()
-});
+        .collect();
+    if changed {
+        store_tokens(&tokens);
+    }
+    tokens
+}
+
+fn store_tokens(tokens: &[String]) {
+    let map: std::collections::BTreeMap<&str, &str> = APPS
+        .iter()
+        .copied()
+        .zip(tokens.iter().map(String::as_str))
+        .collect();
+    let path = token_path();
+    if let Some(parent) = path.parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            log::warn!("无法创建本地令牌目录: {error}");
+            return;
+        }
+    }
+    match serde_json::to_vec_pretty(&map) {
+        Ok(bytes) => {
+            if let Err(error) = write_private(&path, &bytes) {
+                log::warn!("无法保存本地令牌，重启后需要重新连接客户端: {error}");
+            }
+        }
+        Err(error) => log::warn!("无法序列化本地令牌: {error}"),
+    }
+}
+
+/// The file grants local gateway access, so it is owner-only and replaced atomically.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let temporary = path.with_extension("json.tmp");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&temporary, path)
+}
 
 pub fn token(app: &str) -> &'static str {
     &TOKENS[APPS
@@ -126,6 +198,48 @@ fn permitted(app: &str, path: &str) -> bool {
         "codex"
     };
     app == expected
+}
+
+/// 外部接入（`tool = external`）的入口协议 → 路由身份。
+///
+/// 同一个令牌可以用任何一种协议进来，所以这里不按应用发牌，而是让入口路径决定
+/// 这次请求以哪个应用的协议身份参与选组与转换：Chat 入口沿用聊天应用（它已经能
+/// 一跳转发到 Anthropic），Responses 用 Codex，Messages 用 Claude，Gemini 用
+/// Gemini，System One 走它自己的决策入口。返回 `None` 表示该路径不属于外部接入。
+pub fn external_app(path: &str) -> Option<&'static str> {
+    if path == "/status" {
+        return Some(crate::access::EXTERNAL_TOOL);
+    }
+    if matches!(path, "/models" | "/v1/models") {
+        return Some(crate::access::EXTERNAL_TOOL);
+    }
+    if path == "/typesafe/v1/systemone" {
+        return Some(crate::gateway::typesafe::APP_ID);
+    }
+    if path.starts_with("/v1beta/") {
+        return Some("gemini");
+    }
+    if path == "/v1/messages" {
+        return Some("claude");
+    }
+    if matches!(
+        path,
+        "/responses"
+            | "/v1/responses"
+            | "/v1/v1/responses"
+            | "/responses/compact"
+            | "/v1/responses/compact"
+            | "/v1/v1/responses/compact"
+    ) {
+        return Some("codex");
+    }
+    if matches!(
+        path,
+        "/chat/completions" | "/v1/chat/completions" | "/v1/v1/chat/completions"
+    ) {
+        return Some("opencode");
+    }
+    None
 }
 
 #[cfg(test)]
@@ -218,12 +332,19 @@ async fn authenticate_inner(
     } else {
         None
     };
-    let Some(app) = local_app.or_else(|| {
-        binding
-            .as_ref()
-            .and_then(|b| crate::access::tool_app(&b.tool))
-            .filter(|app| permitted(app, request.uri().path()))
-    }) else {
+    let app = if let Some(app) = local_app {
+        Some(app)
+    } else if let Some(binding) = binding.as_ref() {
+        if crate::access::is_external(&binding.tool) {
+            external_app(request.uri().path())
+        } else {
+            crate::access::tool_app(&binding.tool)
+                .filter(|app| permitted(app, request.uri().path()))
+        }
+    } else {
+        None
+    };
+    let Some(app) = app else {
         return reject();
     };
     let preserve_official = dedicated.is_some() && app == "codex" && binding.is_none();
@@ -257,6 +378,32 @@ pub struct Identity {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn external_access_opens_every_protocol_entry() {
+        for (path, app) in [
+            ("/v1/chat/completions", "opencode"),
+            ("/chat/completions", "opencode"),
+            ("/v1/responses", "codex"),
+            ("/responses", "codex"),
+            ("/v1/responses/compact", "codex"),
+            ("/v1/v1/responses/compact", "codex"),
+            ("/v1/messages", "claude"),
+            ("/v1beta/models/gemini-3-pro:generateContent", "gemini"),
+            ("/typesafe/v1/systemone", "typesafe"),
+            ("/v1/models", crate::access::EXTERNAL_TOOL),
+        ] {
+            assert_eq!(super::external_app(path), Some(app), "{path}");
+        }
+        // 应用自己的命名空间不属于外部接入：那些路径有自己的本地令牌。
+        for path in [
+            "/pi/v1/models",
+            "/opencode/v1/chat/completions",
+            "/v1/images/edits",
+        ] {
+            assert_eq!(super::external_app(path), None, "{path}");
+        }
+    }
+
     #[test]
     fn a_local_token_only_opens_its_own_application_namespace() {
         assert!(super::permitted(
@@ -418,6 +565,32 @@ mod tests {
             assert!(listen_ip(address).is_err());
         }
     }
+    #[test]
+    fn stored_tokens_survive_a_restart_and_stay_owner_only() {
+        let home = std::env::temp_dir().join(format!("phi-tokens-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).unwrap();
+        let previous = std::env::var_os("PHI_TEST_HOME");
+        std::env::set_var("PHI_TEST_HOME", &home);
+        let first = super::load_tokens();
+        // 重启等价于重新读取同一份文件：身份必须完全一致。
+        let second = super::load_tokens();
+        let path = super::token_path();
+        match previous {
+            Some(value) => std::env::set_var("PHI_TEST_HOME", value),
+            None => std::env::remove_var("PHI_TEST_HOME"),
+        }
+        assert_eq!(first, second);
+        assert_eq!(first.len(), APPS.len());
+        assert!(first.iter().all(|value| value.starts_with("phi-local-v1:")));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "{path:?}");
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn tokens_are_independent_and_comparison_rejects_legacy_placeholders() {
         for app in APPS {

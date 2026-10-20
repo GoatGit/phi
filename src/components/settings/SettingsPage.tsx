@@ -5,18 +5,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentType,
 } from "react";
-import {
-  Database,
-  FolderOpen,
-  Globe,
-  Info,
-  KeyRound,
-  Loader2,
-  Router,
-  SlidersHorizontal,
-} from "lucide-react";
+import { FolderOpen, Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useTranslation } from "react-i18next";
 import {
@@ -27,14 +17,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { HelpTip } from "@/components/ui/help-tip";
-import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
+
 import { AppsPage } from "@/components/apps/AppsPage";
 import { settingsApi } from "@/lib/api";
 import type { SettingsSection } from "@/lib/navigation";
+import { visibleSettingsSections } from "@/lib/navigation";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
-import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
+import { PageTabs } from "@/components/ui/page-tabs";
 import { DirectoryInput } from "@/components/settings/DirectorySettings";
 import { ImportExportSection } from "@/components/settings/ImportExportSection";
 import { BackupListSection } from "@/components/settings/BackupListSection";
@@ -53,41 +42,38 @@ import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import type { SettingsFormState } from "@/hooks/useSettings";
 
-const SECTION_ICON: Record<
-  Exclude<SettingsSection, "auth" | "apps">,
-  ComponentType<{ className?: string; strokeWidth?: number | string }>
-> = {
-  general: SlidersHorizontal,
-  routing: Router,
-  network: Globe,
-  data: Database,
-  about: Info,
-};
+function sectionLabel(
+  t: (key: string) => string,
+  section: SettingsSection,
+): string {
+  return t(
+    section === "apps" ? `nav.${section}` : `settings.sections.${section}`,
+  );
+}
 
 interface SettingsPageProps {
   section: SettingsSection;
-  /** 退出设置，回到进入前的页面。 */
-  onExitSettings: () => void;
+  /** 「专家模式」：network 等高级分区默认不出现 */
+  expertMode?: boolean;
+  /** 切页内标签：设置是一项一级页，分区不再单独跳转。 */
+  onSelectSection: (section: SettingsSection) => void;
   onImportSuccess?: () => void | Promise<void>;
-  /** 「在侧栏显示哪些应用」跳到「应用」页 */
+  /** 「在侧栏显示哪些应用」跳到「应用」标签 */
   onOpenApps: () => void;
 }
 
 /**
- * 设置（v7）：侧栏换成设置目录，包含偏好、授权中心和应用管理。
+ * 设置（v9）：侧栏只保留一个一级入口，分区变成页内标签。
  * 开关类即时保存；路径类改完点本节的「保存」。
  */
 export function SettingsPage({
   section,
-  onExitSettings,
+  expertMode = false,
+  onSelectSection,
   onImportSuccess,
   onOpenApps,
 }: SettingsPageProps) {
   const { t } = useTranslation();
-  // 与 FullScreenPanel 的返回按钮保持同一样式：顶栏标题左侧的 quiet 图标按钮。
-  const backButton = (
-    <PageHeaderBackButton onClick={onExitSettings} label={t("nav.back")} />
-  );
   const {
     settings,
     isLoading,
@@ -366,62 +352,59 @@ export function SettingsPage({
     }
   };
 
-  if (section === "auth") {
-    return (
-      <>
-        <AppPageHeader
-          leading={backButton}
-          icon={<KeyRound className="h-5 w-5" strokeWidth={1.5} />}
-          title={t("nav.auth")}
-          titleExtra={
-            <>
-              <HelpTip title={t("authCenter.helpTitle")}>
-                {t("settings.authCenter.description")}
-              </HelpTip>
-              <Badge
-                variant="outline"
-                className="ms-1 h-5 px-1.5 text-badge font-medium"
-              >
-                {t("settings.authCenter.beta", { defaultValue: "Beta" })}
-              </Badge>
-            </>
-          }
-        />
-        <div
-          id="main-content"
-          className="min-h-0 flex-1 overflow-y-auto scroll-stable"
-        >
-          <div className="px-6 pb-10 pt-4">
-            <AuthCenterPanel showIntro={false} />
-          </div>
-        </div>
-      </>
-    );
-  }
+  // 分区列表跟着「专家模式」走：关掉时 network 等高级分区不出标签
+  const sections = useMemo(
+    () => visibleSettingsSections(expertMode),
+    [expertMode],
+  );
 
-  if (section === "apps") return <AppsPage onBack={onExitSettings} />;
+  // 与用量页页头一致：页签直接顶在页头左侧，18px 文字、不带图标
+  const tabItems = useMemo(
+    () =>
+      sections.map((item) => ({
+        value: item,
+        label: sectionLabel(t, item),
+      })),
+    [sections, t],
+  );
 
-  const SectionIcon = SECTION_ICON[section];
+  const tabs = (
+    <PageTabs
+      size="lg"
+      /* 底边对齐页头并下压 1px：页签自己的底线正好压在页头分割线上 */
+      className="self-end -mb-px"
+      items={tabItems}
+      value={section}
+      onValueChange={onSelectSection}
+      aria-label={t("nav.settings")}
+      idPrefix="settings-tab"
+      controls="settings-tabpanel"
+    />
+  );
 
   return (
     <>
-      <AppPageHeader
-        leading={backButton}
-        icon={<SectionIcon className="h-5 w-5" strokeWidth={1.5} />}
-        title={t(`settings.sections.${section}`)}
-      />
+      <AppPageHeader title={null} tabs={tabs} />
       <div
         ref={scrollRef}
         id="main-content"
         className="min-h-0 flex-1 overflow-y-auto scroll-stable"
       >
-        {isBusy ? (
-          <div className="flex h-full items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-fg-3" />
-          </div>
-        ) : (
-          <SettingsBody>{renderSection()}</SettingsBody>
-        )}
+        <div
+          id="settings-tabpanel"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${section}`}
+        >
+          {section === "apps" ? (
+            <AppsPage embedded />
+          ) : isBusy ? (
+            <div className="flex h-full items-center justify-center py-24">
+              <Loader2 className="h-8 w-8 animate-spin text-fg-3" />
+            </div>
+          ) : (
+            <SettingsBody>{renderSection()}</SettingsBody>
+          )}
+        </div>
       </div>
 
       <Dialog

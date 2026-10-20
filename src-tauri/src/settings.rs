@@ -259,6 +259,10 @@ pub struct AppSettings {
     // ===== 主页面显示的应用 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visible_apps: Option<VisibleApps>,
+    /// 侧栏里用户自己添加的应用快捷方式（缺省为空：侧栏不列应用）。
+    /// 只影响左侧菜单，不改变应用是否可用、也不影响配置同步。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidebar_apps: Option<Vec<String>>,
 
     // ===== 设备级目录覆盖 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -389,6 +393,7 @@ impl Default for AppSettings {
             language: None,
             quota_display: None,
             visible_apps: None,
+            sidebar_apps: None,
             claude_config_dir: None,
             codex_config_dir: None,
             gemini_config_dir: None,
@@ -1053,6 +1058,30 @@ mod tests {
         .expect("visible apps");
 
         assert!(!visible.is_visible(&AppType::ClaudeDesktop));
+    }
+
+    #[test]
+    fn sidebar_apps_round_trip_as_camel_case_and_default_to_empty() {
+        // 旧版设置文件里没有这个键：保持 None（侧栏不列应用），不报错
+        let legacy: AppSettings = serde_json::from_value(serde_json::json!({ "language": "zh" }))
+            .expect("legacy settings");
+        assert!(legacy.sidebar_apps.is_none());
+
+        let settings = AppSettings {
+            sidebar_apps: Some(vec!["codex".to_string(), "crush".to_string()]),
+            ..AppSettings::default()
+        };
+        let json = serde_json::to_value(&settings).expect("serialize settings");
+        assert_eq!(
+            json.get("sidebarApps"),
+            Some(&serde_json::json!(["codex", "crush"]))
+        );
+
+        let parsed: AppSettings = serde_json::from_value(json).expect("deserialize settings");
+        assert_eq!(
+            parsed.sidebar_apps,
+            Some(vec!["codex".to_string(), "crush".to_string()])
+        );
     }
 
     #[test]

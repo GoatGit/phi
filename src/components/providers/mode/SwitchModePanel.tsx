@@ -491,7 +491,7 @@ export function SwitchModePanel({
       <div
         ref={scrollRef}
         id="main-content"
-        className="min-h-0 flex-1 overflow-y-auto scroll-stable overflow-x-hidden px-6 pb-12 pt-3"
+        className="min-h-0 flex-1 overflow-y-auto scroll-stable overflow-x-hidden px-6 pb-10 pt-4"
       >
         {notices.length > 0 && (
           <div role="status" className="mb-3 flex flex-col gap-2">

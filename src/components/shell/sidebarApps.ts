@@ -1,11 +1,10 @@
-import type { VisibleApps } from "@/types";
 import type { GatewayCatalog, GatewayRequestTrace } from "@/lib/api/gateway";
 import { appRouteGroup } from "@/lib/api/gateway";
 import { APP_IDS, LOCAL_ROUTABLE_APP_IDS } from "@/config/appConfig";
 
 /**
- * 侧栏应用列表的一行。路由专用应用没有完整的管理页，点进去是路由页的
- * 「设置应用路由」；它们和普通应用共用同一套优先级排序与折叠。
+ * 侧栏应用列表的一行。路由专用应用有独立配置页，点进去先落在配置页，
+ * 再由「路由」宫格进入路由页；它们和普通应用共用同一套优先级排序与折叠。
  */
 export interface SidebarAppEntry {
   appId: string;
@@ -28,16 +27,23 @@ const ACTIVE_OUTCOMES = new Set(["pending", "upstream_accepted"]);
 /** 和路由页的默认时间窗一致：24 小时以前的轨迹不再算“最近有流量”。 */
 const RECENT_TRACE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** 配置清单顺序：同一优先级内的稳定兜底，避免刷新时列表跳动。 */
-const APP_ORDER = new Map<string, number>(
-  [...APP_IDS, ...LOCAL_ROUTABLE_APP_IDS].map((appId, index) => [appId, index]),
-);
+/** 可以放进侧栏的应用：常规应用 + 路由专用应用。 */
+export const SIDEBAR_CANDIDATE_APP_IDS: string[] = [
+  ...APP_IDS,
+  ...LOCAL_ROUTABLE_APP_IDS,
+];
 
-const appOrderIndex = (appId: string) =>
-  APP_ORDER.get(appId) ?? Number.MAX_SAFE_INTEGER;
+const SIDEBAR_CANDIDATES = new Set(SIDEBAR_CANDIDATE_APP_IDS);
 
-/** 默认展开的应用数。应用变多以后，靠后的应用折叠在「展开其余」后面。 */
-export const SIDEBAR_VISIBLE_APP_LIMIT = 10;
+/** 侧栏只接受自己认识的应用 id（设置文件里可能残留已下线的 id）。 */
+export function isSidebarAppId(appId: string): boolean {
+  return SIDEBAR_CANDIDATES.has(appId);
+}
+
+/** 默认展开的应用数。应用变多以后，靠后的应用折叠在「展开其余」后面。
+ *  与路由流转图同一口径：这是**硬上限**，已接入路由组或进行中的应用
+ *  只是优先占位，不会让总数突破五个。 */
+export const SIDEBAR_VISIBLE_APP_LIMIT = 5;
 
 /**
  * 应用列表的优先级：进行中的请求最该被看到，其次是刚跑过流量的应用，
@@ -49,31 +55,30 @@ export function sidebarAppRank(entry: SidebarAppEntry): number {
   return entry.groupId ? 2 : 3;
 }
 
-/** 同级按最近请求时间倒序，再按配置清单顺序，最后按 id。 */
+/**
+ * 同级按最近请求时间倒序；完全相同的再按用户添加顺序（sort 是稳定的，
+ * 所以这里只比较两个排序列）。
+ */
 export function compareSidebarApps(
   a: SidebarAppEntry,
   b: SidebarAppEntry,
 ): number {
   const rank = sidebarAppRank(a) - sidebarAppRank(b);
   if (rank !== 0) return rank;
-  const recency = (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0);
-  if (recency !== 0) return recency;
-  const order = appOrderIndex(a.appId) - appOrderIndex(b.appId);
-  if (order !== 0) return order;
-  return a.appId < b.appId ? -1 : a.appId > b.appId ? 1 : 0;
+  return (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0);
 }
 
 /**
- * 侧栏要列出的应用：用户保留在侧栏的应用 + 全部路由专用应用。
+ * 侧栏要列出的应用：用户在侧栏里添加过的那些（默认一个都没有）。
  * 最近轨迹只取每个应用最新的一条，用来判断“进行中/刚有流量”。
  */
 export function buildSidebarApps({
-  visibleApps,
+  appIds,
   catalog,
   traces,
   now = Date.now(),
 }: {
-  visibleApps: VisibleApps;
+  appIds: readonly string[];
   catalog?: GatewayCatalog;
   traces?: GatewayRequestTrace[] | null;
   /** 测试用：判断“最近”的时间基准 */
@@ -92,12 +97,10 @@ export function buildSidebarApps({
   const groups = new Map(
     (catalog?.groups ?? []).map((group) => [group.id, group]),
   );
-  const appIds = [
-    ...APP_IDS.filter((appId) => visibleApps[appId]),
-    ...LOCAL_ROUTABLE_APP_IDS,
-  ];
+  // 去重 + 过滤未知 id；保留添加顺序作为同级顺序。
+  const selected = [...new Set(appIds)].filter(isSidebarAppId);
 
-  return appIds
+  return selected
     .map((appId): SidebarAppEntry => {
       const trace = latest.get(appId) ?? null;
       const groupId = catalog ? appRouteGroup(catalog, appId) : null;
@@ -116,7 +119,8 @@ export function buildSidebarApps({
 }
 
 /**
- * 默认只露前若干个；pinned（当前应用、进行中的应用）不会被折叠藏掉。
+ * 默认只露前若干个（硬上限）；pinned（当前应用、进行中的应用）与已接入
+ * 路由组的应用优先占位，但同样算在 limit 之内，不会把列表撑开。
  * 返回的 hiddenCount 用于「展开其余 N 个应用」的文案。
  */
 export function collapseSidebarApps(
@@ -130,10 +134,20 @@ export function collapseSidebarApps(
   if (expanded || entries.length <= limit) {
     return { shown: entries, hiddenCount: 0 };
   }
-  const keep = new Set([
-    ...entries.slice(0, limit).map((entry) => entry.appId),
+  const keep = new Set<string>();
+  const preferred = new Set([
     ...(pinned ?? []),
+    ...entries.filter((entry) => entry.groupId).map((entry) => entry.appId),
   ]);
+  // 先让优先项按原顺序占名额，再用剩下的前几行补满：总数恒等于 limit。
+  for (const entry of entries) {
+    if (keep.size >= limit) break;
+    if (preferred.has(entry.appId)) keep.add(entry.appId);
+  }
+  for (const entry of entries) {
+    if (keep.size >= limit) break;
+    keep.add(entry.appId);
+  }
   const shown = entries.filter((entry) => keep.has(entry.appId));
   return { shown, hiddenCount: entries.length - shown.length };
 }

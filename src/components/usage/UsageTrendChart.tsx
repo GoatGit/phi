@@ -27,6 +27,7 @@ interface UsageTrendChartProps {
   appType?: string;
   providerName?: string;
   model?: string;
+  bindingId?: string;
   refreshIntervalMs: number;
 }
 
@@ -176,6 +177,7 @@ export function UsageTrendChart({
   appType,
   providerName,
   model,
+  bindingId,
   refreshIntervalMs,
 }: UsageTrendChartProps) {
   const { t, i18n } = useTranslation();
@@ -183,7 +185,7 @@ export function UsageTrendChart({
   const { startDate, endDate } = resolveUsageRange(range);
   const { data: trends, isLoading } = useUsageTrends(
     range,
-    { appType, providerName, model },
+    { appType, providerName, model, bindingId },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },

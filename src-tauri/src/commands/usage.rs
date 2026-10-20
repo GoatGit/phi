@@ -28,14 +28,16 @@ pub async fn get_usage_summary(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    binding_id: Option<String>,
 ) -> Result<UsageSummary, AppError> {
     run_db_query(&state, move |db| {
-        db.get_usage_summary(
+        db.get_usage_summary_filtered(
             start_date,
             end_date,
             app_type.as_deref(),
             provider_name.as_deref(),
             model.as_deref(),
+            binding_id.as_deref(),
         )
     })
     .await
@@ -62,13 +64,15 @@ pub async fn get_usage_summary_by_app(
     end_date: Option<i64>,
     provider_name: Option<String>,
     model: Option<String>,
+    binding_id: Option<String>,
 ) -> Result<Vec<UsageSummaryByApp>, AppError> {
     run_db_query(&state, move |db| {
-        db.get_usage_summary_by_app(
+        db.get_usage_summary_by_app_filtered(
             start_date,
             end_date,
             provider_name.as_deref(),
             model.as_deref(),
+            binding_id.as_deref(),
         )
     })
     .await
@@ -83,14 +87,16 @@ pub async fn get_usage_trends(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    binding_id: Option<String>,
 ) -> Result<Vec<DailyStats>, AppError> {
     run_db_query(&state, move |db| {
-        db.get_daily_trends(
+        db.get_daily_trends_filtered(
             start_date,
             end_date,
             app_type.as_deref(),
             provider_name.as_deref(),
             model.as_deref(),
+            binding_id.as_deref(),
         )
     })
     .await
@@ -103,12 +109,14 @@ pub async fn get_usage_first_date(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    binding_id: Option<String>,
 ) -> Result<Option<String>, AppError> {
     run_db_query(&state, move |db| {
-        db.get_first_usage_date(
+        db.get_first_usage_date_filtered(
             app_type.as_deref(),
             provider_name.as_deref(),
             model.as_deref(),
+            binding_id.as_deref(),
         )
     })
     .await
@@ -123,14 +131,16 @@ pub async fn get_provider_stats(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    binding_id: Option<String>,
 ) -> Result<Vec<ProviderStats>, AppError> {
     run_db_query(&state, move |db| {
-        db.get_provider_stats(
+        db.get_provider_stats_filtered(
             start_date,
             end_date,
             app_type.as_deref(),
             provider_name.as_deref(),
             model.as_deref(),
+            binding_id.as_deref(),
         )
     })
     .await
@@ -145,14 +155,16 @@ pub async fn get_model_stats(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    binding_id: Option<String>,
 ) -> Result<Vec<ModelStats>, AppError> {
     run_db_query(&state, move |db| {
-        db.get_model_stats(
+        db.get_model_stats_filtered(
             start_date,
             end_date,
             app_type.as_deref(),
             provider_name.as_deref(),
             model.as_deref(),
+            binding_id.as_deref(),
         )
     })
     .await

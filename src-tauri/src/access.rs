@@ -53,7 +53,28 @@ fn equal(a: &str, b: &str) -> bool {
     mac.update(b"phi-binding-v1");
     mac.verify_slice(&tag).is_ok()
 }
+/// 外部接入：一个令牌按入口协议使用全部协议，不绑定某个应用。
+///
+/// 应用自己的接入（Claude Code、Codex 等）由 PHI 写进客户端配置，令牌随进程重建，
+/// 不需要用户填写。这个工具类型只服务 PHI 不写配置的客户端（Cursor、Cline、脚本）。
+pub const EXTERNAL_TOOL: &str = "external";
+/// 外部接入可用的协议身份。入口路径决定这次请求用哪个身份参与路由：
+/// Chat → opencode、Responses → codex、Messages → claude、Gemini → gemini、
+/// System One → typesafe。
+pub const EXTERNAL_APPS: [&str; 5] = [
+    "claude",
+    "codex",
+    "gemini",
+    "opencode",
+    crate::gateway::typesafe::APP_ID,
+];
+pub fn is_external(tool: &str) -> bool {
+    tool == EXTERNAL_TOOL
+}
 pub fn tool_app(tool: &str) -> Option<&'static str> {
+    if is_external(tool) {
+        return Some(EXTERNAL_TOOL);
+    }
     if crate::gateway::typesafe::is_app(tool) {
         return Some(crate::gateway::typesafe::APP_ID);
     }
@@ -114,7 +135,7 @@ impl Database {
         if b.name.trim().is_empty()
             || b.name.len() > 200
             || b.agent.trim().is_empty()
-            || b.agent.len() > 100
+            || b.agent.len() > if is_external(&b.tool) { 200 } else { 100 }
             || tool_app(&b.tool).is_none()
             || b.allowed_groups.len() > 100
         {
@@ -127,11 +148,18 @@ impl Database {
         }
         let catalog = self.gateway_catalog()?;
         for id in &b.allowed_groups {
-            if !catalog
-                .groups
-                .iter()
-                .any(|g| g.id == *id && g.app_ids.contains(&b.tool))
-            {
+            // 外部接入按入口协议切换身份，所以只要组对任一外部协议身份可用即可。
+            let usable = catalog.groups.iter().any(|g| {
+                g.id == *id
+                    && if is_external(&b.tool) {
+                        g.app_ids
+                            .iter()
+                            .any(|app| EXTERNAL_APPS.contains(&app.as_str()))
+                    } else {
+                        g.app_ids.contains(&b.tool)
+                    }
+            });
+            if !usable {
                 return Err(error("group is unavailable to this tool"));
             }
         }
@@ -165,6 +193,13 @@ impl Database {
         );
         conn.execute("INSERT INTO ingress_bindings(id,token_verifier,payload) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET token_verifier=excluded.token_verifier,payload=excluded.payload",params![b.id,verifier(&token),serde_json::to_string(&b).map_err(error)?]).map_err(error)?;
         Ok(IssuedBinding { binding: b, token })
+    }
+    pub fn delete_access_binding(&self, id: &str) -> Result<(), AppError> {
+        // Keep historical ledger records; removing the verifier revokes future requests.
+        lock_conn!(self.conn)
+            .execute("DELETE FROM ingress_bindings WHERE id=?1", [id])
+            .map_err(error)?;
+        Ok(())
     }
     pub fn set_access_binding_enabled(&self, id: &str, enabled: bool) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
@@ -246,6 +281,96 @@ mod tests {
             .unwrap();
         assert!(db.authenticate_binding(&second.token).unwrap().is_none());
     }
+    #[test]
+    fn deleting_a_binding_revokes_only_its_token_and_prevents_reissue() {
+        let db = Database::memory().unwrap();
+        let removed = db.issue_access_binding(binding()).unwrap();
+        let kept = db.issue_access_binding(binding()).unwrap();
+        db.delete_access_binding(&removed.binding.id).unwrap();
+        assert!(db.authenticate_binding(&removed.token).unwrap().is_none());
+        assert!(db.authenticate_binding(&kept.token).unwrap().is_some());
+        let remaining = db.access_bindings().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, kept.binding.id);
+        assert!(db.issue_access_binding(removed.binding.clone()).is_err());
+        // Repeated deletion is harmless, including after another window deleted it.
+        db.delete_access_binding(&removed.binding.id).unwrap();
+    }
+
+    #[test]
+    fn an_external_binding_may_scope_any_protocol_group() {
+        let db = Database::memory().unwrap();
+        let mut catalog = db
+            .create_gateway_supplier(crate::gateway::SupplierUpsert {
+                name: Some("Fixture Chat".into()),
+                endpoint: Some(crate::gateway::Endpoint {
+                    protocol: "openai_chat".into(),
+                    base_url: "http://127.0.0.1:9".into(),
+                }),
+                models: Some(vec!["fixture-model".into()]),
+                api_key: Some("fixture-key".into()),
+                auth_field: Some("OPENAI_API_KEY".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let supplier = catalog.suppliers.last().unwrap().id.clone();
+        catalog.groups.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "external-chat",
+                "name": "External Chat",
+                "appIds": ["opencode"],
+                "members": [{"id": "member", "supplierId": supplier, "model": "fixture-model"}]
+            }))
+            .unwrap(),
+        );
+        db.save_gateway_catalog(catalog).unwrap();
+        let mut catalog = db.gateway_catalog().unwrap();
+        catalog = db
+            .create_gateway_supplier(crate::gateway::SupplierUpsert {
+                name: Some("Fixture Decision".into()),
+                endpoint: Some(crate::gateway::Endpoint {
+                    protocol: "systemone".into(),
+                    base_url: "http://127.0.0.1:9".into(),
+                }),
+                models: Some(vec!["jev-latest".into()]),
+                api_key: Some("fixture-key".into()),
+                auth_field: Some("TYPESAFE_API_KEY".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let decision = catalog.suppliers.last().unwrap().id.clone();
+        catalog.groups.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "external-decision",
+                "name": "External Decision",
+                "appIds": ["typesafe"],
+                "members": [{"id": "member", "supplierId": decision, "model": "jev-latest"}]
+            }))
+            .unwrap(),
+        );
+        db.save_gateway_catalog(catalog).unwrap();
+        // 外部接入能用聊天组，也能用决策组：它跟的是入口协议。
+        for group in ["external-chat", "external-decision"] {
+            assert!(
+                db.issue_access_binding(Binding {
+                    tool: crate::access::EXTERNAL_TOOL.into(),
+                    allowed_groups: vec![group.into()],
+                    ..binding()
+                })
+                .is_ok(),
+                "{group}"
+            );
+        }
+        // 单一应用的令牌仍是一个命名空间：System One 的牌碰不到聊天组。
+        assert!(db
+            .issue_access_binding(Binding {
+                tool: "typesafe".into(),
+                allowed_groups: vec!["external-chat".into()],
+                ..binding()
+            })
+            .is_err());
+    }
+
     #[test]
     fn unregistered_project_and_group_scopes_are_rejected() {
         let db = Database::memory().unwrap();

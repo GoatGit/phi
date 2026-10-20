@@ -94,7 +94,9 @@ function useDetailSections(request: RequestLog) {
   const isCacheInclusive = request.inputTokens !== freshInput;
   const unpriced = isUnpricedUsage(request);
   const multiplier = parseFiniteNumber(request.costMultiplier);
-  const isProxy = !request.dataSource || request.dataSource === "proxy";
+  const isGateway = request.dataSource === "gateway";
+  const isProxy =
+    !request.dataSource || request.dataSource === "proxy" || isGateway;
   const tps = formatOutputTokensPerSecond(request);
   const estimatedTps = formatEstimatedTokensPerSecond(request);
   const latency = parseFiniteNumber(request.latencyMs);
@@ -140,13 +142,23 @@ function useDetailSections(request: RequestLog) {
       mono: true,
     });
   }
+  if (request.bindingId || request.bindingName) {
+    basic.push({
+      key: "binding",
+      label: t("usage.detail.key"),
+      value: request.bindingName || request.bindingId || "",
+      title: request.bindingId,
+    });
+  }
   basic.push(
     {
       key: "source",
       label: t("usage.detail.source"),
-      value: isProxy
-        ? t("usage.detail.sourceProxy", { code: request.statusCode })
-        : t("usage.detail.sourceSession"),
+      value: isGateway
+        ? t("usage.detail.sourceGateway", { code: request.statusCode })
+        : isProxy
+          ? t("usage.detail.sourceProxy", { code: request.statusCode })
+          : t("usage.detail.sourceSession"),
       title: request.dataSource ?? "proxy",
     },
     {

@@ -2,11 +2,13 @@ import type { AppId } from "@/lib/api";
 
 /**
  * 主窗口的导航模型（v8）：侧栏点应用进它的首页（九宫格），首页宫格跳到各功能；
- * 设置单独占一屏，高级分区由「专家模式」唤出。
+ * 设置是侧栏一级入口，分区是页内标签，高级分区由「专家模式」唤出。
  *
  * - 应用页：首页（home）、供应商页；OpenClaw 还有工作区页，Hermes 有记忆页。
  * - 全局页：供应商目录、路由总览、用量统计、MCP、Skills、提示词、会话。
- * - 设置：侧栏换成设置目录，包含授权中心和应用管理。
+ * - 设置：侧栏里的一个一级入口，分区（通用/应用/网关/数据/关于）
+ *   是设置页内的标签，不再单独跳转。
+ *   授权中心已取消：订阅型账号统一在「供应商 → 订阅」里登录与管理。
  */
 
 export type AppPage = "home" | "providers" | "workspace" | "hermesMemory";
@@ -25,7 +27,6 @@ export type View = AppPage | GlobalPage | "settings";
 
 export type SettingsSection =
   | "general"
-  | "auth"
   | "apps"
   | "routing"
   | "network"
@@ -34,7 +35,6 @@ export type SettingsSection =
 
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   "general",
-  "auth",
   "apps",
   "routing",
   "network",
@@ -43,13 +43,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
 ];
 
 /**
- * 非专家模式下设置目录显示的分区。apps（应用管理）、network（全局代理）
+ * 非专家模式下设置页显示的标签。network（全局代理）
  * 属于高级功能，由「专家模式」开关唤出（见 GeneralSection）。
  * 原「配置目录」分区已并入各应用首页的配置弹窗，不再是独立分区。
  */
 const DEFAULT_SETTINGS_SECTIONS: SettingsSection[] = [
   "general",
-  "auth",
   "apps",
   "routing",
   "data",
@@ -127,15 +126,6 @@ export function readStoredView(): View {
   }
 }
 
-/** 兼容旧版记住的一级管理页，启动后定位到对应设置分组。 */
-export function readStoredSettingsSection(): SettingsSection {
-  try {
-    return normalizeSettingsSection(localStorage.getItem(VIEW_STORAGE_KEY));
-  } catch {
-    return "general";
-  }
-}
-
 export function storeView(view: View) {
   try {
     localStorage.setItem(VIEW_STORAGE_KEY, view);
@@ -157,7 +147,9 @@ export function normalizeSettingsSection(
     case "advanced":
     case "data":
       return "data";
+    // 已取消的授权中心分区：旧链接 / 旧存储值回落到通用
     case "auth":
+      return "general";
     case "apps":
     case "network":
     case "about":

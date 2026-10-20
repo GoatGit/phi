@@ -291,6 +291,92 @@ export function ProviderCard({
     }
     onOpenWebsite(displayUrl);
   };
+
+  // 宽屏把地址/账号信息放到独立一列，和名称列对齐；窄窗仍放在名称下方。
+  const secondaryContent =
+    codexOfficialIdentity && codexOfficialIdentity !== "api_key" ? (
+      <div className="flex min-w-0 items-center gap-2 text-caption text-fg-2">
+        {codexOfficialIdentity === "native_login" ? (
+          <span className="min-w-0 truncate" title={manualNote}>
+            {manualNote ??
+              t("codex.followCodexLoginDescription", {
+                defaultValue: "账号会随 Codex CLI 当前登录变化",
+              })}
+          </span>
+        ) : managedCodexAccount ? (
+          <>
+            <span
+              className="min-w-0 truncate"
+              title={manualNote ?? managedCodexAccount.login}
+            >
+              {manualNote ??
+                (providerNameIncludesAccountLogin
+                  ? t("codex.openAiAccount", {
+                      defaultValue: "OpenAI 账号",
+                    })
+                  : managedCodexAccount.login)}
+            </span>
+            {managedCodexAccount.reauth_required && (
+              <span className="inline-flex shrink-0 items-center gap-1 text-warning-text">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {t("codexOauth.reauthBadge", "需要重新登录")}
+              </span>
+            )}
+          </>
+        ) : isCodexAuthStatusError ? (
+          <span className="inline-flex min-w-0 items-center gap-1 text-warning-text">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">
+              {t("codex.accountStatusUnavailable", {
+                defaultValue: "无法读取账号信息",
+              })}
+            </span>
+          </span>
+        ) : isCodexAuthStatusSuccess ? (
+          <>
+            <span className="inline-flex min-w-0 items-center gap-1 text-sm text-warning-text">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                {t("codex.boundAccountUnavailable", {
+                  defaultValue: "绑定的账号不可用",
+                })}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="shrink-0 text-body font-medium text-action-text hover:underline"
+              onClick={() => onEdit(provider)}
+            >
+              {t("codex.chooseAccount", {
+                defaultValue: "选择账号",
+              })}
+            </button>
+          </>
+        ) : (
+          <span className="min-w-0 truncate">
+            {t("codex.accountLoading", {
+              defaultValue: "正在加载账号…",
+            })}
+          </span>
+        )}
+      </div>
+    ) : displayUrl ? (
+      <button
+        type="button"
+        onClick={handleOpenWebsite}
+        className={cn(
+          "inline-flex max-w-full items-center overflow-hidden text-start text-caption text-fg-2",
+          isClickableUrl
+            ? "cursor-pointer decoration-border-strong underline-offset-[3px] hover:underline"
+            : "cursor-default",
+        )}
+        title={displayUrl}
+        disabled={!isClickableUrl}
+      >
+        <span className="min-w-0 truncate">{displayUrl}</span>
+      </button>
+    ) : null;
+
   return (
     <div
       className={cn(
@@ -301,12 +387,12 @@ export function ProviderCard({
         dragHandleProps?.isDragging && "z-10 cursor-grabbing shadow-v7-md",
       )}
     >
-      <div className="flex min-h-[58px] items-center gap-3 py-2.5 pe-3 ps-2">
+      <div className="grid min-h-[58px] grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-3 py-2.5 pe-3 ps-2 lg:grid-cols-[auto_auto_minmax(0,300px)_minmax(0,1fr)_auto]">
         {dragHandleProps ? (
           <button
             type="button"
             className={cn(
-              "flex h-6 w-4 shrink-0 cursor-grab items-center justify-center text-fg-3 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing",
+              "col-start-1 row-span-2 flex h-6 w-4 shrink-0 cursor-grab items-center justify-center self-center text-fg-3 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing lg:row-span-1",
               dragHandleProps.isDragging && "cursor-grabbing opacity-100",
             )}
             aria-label={t("provider.dragHandle")}
@@ -316,7 +402,7 @@ export function ProviderCard({
             <GripVertical className="h-4 w-4" />
           </button>
         ) : (
-          <span className="w-4 shrink-0" />
+          <span className="col-start-1 row-span-2 w-4 shrink-0 self-center lg:row-span-1" />
         )}
 
         <ProviderIconBox
@@ -326,13 +412,13 @@ export function ProviderCard({
           className={cn(
             // 底色固定为白，图标颜色也要固定：单色（currentColor）图标和首字母
             // fallback 不能继承深色模式下的浅色文字
-            "bg-white text-neutral-900",
+            "col-start-2 row-span-2 self-center bg-white text-neutral-900 lg:row-span-1",
             presentation.dim && "opacity-60",
           )}
           fallbackClassName="bg-transparent text-neutral-600"
         />
 
-        <div className="min-w-0 flex-1">
+        <div className="col-start-3 row-start-1 min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
             <h3
               className={cn(
@@ -353,92 +439,13 @@ export function ProviderCard({
               />
             )}
           </div>
-
-          {codexOfficialIdentity && codexOfficialIdentity !== "api_key" ? (
-            <div className="mt-0.5 flex min-w-0 items-center gap-2 text-caption text-fg-2">
-              {codexOfficialIdentity === "native_login" ? (
-                <span className="min-w-0 truncate" title={manualNote}>
-                  {manualNote ??
-                    t("codex.followCodexLoginDescription", {
-                      defaultValue: "账号会随 Codex CLI 当前登录变化",
-                    })}
-                </span>
-              ) : managedCodexAccount ? (
-                <>
-                  <span
-                    className="min-w-0 truncate"
-                    title={manualNote ?? managedCodexAccount.login}
-                  >
-                    {manualNote ??
-                      (providerNameIncludesAccountLogin
-                        ? t("codex.openAiAccount", {
-                            defaultValue: "OpenAI 账号",
-                          })
-                        : managedCodexAccount.login)}
-                  </span>
-                  {managedCodexAccount.reauth_required && (
-                    <span className="inline-flex shrink-0 items-center gap-1 text-warning-text">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      {t("codexOauth.reauthBadge", "需要重新登录")}
-                    </span>
-                  )}
-                </>
-              ) : isCodexAuthStatusError ? (
-                <span className="inline-flex min-w-0 items-center gap-1 text-warning-text">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">
-                    {t("codex.accountStatusUnavailable", {
-                      defaultValue: "无法读取账号信息",
-                    })}
-                  </span>
-                </span>
-              ) : isCodexAuthStatusSuccess ? (
-                <>
-                  <span className="inline-flex min-w-0 items-center gap-1 text-sm text-warning-text">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">
-                      {t("codex.boundAccountUnavailable", {
-                        defaultValue: "绑定的账号不可用",
-                      })}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    className="shrink-0 text-body font-medium text-action-text hover:underline"
-                    onClick={() => onEdit(provider)}
-                  >
-                    {t("codex.chooseAccount", {
-                      defaultValue: "选择账号",
-                    })}
-                  </button>
-                </>
-              ) : (
-                <span className="min-w-0 truncate">
-                  {t("codex.accountLoading", {
-                    defaultValue: "正在加载账号…",
-                  })}
-                </span>
-              )}
-            </div>
-          ) : displayUrl ? (
-            <button
-              type="button"
-              onClick={handleOpenWebsite}
-              className={cn(
-                "mt-0.5 inline-flex max-w-full items-center overflow-hidden text-start text-caption text-fg-2",
-                isClickableUrl
-                  ? "cursor-pointer decoration-border-strong underline-offset-[3px] hover:underline"
-                  : "cursor-default",
-              )}
-              title={displayUrl}
-              disabled={!isClickableUrl}
-            >
-              <span className="min-w-0 truncate">{displayUrl}</span>
-            </button>
-          ) : null}
         </div>
 
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="col-start-3 row-start-2 min-w-0 lg:col-start-4 lg:row-start-1">
+          <div className="min-w-0 flex-1">{secondaryContent}</div>
+        </div>
+
+        <div className="col-start-4 row-start-1 flex items-center gap-3 lg:col-start-5">
           {/* 额度列 136 宽，带重置倒计时时 194 宽（见 QuotaLines） */}
           <div className="max-w-[208px] text-end">
             <div className="flex items-center justify-end gap-1">

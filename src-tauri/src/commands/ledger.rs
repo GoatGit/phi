@@ -22,6 +22,13 @@ pub async fn issue_access_binding(
         .map_err(|e| e.to_string())
 }
 #[tauri::command]
+pub async fn delete_access_binding(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    state
+        .db
+        .delete_access_binding(&id)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
 pub async fn set_access_binding_enabled(
     state: State<'_, AppState>,
     id: String,
@@ -46,6 +53,19 @@ pub async fn create_access_project(
     state
         .db
         .save_access_project(path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_access_binding_usage(
+    state: State<'_, AppState>,
+    since: i64,
+    until: i64,
+) -> Result<std::collections::BTreeMap<String, crate::ledger::Totals>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || db.ledger_binding_totals(since, until))
+        .await
+        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 

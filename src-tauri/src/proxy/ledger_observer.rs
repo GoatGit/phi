@@ -3,9 +3,13 @@
 use super::{
     ingress::Identity,
     server::ProxyState,
-    usage::{logger::UsageLogger, parser::TokenUsage},
+    usage::{
+        logger::{RequestLog, UsageLogger},
+        parser::TokenUsage,
+    },
     ProxyError,
 };
+use crate::proxy::usage::calculator::{CostCalculator, ModelPricing};
 use crate::{
     ledger::{PriceSnapshot, RequestRecord, Usage},
     provider::Provider,
@@ -20,7 +24,9 @@ use axum::{
     Json,
 };
 use futures::StreamExt;
+use rust_decimal::Decimal;
 use serde_json::Value;
+use std::str::FromStr;
 use std::sync::{atomic::Ordering, Arc, Mutex};
 
 struct Active {
@@ -30,6 +36,9 @@ struct Active {
     app_handle: Option<tauri::AppHandle>,
     binding: Option<crate::access::Binding>,
     attempt: Mutex<Option<u64>>,
+    /// 外部接入密钥的请求会额外写一条用量明细，供用量页按密钥统计。
+    logging: bool,
+    started: std::time::Instant,
 }
 tokio::task_local! { static ACTIVE: Arc<Active>; }
 
@@ -132,6 +141,19 @@ pub fn request_id() -> Option<String> {
 pub fn session_namespace() -> Option<String> {
     ACTIVE
         .try_with(|active| active.binding.as_ref().map(|b| b.session_namespace()))
+        .ok()
+        .flatten()
+}
+/// 第三方渠道的公开身份，用于流转图归属；不返回令牌。
+pub fn external_binding() -> Option<crate::access::Binding> {
+    ACTIVE
+        .try_with(|active| {
+            active
+                .binding
+                .as_ref()
+                .filter(|binding| binding.tool == "external")
+                .cloned()
+        })
         .ok()
         .flatten()
 }
@@ -286,7 +308,95 @@ struct Completion {
     committed: bool,
     observed: Option<TokenUsage>,
     usage_complete: bool,
+    /// 下游响应的状态码，尚未拿到响应时为空（客户端提前断开）。
+    status: Option<u16>,
+    streaming: bool,
 }
+
+/// 外部接入的密钥流量写进用量明细，用量页才能按密钥筛选。
+///
+/// 账本始终是计费口径；这里只复制展示所需的字段。`app_type` 记为
+/// `external`：外部请求可能来自任何协议，而 Tauri 层的应用筛选是按协议
+/// 身份分的，混进某个应用的桶会把它算成那个应用自己的流量。
+fn log_external_usage(
+    active: &Active,
+    no: u64,
+    status: Option<u16>,
+    streaming: bool,
+) -> Result<(), crate::error::AppError> {
+    let Some(binding) = active.binding.as_ref() else {
+        return Ok(());
+    };
+    let Some(status) = status else {
+        return Ok(());
+    };
+    if !active.logging || !crate::access::is_external(&binding.tool) {
+        return Ok(());
+    }
+    let attempts = active.db.ledger_attempts(&active.id)?;
+    let Some(attempt) = attempts.iter().find(|a| a.attempt_no == no) else {
+        return Ok(());
+    };
+    let Some(usage) = attempt.usage.as_ref() else {
+        return Ok(());
+    };
+    if usage.input + usage.output + usage.cache_read + usage.cache_creation == 0 {
+        return Ok(());
+    }
+    let clamp = |value: u64| u32::try_from(value).unwrap_or(u32::MAX);
+    let token_usage = TokenUsage {
+        input_tokens: clamp(usage.input),
+        output_tokens: clamp(usage.output),
+        cache_read_tokens: clamp(usage.cache_read),
+        cache_creation_tokens: clamp(usage.cache_creation),
+        cache_creation_1h_tokens: clamp(usage.cache_creation_1h),
+        model: Some(attempt.model.clone()),
+        message_id: None,
+    };
+    let (pricing, multiplier, multiplier_text) = match &attempt.price {
+        Some(price) => (
+            ModelPricing::from_strings(
+                &price.input,
+                &price.output,
+                &price.cache_read,
+                &price.cache_creation,
+            )
+            .ok(),
+            Decimal::from_str(&price.multiplier).unwrap_or(Decimal::ONE),
+            price.multiplier.clone(),
+        ),
+        None => (
+            UsageLogger::new(&active.db).get_model_pricing(&attempt.model)?,
+            Decimal::ONE,
+            "1".to_string(),
+        ),
+    };
+    let cost = pricing
+        .as_ref()
+        .map(|pricing| CostCalculator::calculate(&token_usage, pricing, multiplier));
+    let log = RequestLog {
+        request_id: active.id.clone(),
+        provider_id: attempt.provider_id.clone(),
+        app_type: "external".into(),
+        model: attempt.model.clone(),
+        request_model: attempt.model.clone(),
+        pricing_model: attempt.model.clone(),
+        usage: token_usage,
+        cost,
+        latency_ms: active.started.elapsed().as_millis() as u64,
+        first_token_ms: None,
+        status_code: status,
+        error_message: None,
+        session_id: None,
+        provider_type: None,
+        is_streaming: streaming,
+        cost_multiplier: multiplier_text,
+        binding_id: binding.id.clone(),
+        binding_name: binding.name.clone(),
+    };
+    UsageLogger::new(&active.db).log_request(&log)
+}
+
 impl Completion {
     fn finish(&mut self, state: &str, usage: Option<TokenUsage>) -> Result<(), ProxyError> {
         if self.done {
@@ -311,6 +421,10 @@ impl Completion {
                     self.usage_complete,
                 ),
             )?;
+            // 账本结算成功后再写展示用的用量行；失败不影响请求结果。
+            if let Err(error) = log_external_usage(active, no, self.status, self.streaming) {
+                log::warn!("External key usage log failed: {error}");
+            }
         }
         persist(&active.db, active.db.ledger_finish(&active.id, state))?;
         if let Some(handle) = &active.app_handle {
@@ -338,7 +452,13 @@ pub async fn observe(State(state): State<ProxyState>, request: Request, next: Ne
     let record = if let Some(binding) = &identity.binding {
         let mut record =
             RequestRecord::new(&binding.agent, &binding.id, binding.project_id.clone());
-        record.tool = identity.app.into();
+        // 外部接入一枚令牌跨协议使用：工具归属是「外部客户端」，不是本次请求落到的
+        // 入口应用（Chat 入口会以 opencode 的身份参与路由）。
+        record.tool = if crate::access::is_external(&binding.tool) {
+            binding.tool.clone()
+        } else {
+            identity.app.into()
+        };
         record
     } else {
         RequestRecord::new(identity.app, &format!("local:{}", identity.app), None)
@@ -346,6 +466,7 @@ pub async fn observe(State(state): State<ProxyState>, request: Request, next: Ne
     if persist(&state.db, state.db.ledger_start(&record)).is_err() {
         return (StatusCode::SERVICE_UNAVAILABLE,Json(serde_json::json!({"error":{"type":"ledger_unavailable","message":"PHI could not persist request admission; no upstream call was made."}}))).into_response();
     }
+    let logging = state.config.read().await.enable_logging;
     let active = Arc::new(Active {
         db: state.db,
         id: record.id,
@@ -353,6 +474,8 @@ pub async fn observe(State(state): State<ProxyState>, request: Request, next: Ne
         app_handle: state.app_handle,
         binding: identity.binding.clone(),
         attempt: Mutex::new(None),
+        logging,
+        started: std::time::Instant::now(),
     });
     let mut completion = Completion {
         active: active.clone(),
@@ -360,6 +483,8 @@ pub async fn observe(State(state): State<ProxyState>, request: Request, next: Ne
         committed: false,
         observed: None,
         usage_complete: false,
+        status: None,
+        streaming: false,
     };
     let response = ACTIVE.scope(active.clone(), next.run(request)).await;
     let streaming = response
@@ -367,15 +492,25 @@ pub async fn observe(State(state): State<ProxyState>, request: Request, next: Ne
         .get("content-type")
         .and_then(|h| h.to_str().ok())
         .is_some_and(|h| h.contains("text/event-stream"));
+    completion.status = Some(response.status().as_u16());
+    completion.streaming = streaming;
     let success = response.status().is_success();
     let (mut parts, body) = response.into_parts();
     if let Ok(id) = active.id.parse() {
         parts.headers.insert("x-phi-request-id", id);
     }
+    // 非流式响应带 content-length 时，客户端读满这个长度就可能不再轮询流，
+    // 生成器收不到结尾的 `None`。按长度提前收尾，避免有 usage 的成功请求
+    // 被记成 interrupted（那样也没有密钥用量明细）。
+    let expected_len = parts
+        .headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok());
     let mut stream = body.into_data_stream();
     let output = async_stream::stream! {
         let mut buffer=String::new();let mut remainder=vec![];let mut events=vec![];
-        let mut terminal=false;let mut oversized=false;let mut failed=false;
+        let mut terminal=false;let mut oversized=false;let mut failed=false;let mut delivered=0usize;
         while let Some(item)=stream.next().await{
             match item{
                 Ok(bytes)=>{
@@ -401,6 +536,30 @@ pub async fn observe(State(state): State<ProxyState>, request: Request, next: Ne
                     }
                     if streaming {
                         if let Some(usage) = stream_usage(&active.app, &events) { completion.observed = Some(usage); }
+                    }
+                    delivered += bytes.len();
+                    if !streaming
+                        && !oversized
+                        && expected_len.is_some_and(|expected| delivered >= expected)
+                    {
+                        let json = serde_json::from_str::<Value>(&buffer).ok();
+                        let complete_error = json.as_ref().is_some_and(|value| {
+                            value.get("error").is_some()
+                                || matches!(
+                                    value.get("status").and_then(Value::as_str),
+                                    Some("failed" | "incomplete")
+                                )
+                        });
+                        let usage = json.as_ref().and_then(|value| parse_json(&active.app, value));
+                        completion.usage_complete = true;
+                        if let Err(error) = completion.finish(
+                            if !success || complete_error { "failed" } else { "completed" },
+                            usage,
+                        ) {
+                            log::warn!("Ledger completion failed: {error}");
+                        }
+                        yield Ok::<_,std::io::Error>(bytes);
+                        return;
                     }
                     yield Ok::<_,std::io::Error>(bytes);
                 }
@@ -685,7 +844,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(value["data"].as_array().unwrap().len(), 1);
-        assert_eq!(value["data"][0]["id"], "group/allowed");
+        // 别名用组名对外，不再暴露组 id。
+        assert_eq!(value["data"][0]["id"], "group/Allowed");
         for group in [Some("private"), None] {
             let response = router
                 .call(

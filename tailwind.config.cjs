@@ -178,6 +178,12 @@ module.exports = {
         dialog: "14px",
       },
       fontSize: {
+        // text-sm 是 v7 之前的历史别名：渲染成 body 角色（13 / 20），
+        // 这样尚未迁移的旧组件不会和设计系统出现 14px / 13px 混排。
+        // 新代码请直接写 body / strong / caption / badge 等角色。
+        sm: ["13px", { lineHeight: "20px" }],
+        // 历史 text-xs（12/16）与 caption（12/18）行高不一致，统一到 caption 的 12/18。
+        xs: ["12px", { lineHeight: "18px" }],
         // v7 字体角色（AUTHORING.md「颜色与字体」）
         badge: ["11px", { lineHeight: "16px", fontWeight: "500" }],
         caption: ["12px", { lineHeight: "18px" }],

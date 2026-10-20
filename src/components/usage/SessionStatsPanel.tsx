@@ -352,7 +352,7 @@ export function SessionStatsPanel() {
         <div className="min-w-0 rounded-lg border p-4">
           <h3 className="font-medium">{t("sessionStats.byHour")}</h3>
           <div className="mt-3 flex flex-col gap-1">
-            <div className="grid grid-cols-[auto_repeat(24,minmax(0,1fr))] gap-px text-[10px]">
+            <div className="grid grid-cols-[auto_repeat(24,minmax(0,1fr))] gap-px text-badge">
               {[0, 1, 2, 3, 4, 5, 6].map((weekday) => (
                 <div key={weekday} className="contents">
                   <span className="pe-1 text-fg-3 whitespace-nowrap">
@@ -452,7 +452,7 @@ export function SessionStatsPanel() {
                       opacity: count > 0 ? 1 : 0.3,
                     }}
                   />
-                  <span className="text-[10px] text-fg-3">
+                  <span className="text-badge text-fg-3">
                     {index === 0
                       ? `≤${REQUEST_BUCKETS[0]}`
                       : index === REQUEST_BUCKETS.length

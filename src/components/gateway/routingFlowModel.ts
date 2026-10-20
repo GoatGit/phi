@@ -5,6 +5,11 @@ import type {
   GatewayTracePage,
 } from "@/lib/api/gateway";
 import { ROUTABLE_APP_IDS } from "@/config/appConfig";
+import type { AccessBinding } from "@/lib/api/access";
+
+const bindingAppId = (id: string) => `binding:${id}`;
+const traceAppId = (trace: GatewayRequestTrace) =>
+  trace.bindingId ? bindingAppId(trace.bindingId) : trace.appId;
 
 export type FlowState = "active" | "completed" | "failed" | "unknown";
 
@@ -60,15 +65,24 @@ export interface FlowOutletNode {
   state: FlowState | null;
 }
 
+/** A configured app→group edge and the group's model outlets. 应用最多连一个
+ *  组；外部密钥可以选择多个组，因此用列表表示。 */
+export interface StaticFlowRoute {
+  groupKey: string;
+  outletKeys: string[];
+}
+
 /** One app row: its configured connection (always drawn) plus the latest
  * request lane (colored overlay, absent when the app has no traffic). */
 export interface FlowAppEntry {
+  /** 节点身份：内置应用 id 或 binding:<密钥 id>。 */
   appId: string;
+  binding?: AccessBinding;
   lane: FlowLane | null;
   /** True when the row comes from the catalog roster (gray base layer). */
   configured: boolean;
-  staticGroupKey: string | null;
-  staticOutletKeys: string[];
+  /** 配置层要画的 app→组路线；空表示这个应用没有固定组。 */
+  staticRoutes: StaticFlowRoute[];
 }
 
 export interface FlowTimelineStep {
@@ -119,7 +133,7 @@ export function laneColor(appId: string): string {
 export function flowAppRank(entry: FlowAppEntry): number {
   if (entry.lane?.live) return 0;
   if (entry.lane) return 1;
-  return entry.staticGroupKey ? 2 : 3;
+  return entry.staticRoutes.length > 0 ? 2 : 3;
 }
 
 /** 同级按最近请求时间倒序，再按配置清单顺序（而不是字母序），保证同一份
@@ -164,9 +178,11 @@ export function latestTracePerApp(
     ).values(),
   ].sort((a, b) => a.createdAt - b.createdAt);
   const latest = new Map<string, GatewayRequestTrace>();
-  for (const trace of merged) latest.set(trace.appId, trace);
-  for (const trace of page.active) latest.set(trace.appId, trace);
-  return [...latest.values()].sort((a, b) => (a.appId < b.appId ? -1 : 1));
+  for (const trace of merged) latest.set(traceAppId(trace), trace);
+  for (const trace of page.active) latest.set(traceAppId(trace), trace);
+  return [...latest.values()].sort((a, b) =>
+    traceAppId(a).localeCompare(traceAppId(b)),
+  );
 }
 
 /** Collapse repeated events onto the same attempt so one flow line may carry
@@ -244,6 +260,29 @@ export function flattenGroupMembers(
   return outlets;
 }
 
+/** Collapse a historical request model name to what is still meaningful.
+ *  Early builds published route groups as `group/<group id>`; the id is a
+ *  UUID and means nothing to a user, while today's catalog publishes the
+ *  group's own name. Traces keep the model name they were served with, so the
+ *  flow diagram would keep showing the old UUID long after the alias changed.
+ *  Map any `group/<id>` or `group/<id>/<model>` back to `group/<name>`; names
+ *  (and every other model) pass through unchanged. */
+export function readableRequestModel(
+  model: string | undefined,
+  catalog?: GatewayCatalog,
+): string {
+  if (!model) return "";
+  const groups = catalog?.groups ?? [];
+  for (const group of groups) {
+    const legacy = `group/${group.id}`;
+    if (model === legacy) return `group/${group.name}`;
+    if (model.startsWith(`${legacy}/`)) {
+      return `group/${group.name}/${model.slice(legacy.length + 1)}`;
+    }
+  }
+  return model;
+}
+
 /** Build the four-column graph. The configured topology (every gateway app,
  * its connected route group and the group's member models from today's
  * catalog) is always drawn as the base layer; the latest request per app
@@ -252,6 +291,7 @@ export function flattenGroupMembers(
 export function buildRoutingFlow(
   page: GatewayTracePage,
   catalog?: GatewayCatalog,
+  bindings: readonly AccessBinding[] = [],
 ): {
   apps: FlowAppEntry[];
   lanes: FlowLane[];
@@ -266,7 +306,7 @@ export function buildRoutingFlow(
     );
     const groupName = rootGroup?.name || trace.policy.name || trace.policy.id;
     return {
-      appId: trace.appId,
+      appId: traceAppId(trace),
       trace,
       live: activeIds.has(trace.id),
       groupKey: rootGroup
@@ -309,10 +349,17 @@ export function buildRoutingFlow(
   // Configured base layer: every app, its connected group and the group's
   // enabled member models — present even when no request ever ran.
   const staticOutlets = new Map<string, FlowOutletNode>();
-  const staticByApp = new Map<
-    string,
-    { groupKey: string | null; outletKeys: string[] }
-  >();
+  const staticByApp = new Map<string, StaticFlowRoute[]>();
+  const addStaticRoute = (groupId: string): StaticFlowRoute => {
+    const groupKey = `group:${groupId}`;
+    const members = catalog ? flattenGroupMembers(catalog, groupId) : [];
+    for (const member of members) {
+      if (!staticOutlets.has(member.key)) {
+        staticOutlets.set(member.key, { ...member, state: null });
+      }
+    }
+    return { groupKey, outletKeys: members.map((member) => member.key) };
+  };
   if (catalog) {
     for (const appId of ROUTABLE_APP_IDS) {
       const groupId = appRouteGroup(catalog, appId);
@@ -320,20 +367,10 @@ export function buildRoutingFlow(
         ? catalog.groups?.find((item) => item.id === groupId)
         : undefined;
       if (!group) {
-        staticByApp.set(appId, { groupKey: null, outletKeys: [] });
+        staticByApp.set(appId, []);
         continue;
       }
-      const groupKey = `group:${group.id}`;
-      const members = flattenGroupMembers(catalog, group.id);
-      for (const member of members) {
-        if (!staticOutlets.has(member.key)) {
-          staticOutlets.set(member.key, { ...member, state: null });
-        }
-      }
-      staticByApp.set(appId, {
-        groupKey,
-        outletKeys: members.map((member) => member.key),
-      });
+      staticByApp.set(appId, [addStaticRoute(group.id)]);
     }
   }
   // Union: 目录里的每个路由组都进入第三列（包括尚未接入应用的组），
@@ -357,21 +394,40 @@ export function buildRoutingFlow(
     if (existing) existing.state = node.state;
     else outlets.set(key, node);
   }
+  // 密钥的 allowedGroups 是它的路由范围：必须至少选一个组，流转图才能把
+  // 密钥节点接到第三列；选择多个组时各画一条配置路线。
+  const bindingByApp = new Map(
+    bindings
+      .filter((binding) => binding.tool === "external")
+      .map((binding) => [bindingAppId(binding.id), binding]),
+  );
+  for (const [appId, binding] of bindingByApp) {
+    const routes: StaticFlowRoute[] = [];
+    for (const groupId of binding.allowedGroups) {
+      const group = catalog?.groups?.find((item) => item.id === groupId);
+      if (!group) continue;
+      routes.push(addStaticRoute(group.id));
+    }
+    staticByApp.set(appId, routes);
+  }
   const laneByApp = new Map(lanes.map((lane) => [lane.appId, lane]));
   const apps: FlowAppEntry[] = [
     ...new Set([
       ...(catalog ? ROUTABLE_APP_IDS : []),
+      ...bindingByApp.keys(),
       ...lanes.map((lane) => lane.appId),
     ]),
   ]
     .map((appId) => {
-      const configured = staticByApp.get(appId);
+      const routes = staticByApp.get(appId);
       return {
         appId,
+        binding: bindingByApp.get(appId),
         lane: laneByApp.get(appId) ?? null,
-        configured: Boolean(configured),
-        staticGroupKey: configured?.groupKey ?? null,
-        staticOutletKeys: configured?.outletKeys ?? [],
+        // 注意：目录里的每个应用都会有一个底图条目（未接入路由组时是 []），
+        // 所以“已配置”要看有没有真的接上组，不能用 staticRoutes 长度之外的推断。
+        configured: (routes?.length ?? 0) > 0,
+        staticRoutes: routes ?? [],
       };
     })
     .sort(compareFlowApps);

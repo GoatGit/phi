@@ -47,3 +47,11 @@ __pycache__/
 *.p12
 *.pfx
 *.p8
+
+# Generated subscription engine sidecars
+/src-tauri/binaries/phi-subscriptions-*
+# Go build output from subscriptions/bridge (same binary, built locally)
+/subscriptions/bridge/phi-subscriptions
+
+# Local agent runtime state
+/.pi/

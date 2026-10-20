@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { getAppLabel } from "@/config/appConfig";
 import {
@@ -24,6 +24,12 @@ import {
 import { Notice } from "@/components/ui/notice";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AddPoolSupplier } from "./AddPoolSupplier";
+import {
+  subscriptionIconFromBase,
+  subscriptionIdFromBase,
+  subscriptionTypes,
+} from "./subscriptionTemplates";
+import { SubscriptionSupplierDialog } from "./SubscriptionSupplierDialog";
 import { SupplierEditorDialog, protocolLabel } from "./SupplierEditorDialog";
 import {
   gatewayCatalogKey,
@@ -56,6 +62,14 @@ export function ResourcePoolSection({
     null,
   );
   const save = useSaveOrReport();
+  const subscriptionId = subscriptionIdFromBase(editorTarget?.endpoint.baseUrl);
+  const subscription = subscriptionId
+    ? (subscriptionTypes.find((s) => s.id === subscriptionId) ?? {
+        id: subscriptionId,
+        name: editorTarget!.name,
+        website: "",
+      })
+    : undefined;
   const [search, setSearch] = useState("");
   const [protocolFilter, setProtocolFilter] = useState("all");
   // 协议筛选只在池子里确实存在多种协议时才出现，避免常驻无效控件。
@@ -131,6 +145,16 @@ export function ResourcePoolSection({
         <span className="text-xs text-fg-3">
           {t("gateway.pool.count", { count: visibleSuppliers.length })}
         </span>
+        {/* 新建入口跟搜索、筛选同一行：与字段同高，靠行尾；全页唯一的实心按钮。 */}
+        <Button
+          variant="solid"
+          size="regular"
+          className="ms-auto px-3"
+          onClick={() => setCreateOpen(true)}
+        >
+          <Plus data-icon aria-hidden />
+          {t("gateway.pool.create")}
+        </Button>
       </div>
       {save.error ? (
         <Notice tone="danger" title={describeError(save.error)} />
@@ -174,15 +198,19 @@ export function ResourcePoolSection({
                       >
                         {supplier.name}
                       </span>
-                      <span className="shrink-0 rounded bg-subtle px-1.5 font-mono text-[10px] leading-4 text-fg-3">
-                        {protocolLabel(supplier.endpoint.protocol)}
+                      <span className="shrink-0 rounded bg-subtle px-1.5 font-mono text-badge leading-4 text-fg-3">
+                        {subscriptionIdFromBase(supplier.endpoint.baseUrl)
+                          ? t("providerPreset.group.subscription")
+                          : protocolLabel(supplier.endpoint.protocol)}
                       </span>
                     </div>
                     <p
                       className="mt-0.5 truncate font-mono text-xs text-fg-3"
                       title={supplier.endpoint.baseUrl}
                     >
-                      {endpointHost(supplier.endpoint.baseUrl)}
+                      {subscriptionIdFromBase(supplier.endpoint.baseUrl)
+                        ? t("gateway.subscription.managed")
+                        : endpointHost(supplier.endpoint.baseUrl)}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
@@ -295,12 +323,22 @@ export function ResourcePoolSection({
         />
       )}
 
-      <SupplierEditorDialog
-        open={editorOpen}
-        supplier={editorTarget}
-        revision={editorRevision}
-        onClose={() => setEditorOpen(false)}
-      />
+      {editorOpen && subscription && editorTarget ? (
+        <SubscriptionSupplierDialog
+          key={subscription.id}
+          subscription={subscription}
+          supplier={editorTarget}
+          revision={editorRevision}
+          onClose={() => setEditorOpen(false)}
+        />
+      ) : (
+        <SupplierEditorDialog
+          open={editorOpen}
+          supplier={editorTarget}
+          revision={editorRevision}
+          onClose={() => setEditorOpen(false)}
+        />
+      )}
 
       <ConfirmDialog
         isOpen={deleteTarget !== null}
@@ -386,6 +424,9 @@ const SUPPLIER_ICON_PATTERNS: readonly (readonly [RegExp, string])[] = [
 ];
 
 function supplierIcon(supplier: GatewaySupplier): string | undefined {
+  // 订阅供应商的品牌标随订阅清单走，不靠名称猜。
+  const subscription = subscriptionIconFromBase(supplier.endpoint.baseUrl);
+  if (subscription) return subscription;
   const haystack = `${supplier.name} ${supplier.endpoint.baseUrl}`;
   for (const [pattern, icon] of SUPPLIER_ICON_PATTERNS) {
     if (pattern.test(haystack)) return icon;

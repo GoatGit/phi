@@ -8,24 +8,43 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Pencil, Plus, Settings2 } from "lucide-react";
+import { ChevronDown, ListFilter, Pencil, Plus, Settings2 } from "lucide-react";
 import type {
   GatewayCatalog,
   GatewayRouteGroup,
   GatewayTracePage,
 } from "@/lib/api/gateway";
-import { getAppLabel, isRoutableAppId } from "@/config/appConfig";
+import {
+  getAppIconName,
+  getAppLabel,
+  isRoutableAppId,
+} from "@/config/appConfig";
+import { ProviderIcon } from "@/components/ProviderIcon";
+import type { AccessBinding } from "@/lib/api/access";
 import phiLogoLight from "@/assets/icons/phi/phi-logo-light.png";
 import phiLogoDark from "@/assets/icons/phi/phi-logo-dark.png";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  AccessDeleteDialog,
+  AccessKeyDialog,
+  IssuedTokenDialog,
+  freshBinding,
+} from "./AccessKeyDialog";
 import {
   buildRoutingFlow,
   buildTimeline,
   laneColor,
   laneFinalState,
   lanePlayback,
+  readableRequestModel,
   type FlowGroupNode,
   type FlowLane,
   type FlowState,
@@ -62,9 +81,16 @@ function PhiFlowLogo() {
   );
 }
 
+/** 点节点上的地址就整段复制：流转图的用处就是让你照抄进客户端。 */
+function copyGatewayAddress(address: string) {
+  void navigator.clipboard?.writeText(address).catch(() => undefined);
+}
+
 /** 默认展开的应用行数。应用变多以后，靠后的应用折叠起来，图不会被拉得
- *  很长；任何一个还在传输中的应用都不受折叠影响。 */
-const VISIBLE_APP_LIMIT = 6;
+ *  很长；已接入路由组的应用、任何一个还在传输中的应用、以及三方应用都不受
+ *  折叠影响，所以实际可能比这个数多。 */
+const VISIBLE_APP_LIMIT = 5;
+const EMPTY_BINDINGS: readonly AccessBinding[] = [];
 
 /** A node's real on-screen box, relative to the flow stage. Wires are drawn
  *  from these measured values, so they always touch the rendered nodes no
@@ -267,11 +293,15 @@ function GroupDeleteDialog({
 export function RoutingFlow({
   data,
   catalog,
+  bindings = EMPTY_BINDINGS,
+  gatewayAddress,
   routeAppRequest,
   onRouteAppRequestHandled,
 }: {
   data: GatewayTracePage;
   catalog?: GatewayCatalog;
+  bindings?: readonly AccessBinding[];
+  gatewayAddress?: string;
   /** 侧栏点了某个应用：进来后直接打开它的「设置应用路由」 */
   routeAppRequest?: RouteAppRequest | null;
   onRouteAppRequestHandled?: () => void;
@@ -283,6 +313,13 @@ export function RoutingFlow({
   const [focus, setFocus] = useState<string | null>(null);
   const [routeApp, setRouteApp] = useState<AppRouteDialogAppId | null>(null);
   const [groupDraft, setGroupDraft] = useState<GroupDraft | null>(null);
+  // 第一列的「添加其他应用」：新建一个三方应用（接入令牌），它随后就是一列里的
+  // 一个应用节点。令牌只在签发时显示一次，所以保存后必须在这里再展示一次。
+  const [keyDraft, setKeyDraft] = useState<AccessBinding | null>(null);
+  // 已保存的三方应用：右上角铅笔打开的编辑弹窗，只有重新签发与删除两个动作。
+  const [editKey, setEditKey] = useState<AccessBinding | null>(null);
+  const [deleteKey, setDeleteKey] = useState<AccessBinding | null>(null);
+  const [issuedToken, setIssuedToken] = useState<string | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<GatewayRouteGroup | null>(
     null,
   );
@@ -299,25 +336,70 @@ export function RoutingFlow({
     onRouteAppRequestHandled?.();
   }, [catalog, routeAppRequest, onRouteAppRequestHandled]);
   const { apps, lanes, groups, outlets, liveCount } = useMemo(
-    () => buildRoutingFlow(data, catalog),
-    [data, catalog],
+    () => buildRoutingFlow(data, catalog, bindings),
+    [data, catalog, bindings],
   );
+  const appLabels = new Map(
+    apps.map((entry) => [
+      entry.appId,
+      entry.binding?.name ||
+        entry.lane?.trace.bindingName ||
+        getAppLabel(entry.appId),
+    ]),
+  );
+  const appLabel = (appId: string) =>
+    appLabels.get(appId) ?? getAppLabel(appId);
   const timeline = useMemo(() => buildTimeline(lanes), [lanes]);
   const total = timeline.length;
   // 默认只列优先级最高的几行；展开后仍是同一份优先级顺序。
   const [appsExpanded, setAppsExpanded] = useState(false);
+  // 用户手动挑过的应用：只在第一列显示这些，其余收起。没挑过（空集合）时保持
+  // 原来的优先级 + 折叠规则。
+  const [appSelection, setAppSelection] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const pickingApps = appSelection.size > 0;
+  // 手动挑选时先按挑选结果收窄，再走折叠规则；没挑选时就是完整列表。
+  const pickedApps = useMemo(
+    () =>
+      pickingApps
+        ? apps.filter((entry) => appSelection.has(entry.appId))
+        : apps,
+    [apps, appSelection, pickingApps],
+  );
   const shownApps = useMemo(() => {
-    if (appsExpanded || apps.length <= VISIBLE_APP_LIMIT) return apps;
-    const pinned = new Set(
-      apps.slice(0, VISIBLE_APP_LIMIT).map((entry) => entry.appId),
-    );
-    for (const entry of apps) {
-      // 进行中的应用和用户高亮的应用永远留在图上，折叠不能把它们藏掉。
-      if (entry.lane?.live || entry.appId === focus) pinned.add(entry.appId);
+    // 用户自己挑了应用：他挑的就是他要看的，不受折叠上限约束。
+    if (pickingApps) return pickedApps;
+    if (appsExpanded) return pickedApps;
+    // 默认可见数量是**硬上限**：已配置、有流量只是「优先占名额」的条件，
+    // 不会让总数超过 VISIBLE_APP_LIMIT。
+    const pinned = new Set<string>();
+    for (const entry of pickedApps) {
+      if (pinned.size >= VISIBLE_APP_LIMIT) break;
+      // 进行中的应用、用户高亮的应用、已配置（接入了路由组）的应用优先占位。
+      if (
+        entry.configured ||
+        entry.binding ||
+        entry.lane?.live ||
+        entry.appId === focus
+      )
+        pinned.add(entry.appId);
     }
-    return apps.filter((entry) => pinned.has(entry.appId));
-  }, [apps, appsExpanded, focus]);
-  const hiddenAppCount = apps.length - shownApps.length;
+    // 剩余名额按优先级顺序补满，总数恒等于上限。
+    for (const entry of pickedApps) {
+      if (pinned.size >= VISIBLE_APP_LIMIT) break;
+      pinned.add(entry.appId);
+    }
+    return pickedApps.filter((entry) => pinned.has(entry.appId));
+  }, [appsExpanded, focus, pickingApps, pickedApps]);
+  const hiddenAppCount = pickedApps.length - shownApps.length;
+  const toggleAppPick = (appId: string) =>
+    setAppSelection((current) => {
+      const next = new Set(current);
+      if (next.has(appId)) next.delete(appId);
+      else next.add(appId);
+      return next;
+    });
 
   // The stage grows with its tallest column; every node reports its real
   // box back so wires stay glued to the nodes at any size.
@@ -513,6 +595,60 @@ export function RoutingFlow({
               {/* Column 1 · apps — configured apps are always present; the
                   latest request adds the colored lane overlay on top. */}
               <div className="phi-flow-col phi-flow-app-col">
+                <div className="phi-flow-app-tools">
+                  <span id={`${titleId}-apps-label`}>
+                    {t("gateway.flow.apps")}
+                  </span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="phi-flow-pick"
+                        aria-label={t("gateway.flow.pickApps")}
+                        title={t("gateway.flow.pickApps")}
+                        aria-haspopup="dialog"
+                      >
+                        <ListFilter aria-hidden />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-64 p-2">
+                      <p className="m-0 px-1 pb-1.5 text-caption text-fg-3">
+                        {t("gateway.flow.pickAppsHint")}
+                      </p>
+                      <ul className="m-0 flex max-h-72 list-none flex-col overflow-y-auto p-0">
+                        {apps.map((entry) => {
+                          const checked =
+                            !pickingApps || appSelection.has(entry.appId);
+                          return (
+                            <li key={entry.appId}>
+                              <label className="flex cursor-pointer items-center gap-2 rounded-control px-1.5 py-1.5 text-body text-fg-2 hover:bg-subtle">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={() =>
+                                    toggleAppPick(entry.appId)
+                                  }
+                                />
+                                <span className="min-w-0 truncate">
+                                  {appLabel(entry.appId)}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-1 w-full justify-start"
+                        disabled={!pickingApps}
+                        onClick={() => setAppSelection(new Set())}
+                      >
+                        {t("gateway.flow.pickAppsReset")}
+                      </Button>
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 <ol
                   id={`${titleId}-apps`}
                   className="phi-flow-app-list"
@@ -529,6 +665,9 @@ export function RoutingFlow({
                       isRoutableAppId(entry.appId) && entry.appId !== "typesafe"
                         ? entry.appId
                         : null;
+                    // 三方应用（接入令牌）不在应用配置里，编辑它就是重新签发
+                    // 令牌或删除应用，所以右上角给铅笔而不是路由齿轮。
+                    const editableBinding = entry.binding ?? null;
                     return (
                       <li
                         key={entry.appId}
@@ -536,8 +675,15 @@ export function RoutingFlow({
                         data-flow="app"
                         data-flow-key={entry.appId}
                         data-kind="app"
+                        data-app-kind={entry.binding ? "binding" : "builtin"}
+                        data-disabled={
+                          entry.binding?.enabled === false ? "true" : undefined
+                        }
                         data-has-action={
                           catalog && routableAppId ? "true" : undefined
+                        }
+                        data-badge={
+                          entry.binding ? t("access.externalBadge") : undefined
                         }
                         data-state={
                           lane
@@ -554,7 +700,7 @@ export function RoutingFlow({
                           type="button"
                           className="phi-flow-hit"
                           aria-label={t("gateway.flow.focusApp", {
-                            app: getAppLabel(entry.appId),
+                            app: appLabel(entry.appId),
                           })}
                           aria-pressed={focus === entry.appId}
                           onClick={() =>
@@ -563,20 +709,28 @@ export function RoutingFlow({
                             )
                           }
                         >
-                          <strong>{getAppLabel(entry.appId)}</strong>
+                          <ProviderIcon
+                            icon={getAppIconName(entry.appId) ?? undefined}
+                            name={appLabel(entry.appId)}
+                            size={18}
+                            className="phi-flow-app-icon"
+                          />
+                          <strong>{appLabel(entry.appId)}</strong>
                           <span
                             className="truncate font-mono text-xs text-fg-3"
                             title={
                               lane
-                                ? `${lane.trace.requestModel || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
+                                ? `${readableRequestModel(lane.trace.requestModel, catalog) || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
                                 : undefined
                             }
                           >
-                            {lane
-                              ? `${lane.trace.requestModel || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
-                              : entry.staticGroupKey
-                                ? t("gateway.flow.idle")
-                                : t("gateway.flow.noGroup")}
+                            {entry.binding?.enabled === false
+                              ? t("gateway.groups.off")
+                              : lane
+                                ? `${readableRequestModel(lane.trace.requestModel, catalog) || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
+                                : entry.staticRoutes.length
+                                  ? t("gateway.flow.idle")
+                                  : t("gateway.flow.noGroup")}
                           </span>
                         </button>
                         {catalog && routableAppId && (
@@ -584,7 +738,7 @@ export function RoutingFlow({
                             type="button"
                             className="phi-flow-action"
                             aria-label={t("gateway.flow.routeSettingsFor", {
-                              app: getAppLabel(entry.appId),
+                              app: appLabel(entry.appId),
                             })}
                             title={t("gateway.flow.routeSettings")}
                             onClick={() => setRouteApp(routableAppId)}
@@ -592,41 +746,82 @@ export function RoutingFlow({
                             <Settings2 aria-hidden />
                           </button>
                         )}
+                        {editableBinding && (
+                          <button
+                            type="button"
+                            className="phi-flow-action"
+                            aria-label={t("gateway.flow.editAppFor", {
+                              app: appLabel(entry.appId),
+                            })}
+                            title={t("gateway.flow.editApp")}
+                            onClick={() => setEditKey(editableBinding)}
+                          >
+                            <Pencil aria-hidden />
+                          </button>
+                        )}
                       </li>
                     );
                   })}
                 </ol>
-                {apps.length > VISIBLE_APP_LIMIT &&
-                  (appsExpanded || hiddenAppCount > 0) && (
-                    <button
-                      type="button"
-                      className="phi-flow-more"
-                      aria-expanded={appsExpanded}
-                      aria-controls={`${titleId}-apps`}
-                      onClick={() => setAppsExpanded((value) => !value)}
-                    >
-                      <ChevronDown
-                        aria-hidden
-                        className={appsExpanded ? "rotate-180" : undefined}
-                      />
-                      {appsExpanded
-                        ? t("gateway.flow.fewerApps")
-                        : t("gateway.flow.moreApps", { count: hiddenAppCount })}
-                    </button>
-                  )}
+                {!pickingApps && apps.length > VISIBLE_APP_LIMIT && (
+                  <button
+                    type="button"
+                    className="phi-flow-more"
+                    aria-expanded={appsExpanded}
+                    aria-controls={`${titleId}-apps`}
+                    onClick={() => setAppsExpanded((value) => !value)}
+                  >
+                    <ChevronDown
+                      aria-hidden
+                      className={appsExpanded ? "rotate-180" : undefined}
+                    />
+                    {appsExpanded
+                      ? t("gateway.flow.fewerApps")
+                      : t("gateway.flow.moreApps", {
+                          count: hiddenAppCount,
+                        })}
+                  </button>
+                )}
+                {/* 没有现成接入的应用在这里新建：一个三方应用等于一枚接入令牌，
+                    保存后它就以自己的身份出现在本列与用量页。 */}
+                <button
+                  type="button"
+                  className="phi-flow-add"
+                  onClick={() =>
+                    setKeyDraft(
+                      freshBinding(
+                        apps.some((entry) => entry.binding) ? "" : "PHI",
+                      ),
+                    )
+                  }
+                >
+                  <Plus aria-hidden />
+                  {t("gateway.flow.addApp")}
+                </button>
               </div>
               {/* Column 2 · PHI */}
               <div className="phi-flow-col phi-flow-hub-wrap">
                 <div className="phi-flow-node phi-flow-hub" data-flow="hub">
                   <PhiFlowLogo />
-                  {step != null ? (
+                  {gatewayAddress && (
+                    <button
+                      type="button"
+                      className="phi-flow-address"
+                      title={t("gateway.flow.copyAddress", {
+                        address: gatewayAddress,
+                      })}
+                      aria-label={t("gateway.flow.copyAddress", {
+                        address: gatewayAddress,
+                      })}
+                      onClick={() => copyGatewayAddress(gatewayAddress)}
+                    >
+                      {gatewayAddress}
+                    </button>
+                  )}
+                  {step != null && (
                     <Badge variant="outline">
                       {t("gateway.flow.step", { current: step, total })}
                     </Badge>
-                  ) : (
-                    <span className="text-xs text-fg-3">
-                      {t("gateway.flow.appCount", { count: apps.length })}
-                    </span>
                   )}
                 </div>
               </div>
@@ -796,23 +991,21 @@ export function RoutingFlow({
                 </g>
                 <g data-region="group">
                   {hub &&
-                    apps.map((entry) => {
-                      if (
-                        !entry.staticGroupKey ||
-                        visibleGroups.has(entry.staticGroupKey)
-                      )
-                        return null;
-                      const target = groupBox(entry.staticGroupKey);
-                      if (!target) return null;
-                      return (
-                        <path
-                          key={`static:${entry.appId}`}
-                          d={wirePath(hub, target)}
-                          data-state="static"
-                          {...dimmed(entry.appId)}
-                        />
-                      );
-                    })}
+                    apps.flatMap((entry) =>
+                      entry.staticRoutes.map((route) => {
+                        if (visibleGroups.has(route.groupKey)) return null;
+                        const target = groupBox(route.groupKey);
+                        if (!target) return null;
+                        return (
+                          <path
+                            key={`static:${entry.appId}:${route.groupKey}`}
+                            d={wirePath(hub, target)}
+                            data-state="static"
+                            {...dimmed(entry.appId)}
+                          />
+                        );
+                      }),
+                    )}
                   {hub &&
                     lanes.map((lane) => {
                       const playback = lanePlayback(lane, timeline, step);
@@ -837,21 +1030,23 @@ export function RoutingFlow({
                 </g>
                 <g data-region="model">
                   {apps.flatMap((entry) =>
-                    entry.staticOutletKeys.map((key) => {
-                      if (visibleOutlets.get(entry.staticGroupKey!)?.has(key))
-                        return null;
-                      const from = groupBox(entry.staticGroupKey!);
-                      const to = modelBox(key);
-                      if (!from || !to) return null;
-                      return (
-                        <path
-                          key={`static:${entry.appId}:${key}`}
-                          d={wirePath(from, to)}
-                          data-state="static"
-                          {...dimmed(entry.appId)}
-                        />
-                      );
-                    }),
+                    entry.staticRoutes.flatMap((route) =>
+                      route.outletKeys.map((key) => {
+                        if (visibleOutlets.get(route.groupKey)?.has(key))
+                          return null;
+                        const from = groupBox(route.groupKey);
+                        const to = modelBox(key);
+                        if (!from || !to) return null;
+                        return (
+                          <path
+                            key={`static:${entry.appId}:${route.groupKey}:${key}`}
+                            d={wirePath(from, to)}
+                            data-state="static"
+                            {...dimmed(entry.appId)}
+                          />
+                        );
+                      }),
+                    ),
                   )}
                   {lanes.flatMap((lane) =>
                     lane.attempts.map((attempt) => {
@@ -956,7 +1151,7 @@ export function RoutingFlow({
                     style={{ background: color }}
                     aria-hidden
                   />
-                  {getAppLabel(lane.appId)}
+                  {appLabel(lane.appId)}
                   {lane.live && (
                     <span className="text-fg-3">
                       · {t("gateway.flow.liveOne")}
@@ -995,6 +1190,38 @@ export function RoutingFlow({
             onClose={() => setDeletingGroup(null)}
           />
         )}
+        <AccessKeyDialog
+          draft={keyDraft}
+          onChange={setKeyDraft}
+          onClose={() => setKeyDraft(null)}
+          onIssued={(token) => {
+            setKeyDraft(null);
+            setIssuedToken(token);
+          }}
+        />
+        {/* 编辑就是重新签发：令牌只在签发时显示一次，所以完成后再弹令牌。 */}
+        <AccessKeyDialog
+          variant="edit"
+          draft={editKey}
+          onChange={setEditKey}
+          onClose={() => setEditKey(null)}
+          onDeleteRequest={(binding) => {
+            setEditKey(null);
+            setDeleteKey(binding);
+          }}
+          onIssued={(token) => {
+            setEditKey(null);
+            setIssuedToken(token);
+          }}
+        />
+        <AccessDeleteDialog
+          binding={deleteKey}
+          onClose={() => setDeleteKey(null)}
+        />
+        <IssuedTokenDialog
+          token={issuedToken}
+          onClose={() => setIssuedToken(null)}
+        />
       </CardContent>
     </Card>
   );

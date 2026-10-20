@@ -170,20 +170,18 @@ pub async fn connect(
         .db
         .select_gateway_group(app.as_str(), group_id, revision)
         .map_err(|error| error.to_string())?;
+    // 已经接入时，本次尝试失败要把原来的 PHI 供应商行保留下来：应用原生配置
+    // 仍可能指向它。首连接才需要清理失败时新建的行。
+    let provider_id = apps::provider_id(app);
+    let had_provider = state
+        .db
+        .get_provider_by_id(&provider_id, app.as_str())
+        .map_err(|error| error.to_string())?
+        .is_some();
     let result = connect_selected(state, app, group_id).await;
     if result.is_err() {
-        // 写入失败时不要留下半个接入：供应商行和连接一起退回。切换前的供应商没变。
-        if state
-            .db
-            .get_provider_by_id(&apps::provider_id(app), app.as_str())
-            .ok()
-            .flatten()
-            .is_some()
-            && record_of(app).previous_provider_id.is_none()
-        {
-            let _ = state
-                .db
-                .delete_provider(app.as_str(), &apps::provider_id(app));
+        if !had_provider {
+            let _ = state.db.delete_provider(app.as_str(), &provider_id);
         }
         state
             .db
@@ -215,19 +213,68 @@ async fn connect_selected(state: &AppState, app: &AppType, group_id: &str) -> Re
             pointer.or_else(|| native_active_provider(app))
         }
     };
+    let provider_id = provider.id.clone();
+    let previous_provider = state
+        .db
+        .get_provider_by_id(&provider_id, app.as_str())
+        .map_err(|error| error.to_string())?;
+    let previous_current = crate::mode::current::in_use_pointer(&state.db, app.as_str())
+        .map_err(|error| error.to_string())?;
     state
         .db
         .save_provider(app.as_str(), &provider)
         .map_err(|error| error.to_string())?;
-    ProviderService::switch(state, app.clone(), &provider.id)
-        .map_err(|error| format!("写入 {} 路由配置失败: {error}", group_id))?;
-    remember(
+    // 切换失败时连原生配置和当前指针一起退回：优先用恢复后的旧 PHI 行重写，
+    // 首连接则用尝试前的当前供应商；两者都没有时清除指针。
+    let rollback = |state: &AppState| {
+        match &previous_provider {
+            Some(previous) => {
+                let _ = state.db.save_provider(app.as_str(), previous);
+            }
+            None => {
+                let _ = state.db.delete_provider(app.as_str(), &provider_id);
+            }
+        }
+        let restore = if previous_provider.is_some() {
+            Some(provider_id.clone())
+        } else {
+            previous_current.clone()
+        };
+        if let Some(id) = restore {
+            if state
+                .db
+                .get_provider_by_id(&id, app.as_str())
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                if let Err(error) = ProviderService::switch(state, app.clone(), &id) {
+                    log::warn!(
+                        "[GATEWAY] {} 接入失败后恢复供应商 {} 失败: {error}",
+                        app.as_str(),
+                        id
+                    );
+                }
+            }
+        } else {
+            let _ = crate::settings::set_current_provider(app, None);
+            let _ = state.db.clear_current_provider(app.as_str());
+        }
+    };
+    if let Err(error) = ProviderService::switch(state, app.clone(), &provider.id) {
+        rollback(state);
+        return Err(format!("写入 {} 路由配置失败: {error}", group_id));
+    }
+    if let Err(error) = remember(
         app,
         Some(AttachmentRecord {
-            previous_provider_id: previous,
+            previous_provider_id: previous.clone(),
             previous_values: Vec::new(),
         }),
-    )?;
+    ) {
+        rollback(state);
+        return Err(format!("保存 {} 接入状态失败: {error}", app.as_str()));
+    }
     log::info!(
         "[GATEWAY] {} 接入路由组 {}，发布模型 {:?}",
         app.as_str(),
@@ -344,11 +391,20 @@ pub async fn connect_local(
         .db
         .select_gateway_group(spec.id, group_id, revision)
         .map_err(|error| error.to_string())?;
+    // 已经接入时，本次尝试失败要把原来的 PHI 供应商行恢复出来，不能删掉——
+    // 应用原生配置仍在指向它。首连接才需要清理失败时新建的行。
+    let had_provider = state
+        .db
+        .get_provider_by_id(&local_apps::provider_id(spec.id), spec.id)
+        .map_err(|error| error.to_string())?
+        .is_some();
     let result = connect_local_selected(state, spec, group_id).await;
     if result.is_err() {
-        let _ = state
-            .db
-            .delete_provider(spec.id, &local_apps::provider_id(spec.id));
+        if !had_provider {
+            let _ = state
+                .db
+                .delete_provider(spec.id, &local_apps::provider_id(spec.id));
+        }
         state
             .db
             .restore_gateway_group_connection(spec.id, group_id, previous_connection)
@@ -368,14 +424,22 @@ async fn connect_local_selected(
     }
     let (proxy_url, _) = state.proxy_service.build_proxy_urls().await?;
     let plan = local_plan(spec, &proxy_url, &models)?;
-    // 已经接入时不要重新记录激活键：那会把 PHI 自己写的值当成用户原值。
+    // 两次快照用途不同：current_values 用于本次失败回滚（恢复到尝试前的原生配置），
+    // saved 是退出路由时要放回的用户原值，重连时不能被 PHI 自己写的值覆盖。
+    let current_values = local_apps::stash(&plan).map_err(|error| error.to_string())?;
     let record = record_of_id(spec.id);
     let saved = if record.previous_values.is_empty() {
-        local_apps::stash(&plan).map_err(|error| error.to_string())?
+        current_values.clone()
     } else {
         record.previous_values.clone()
     };
     let provider_id = local_apps::provider_id(spec.id);
+    let previous_provider = state
+        .db
+        .get_provider_by_id(&provider_id, spec.id)
+        .map_err(|error| error.to_string())?;
+    let previous_current = crate::mode::current::in_use_pointer(&state.db, spec.id)
+        .map_err(|error| error.to_string())?;
     let mut provider = Provider::with_id(
         provider_id.clone(),
         "PHI".into(),
@@ -387,23 +451,46 @@ async fn connect_local_selected(
         .db
         .save_provider(spec.id, &provider)
         .map_err(|error| error.to_string())?;
+    // 文件写入或指针更新失败时不要留下半个接入：把已写进去的键退回，并把
+    // 供应商行恢复成尝试前的样子。
+    let rollback = |state: &AppState| {
+        let _ = local_apps::restore(&current_values);
+        match &previous_provider {
+            Some(previous) => {
+                let _ = state.db.save_provider(spec.id, previous);
+            }
+            None => {
+                let _ = state.db.delete_provider(spec.id, &provider_id);
+            }
+        }
+        // 当前指针也要退回尝试前：首连接失败时清掉，重连失败时指回恢复后的行。
+        match &previous_current {
+            Some(id) => {
+                let _ = state.db.set_current_provider(spec.id, id);
+            }
+            None => {
+                let _ = state.db.clear_current_provider(spec.id);
+            }
+        }
+    };
     if let Err(error) = local_apps::apply(&plan) {
-        // 写入失败时不要留下半个接入：把已写进去的键退回。
-        let _ = local_apps::restore(&saved);
-        let _ = state.db.delete_provider(spec.id, &provider_id);
+        rollback(state);
         return Err(format!("写入 {} 路由配置失败: {error}", spec.label));
     }
-    state
-        .db
-        .set_current_provider(spec.id, &provider_id)
-        .map_err(|error| error.to_string())?;
-    remember_id(
+    if let Err(error) = state.db.set_current_provider(spec.id, &provider_id) {
+        rollback(state);
+        return Err(format!("更新 {} 当前供应商失败: {error}", spec.label));
+    }
+    if let Err(error) = remember_id(
         spec.id,
         Some(AttachmentRecord {
             previous_provider_id: None,
-            previous_values: saved,
+            previous_values: saved.clone(),
         }),
-    )?;
+    ) {
+        rollback(state);
+        return Err(format!("保存 {} 接入状态失败: {error}", spec.label));
+    }
     log::info!(
         "[GATEWAY] {} 接入路由组 {}，发布模型 {:?}",
         spec.id,
@@ -613,6 +700,7 @@ async fn refresh(state: &AppState, app: &AppType) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     const MODELS: [&str; 2] = ["glm-5", "kimi-k3"];
 
@@ -662,5 +750,49 @@ mod tests {
         }
         let routes = crate::claude_desktop_config::proxy_model_routes(&provider).unwrap();
         assert_eq!(routes.len(), 2);
+    }
+
+    /// 审计复现：首连接记录不到“上一家”，之后的失败重连不能删除已存在的
+    /// PHI 行。这个测试放在 attach 模块下，`cargo test gateway::attach` 即可覆盖。
+    #[cfg(unix)]
+    #[tokio::test]
+    #[serial]
+    async fn a_failed_reconnect_keeps_the_existing_provider_row() {
+        use crate::mode::controller::mode_tests::{
+            seed_gateway_group, state_without_providers, Home,
+        };
+        use std::fs;
+        let _home = Home::new();
+        let state = state_without_providers().await;
+        seed_gateway_group(&state, "openclaw", "m").await;
+        connect(&state, &AppType::OpenClaw, "root", None)
+            .await
+            .expect("first connect");
+        let attached = status(&state, &AppType::OpenClaw)
+            .expect("status")
+            .expect("attached");
+        assert!(attached.previous_provider_id.is_none());
+
+        let id = apps::provider_id(&AppType::OpenClaw);
+        let before = state
+            .db
+            .get_provider_by_id(&id, "openclaw")
+            .expect("fetch")
+            .expect("row");
+        // 写原生配置失败（配置路径变成目录）。
+        let path = crate::openclaw_config::get_openclaw_config_path();
+        fs::remove_file(&path).expect("remove openclaw config");
+        fs::create_dir(&path).expect("config path as directory");
+
+        let error = connect(&state, &AppType::OpenClaw, "root", None)
+            .await
+            .expect_err("reconnect must fail");
+        assert!(error.contains("写入"), "unexpected error: {error}");
+        let after = state
+            .db
+            .get_provider_by_id(&id, "openclaw")
+            .expect("fetch")
+            .expect("row survives a failed reconnect");
+        assert_eq!(after.settings_config, before.settings_config);
     }
 }

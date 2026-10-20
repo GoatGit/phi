@@ -497,6 +497,18 @@ impl Database {
         Ok(())
     }
 
+    /// 清除应用的当前供应商指针。接入失败回滚到“此前没有当前供应商”时使用，
+    /// 不能留下指向已删除供应商行的 is_current。
+    pub fn clear_current_provider(&self, app_type: &str) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "UPDATE providers SET is_current = 0 WHERE app_type = ?1",
+            params![app_type],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn update_provider_settings_config(
         &self,
         app_type: &str,

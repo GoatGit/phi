@@ -116,6 +116,9 @@ export interface GatewayRequestTrace {
   id: string;
   createdAt: number;
   appId: string;
+  /** 第三方密钥的非敏感身份；旧轨迹可能没有。 */
+  bindingId?: string | null;
+  bindingName?: string | null;
   requestModel?: string;
   catalogRevision: number;
   policy: GatewayRoutePolicy;
@@ -251,7 +254,50 @@ export interface GatewayTracePage {
   active: GatewayRequestTrace[];
 }
 
+export interface SubscriptionMethod {
+  type: string;
+  label: string;
+}
+export interface SubscriptionPrompt {
+  type: string;
+  key: string;
+  message: string;
+  placeholder?: string;
+  options?: { label: string; value: string; hint?: string }[];
+}
+export interface SubscriptionSignIn {
+  id: string;
+  agent: string;
+  state: string;
+  url?: string;
+  code?: string;
+  error?: string;
+  user?: string;
+  plan?: string;
+  instructions?: string;
+  pasteCallback?: boolean;
+  pasteCode?: boolean;
+  pasteKey?: boolean;
+  keysURL?: string;
+}
+/** The models of the account signed in now: the vendor's own list, or the one
+ * the account had last time when the vendor couldn't be asked. */
+export interface SubscriptionModels {
+  models: string[];
+  source: "vendor" | "cached";
+  fetchedAt?: string;
+  warning?: string;
+}
 export const gatewayApi = {
+  subscriptionAction<T>(
+    action: string,
+    input: Record<string, unknown>,
+  ): Promise<T> {
+    return invoke("gateway_subscription_action", { action, input });
+  },
+  connectSubscription(id: string, revision: number): Promise<GatewayCatalog> {
+    return invoke("connect_gateway_subscription", { id, revision });
+  },
   async getTracePage(query: GatewayTraceQuery): Promise<GatewayTracePage> {
     return invoke("get_gateway_trace_page", { query });
   },

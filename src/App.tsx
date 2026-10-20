@@ -23,7 +23,6 @@ import { toast } from "@/lib/toast";
 import { invoke } from "@tauri-apps/api/core";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeftRight,
   BarChart3,
   BookOpen,
   Brain,
@@ -42,7 +41,7 @@ import {
   SquareTerminal,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Provider, VisibleApps } from "@/types";
+import type { Provider, Settings, VisibleApps } from "@/types";
 import { KNOWN_APP_TYPES, type AppTypeFilter } from "@/types/usage";
 import type { EnvConflict } from "@/types/env";
 import {
@@ -83,23 +82,27 @@ import {
   APP_STORAGE_KEY,
   appPageBelongsTo,
   isAppPage,
-  readStoredSettingsSection,
+  readStoredView,
   sharedFeatureAppOf,
   storeView,
-  visibleSettingsSections,
   type AppPage,
   type GlobalPage,
   type SettingsSection,
   type View,
 } from "@/lib/navigation";
 import { Sidebar } from "@/components/shell/Sidebar";
+import { isSidebarAppId } from "@/components/shell/sidebarApps";
 import { useUpdate } from "@/contexts/UpdateContext";
 import {
   AppPageHeader,
   WindowControlsContext,
 } from "@/components/shell/AppPageHeader";
 import { WindowControls } from "@/components/shell/WindowControls";
-import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
+import {
+  APP_DISPLAY_NAME,
+  AppGlyph,
+  getAppDisplayName,
+} from "@/components/shell/AppGlyph";
 import { ProfileSwitcher } from "@/components/profiles/ProfileSwitcher";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
@@ -114,6 +117,7 @@ import { SettingsPage } from "@/components/settings/SettingsPage";
 import {
   checkToolUpdatesInBackground,
   toolNameForApp,
+  toolNameForLocalApp,
   useToolManagement,
   useToolUpdatesAvailable,
 } from "@/components/apps/useToolManagement";
@@ -172,7 +176,9 @@ import {
   DEFAULT_VISIBLE_APPS,
   MCP_APP_IDS,
   SKILLS_APP_IDS,
+  isLocalRoutableAppId,
   isProxyAppId,
+  type LocalRoutableAppId,
 } from "@/config/appConfig";
 import { AppHomePage, type AppHomeTile } from "@/components/app/AppHomePage";
 import { ConfigDirectoryDialog } from "@/components/app/ConfigDirectoryDialog";
@@ -197,21 +203,22 @@ function App() {
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
   const sharedFeatureApp = sharedFeatureAppOf(activeApp);
   const [gatewayPolicyId, setGatewayPolicyId] = useState<string | null>(null);
-  // 侧栏里的路由专用应用：没有应用页，点进去是路由页的设置路由；保留选中态
+  // 侧栏里的路由专用应用：有自己的配置页，点进去先落在配置页
+  const [activeLocalApp, setActiveLocalApp] =
+    useState<LocalRoutableAppId | null>(null);
+  // 路由页当前打开「设置应用路由」的应用；保留选中态
   const [activeRoutingApp, setActiveRoutingApp] = useState<string | null>(null);
   const [routeAppRequest, setRouteAppRequest] =
     useState<RouteAppRequest | null>(null);
-  const [currentView, setCurrentView] = useState<View>("usage");
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>(
-    readStoredSettingsSection,
-  );
+  const [currentView, setCurrentView] = useState<View>(readStoredView);
+  // 设置分区是页内标签：只在这一屏里记住，不参与导航与持久化
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection>("general");
   // 各应用的「配置」弹窗：目录配置（全部应用）与 OpenClaw 的 env/工具/智能体
   const [configDirectoryApp, setConfigDirectoryApp] = useState<AppId | null>(
     null,
   );
   const [openclawConfigOpen, setOpenclawConfigOpen] = useState(false);
-  // 进设置前停留的页面：设置目录里的「← 返回」回到这里
-  const settingsReturnViewRef = useRef<View>("providers");
   const [openclawConfigTab, setOpenclawConfigTab] =
     useState<OpenClawConfigTab>("env");
   const [promptsApp, setPromptsApp] = useState<AppId>(() =>
@@ -259,6 +266,12 @@ function App() {
     }),
     [settingsData?.visibleApps],
   );
+  // 侧栏只列用户自己添加过的应用（默认一个都不列）。
+  const sidebarApps = useMemo<string[]>(() => {
+    const saved = settingsData?.sidebarApps;
+    if (!Array.isArray(saved)) return [];
+    return saved.filter(isSidebarAppId);
+  }, [settingsData?.sidebarApps]);
 
   const getFirstVisibleApp = (): AppId => {
     return APP_IDS.find((app) => visibleApps[app]) ?? "claude";
@@ -273,23 +286,6 @@ function App() {
       setActiveApp(getFirstVisibleApp());
     }
   }, [settingsData, visibleApps, activeApp]);
-
-  // 上次停留的高级分区（应用管理/目录定位/全局代理）在专家模式关闭时不该出现。
-  // 只在 settings 首次加载后纠正一次：GeneralSection 的「前往应用」按钮仍允许
-  // 非专家用户直接进入 apps 分区，不能每次变化都弹回。
-  const settingsSectionFallbackDone = useRef(false);
-  useEffect(() => {
-    if (!settingsData || settingsSectionFallbackDone.current) return;
-    settingsSectionFallbackDone.current = true;
-    if (
-      currentView === "settings" &&
-      !visibleSettingsSections(settingsData.expertMode ?? false).includes(
-        settingsSection,
-      )
-    ) {
-      setSettingsSection("general");
-    }
-  }, [settingsData, currentView, settingsSection]);
 
   // 启动后把其他可见应用的供应商列表预取进缓存：第一次切过去直接有数据，不先画骨架
   const providersPrefetchedRef = useRef(false);
@@ -334,6 +330,18 @@ function App() {
       setCurrentView("providers");
     }
   }, [activeApp, currentView]);
+
+  // 路由专用应用只在自己的配置页/路由页里有意义；跳到其他页面时清掉，
+  // 避免下一个应用页误用它的状态。
+  useEffect(() => {
+    if (
+      activeLocalApp &&
+      currentView !== "home" &&
+      currentView !== "routingOverview"
+    ) {
+      setActiveLocalApp(null);
+    }
+  }, [activeLocalApp, currentView]);
 
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
@@ -686,21 +694,28 @@ function App() {
     confirmLeave,
   );
 
+  /**
+   * 进设置页并定位到某个页内标签。普通设置分区只是换标签，不涉及未保存内容；
+   * 从应用页的「应用管理」入口进来时才需要确认终端未保存内容。
+   */
   const openSettings = (section: SettingsSection = "general") => {
     if (managementBusyRef.current) return;
     if (confirmLeave(() => openSettings(section))) return;
     closeProviderPanels();
     setActiveRoutingApp(null);
+    setActiveLocalApp(null);
     setRouteAppRequest(null);
-    if (currentViewRef.current !== "settings") {
-      settingsReturnViewRef.current = currentViewRef.current;
-    }
     setSettingsSection(section);
     setCurrentView("settings");
   };
 
-  const exitSettings = () => {
-    setCurrentView(settingsReturnViewRef.current);
+  /** 设置页的页内标签：已经在设置页时只换标签，不重新进入。 */
+  const selectSettingsSection = (section: SettingsSection) => {
+    if (currentViewRef.current === "settings") {
+      setSettingsSection(section);
+      return;
+    }
+    openSettings(section);
   };
 
   const selectApp = (app: AppId, page: AppPage = "home") => {
@@ -708,23 +723,36 @@ function App() {
     if (confirmLeave(() => selectApp(app, page))) return;
     closeProviderPanels();
     setActiveRoutingApp(null);
+    setActiveLocalApp(null);
     setRouteAppRequest(null);
     setActiveApp(app);
     localStorage.setItem(APP_STORAGE_KEY, app);
     setCurrentView(page);
   };
 
-  /** 侧栏点了路由专用应用（Command Code / Crush / …）：没有应用页，
-   *  直接进路由页并打开它的「设置应用路由」。 */
-  const selectRoutingApp = (appId: string) => {
+  /** 侧栏点了路由专用应用（Command Code / Crush / …）：先进它的配置页。 */
+  const selectLocalApp = (appId: string) => {
+    if (!isLocalRoutableAppId(appId)) return;
     if (managementBusyRef.current) return;
-    if (confirmLeave(() => selectRoutingApp(appId))) return;
+    if (confirmLeave(() => selectLocalApp(appId))) return;
+    closeProviderPanels();
+    setActiveRoutingApp(null);
+    setRouteAppRequest(null);
+    setActiveLocalApp(appId);
+    setCurrentView("home");
+  };
+
+  /** 路由专用应用配置页的「路由」宫格：进路由页并打开它的设置应用路由。 */
+  const openLocalAppRouting = (appId: LocalRoutableAppId) => {
+    if (managementBusyRef.current) return;
+    if (confirmLeave(() => openLocalAppRouting(appId))) return;
     closeProviderPanels();
     setActiveRoutingApp(appId);
     setRouteAppRequest((previous) => ({
       appId,
       nonce: (previous?.nonce ?? 0) + 1,
     }));
+    setDrillInReturn(currentViewRef.current);
     setCurrentView("routingOverview");
   };
 
@@ -737,6 +765,7 @@ function App() {
     if (confirmLeave(() => openPage(page))) return;
     closeProviderPanels();
     setActiveRoutingApp(null);
+    setActiveLocalApp(null);
     setRouteAppRequest(null);
     if (page === "prompts" && currentViewRef.current !== "prompts") {
       // 提示词页默认选中侧栏里最后选的那个应用
@@ -816,9 +845,6 @@ function App() {
       if (view === "skillsDiscovery") {
         event.preventDefault();
         setCurrentView("skills");
-      } else if (view === "settings") {
-        event.preventDefault();
-        setCurrentView(settingsReturnViewRef.current);
       }
     };
 
@@ -1148,27 +1174,75 @@ function App() {
     }
   };
 
-  const handleHideActiveApp = async () => {
-    if (terminals.sessions.some((session) => session.appId === activeApp)) {
-      toast.error(t("terminal.closeBeforeHiding"));
-      return;
-    }
-    const visibleCount = Object.values(visibleApps).filter(Boolean).length;
-    if (visibleCount <= 1) return;
-    try {
-      const current = await settingsApi.get();
-      await settingsApi.save({
-        ...current,
-        visibleApps: { ...visibleApps, [activeApp]: false },
-      });
-      await queryClient.invalidateQueries({ queryKey: ["settings"] });
-    } catch (error) {
-      toast.error(
-        t("settings.saveFailedGeneric", { defaultValue: "保存失败，请重试" }),
-        { description: extractErrorMessage(error) || undefined },
+  /**
+   * 侧栏应用列表（自定义添加）：只改左侧菜单里的快捷方式，不动应用自己的
+   * 供应商与配置。先更新缓存再落盘，菜单里的增删立即生效。
+   */
+  const saveSidebarApps = useCallback(
+    async (next: string[]) => {
+      queryClient.setQueryData<Settings>(["settings"], (previous) =>
+        previous ? { ...previous, sidebarApps: next } : previous,
       );
-    }
-  };
+      try {
+        const current = await settingsApi.get();
+        await settingsApi.save({ ...current, sidebarApps: next });
+      } catch (error) {
+        toast.error(
+          t("settings.saveFailedGeneric", { defaultValue: "保存失败，请重试" }),
+          { description: extractErrorMessage(error) || undefined },
+        );
+      } finally {
+        await queryClient.invalidateQueries({ queryKey: ["settings"] });
+      }
+    },
+    [queryClient, t],
+  );
+
+  const handleAddSidebarApp = useCallback(
+    (appId: string) => {
+      if (!isSidebarAppId(appId) || sidebarApps.includes(appId)) return;
+      void saveSidebarApps([...sidebarApps, appId]);
+    },
+    [saveSidebarApps, sidebarApps],
+  );
+
+  const handleRemoveSidebarApp = useCallback(
+    (appId: string) => {
+      if (!sidebarApps.includes(appId)) return;
+      if (terminals.sessions.some((session) => session.appId === appId)) {
+        toast.error(t("terminal.closeBeforeHiding"));
+        return;
+      }
+      const next = sidebarApps.filter((id) => id !== appId);
+      void saveSidebarApps(next);
+
+      // 删掉的正是当前页面：换到剩下的第一个应用；一个都不剩就去用量页。
+      const showing = isLocalRoutableAppId(appId)
+        ? activeLocalApp === appId && currentView === "home"
+        : !activeLocalApp && activeApp === appId && isAppPage(currentView);
+      if (!showing) return;
+      const fallback = next[0];
+      if (!fallback) {
+        openPage("usage");
+      } else if (isLocalRoutableAppId(fallback)) {
+        selectLocalApp(fallback);
+      } else {
+        selectApp(fallback as AppId);
+      }
+    },
+    [
+      activeApp,
+      activeLocalApp,
+      currentView,
+      openPage,
+      saveSidebarApps,
+      selectApp,
+      selectLocalApp,
+      sidebarApps,
+      t,
+      terminals.sessions,
+    ],
+  );
 
   // ─── 应用页 ─────────────────────────────────────────────────────────────
 
@@ -1223,6 +1297,9 @@ function App() {
             {t("appPage.viewUsage")}
           </DropdownMenuItem>
         )}
+        <DropdownMenuItem onSelect={() => selectApp(activeApp, "providers")}>
+          {t("gateway.providers")}
+        </DropdownMenuItem>
         {activeApp !== "mcode" && (
           <DropdownMenuItem
             onSelect={() =>
@@ -1239,10 +1316,10 @@ function App() {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          disabled={Object.values(visibleApps).filter(Boolean).length <= 1}
-          onSelect={() => void handleHideActiveApp()}
+          disabled={!sidebarApps.includes(activeApp)}
+          onSelect={() => handleRemoveSidebarApp(activeApp)}
         >
-          {t("appPage.hideFromSidebar")}
+          {t("nav.removeFromSidebar")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1426,7 +1503,7 @@ function App() {
       <div
         ref={providerScrollContainerRef}
         id="main-content"
-        className="min-h-0 flex-1 overflow-y-auto scroll-stable overflow-x-hidden px-6 pb-12 pt-4"
+        className="min-h-0 flex-1 overflow-y-auto scroll-stable overflow-x-hidden px-6 pb-10 pt-4"
       >
         <div className="space-y-4">
           {activeApp === "claude-desktop" && (
@@ -1517,10 +1594,13 @@ function App() {
     }
 
     tiles.push({
-      key: "providers",
-      label: t("gateway.providers"),
-      icon: ArrowLeftRight,
-      onSelect: () => setCurrentView("providers"),
+      key: "routing",
+      label: t("gateway.routing"),
+      icon: Route,
+      onSelect: () => {
+        setDrillInReturn(currentViewRef.current);
+        openPage("routingOverview");
+      },
     });
     if (activeApp === "openclaw") {
       tiles.push(
@@ -1544,17 +1624,6 @@ function App() {
         label: t("appPage.memory"),
         icon: Brain,
         onSelect: () => setCurrentView("hermesMemory"),
-      });
-    }
-    if (isProxyAppId(activeApp)) {
-      tiles.push({
-        key: "routing",
-        label: t("gateway.routing"),
-        icon: Route,
-        onSelect: () => {
-          setDrillInReturn(currentViewRef.current);
-          openPage("routingOverview");
-        },
       });
     }
     const usageApp = usageAppOf(activeApp);
@@ -1630,7 +1699,63 @@ function App() {
     return tiles;
   };
 
+  // 路由专用应用没有供应商表/MCP 等能力，配置页只放它实际有的入口。
+  const buildLocalAppHomeTiles = (
+    localApp: LocalRoutableAppId,
+  ): AppHomeTile[] => {
+    const toolName = toolNameForLocalApp(localApp);
+    const toolVersion = toolName ? toolVersionByName.get(toolName) : undefined;
+    const appInstalled = toolName ? Boolean(toolVersion?.version) : true;
+    const appUpdateAvailable = isUpdateAvailable(
+      toolVersion?.version,
+      toolVersion?.latest_version,
+    );
+
+    const tiles: AppHomeTile[] = [];
+    if (toolName && !appInstalled) {
+      tiles.push({
+        key: "install",
+        label: t("skills.install"),
+        icon: Download,
+        onSelect: () => openSettings("apps"),
+      });
+    } else if (toolName && appUpdateAvailable) {
+      tiles.push({
+        key: "update",
+        label: t("skills.update"),
+        icon: RefreshCw,
+        onSelect: () => openSettings("apps"),
+      });
+    }
+    tiles.push({
+      key: "routing",
+      label: t("gateway.routing"),
+      icon: Route,
+      onSelect: () => openLocalAppRouting(localApp),
+    });
+    return tiles;
+  };
+
+  const renderLocalAppHome = (localApp: LocalRoutableAppId) => (
+    <>
+      <AppPageHeader
+        variant="app"
+        icon={<AppGlyph app={localApp} size={20} badgeClassName="bg-app" />}
+        title={getAppDisplayName(localApp)}
+        subtitle={t("appPage.home")}
+      />
+      <AppHomePage tiles={buildLocalAppHomeTiles(localApp)}>
+        <p className="mx-auto mt-4 max-w-3xl text-caption text-fg-3">
+          {t("appPage.routeOnlyHint")}
+        </p>
+      </AppHomePage>
+    </>
+  );
+
   const renderAppPage = () => {
+    if (currentView === "home" && activeLocalApp) {
+      return renderLocalAppHome(activeLocalApp);
+    }
     const body = (() => {
       switch (currentView) {
         case "home":
@@ -1786,9 +1911,10 @@ function App() {
       return (
         <SettingsPage
           section={settingsSection}
-          onExitSettings={exitSettings}
+          expertMode={settingsData?.expertMode ?? false}
+          onSelectSection={selectSettingsSection}
           onImportSuccess={handleImportSuccess}
-          onOpenApps={() => openSettings("apps")}
+          onOpenApps={() => selectSettingsSection("apps")}
         />
       );
     }
@@ -1803,14 +1929,15 @@ function App() {
         <Sidebar
           activeApp={activeApp}
           view={currentView}
-          visibleApps={visibleApps}
-          settingsSection={settingsSection}
-          expertMode={settingsData?.expertMode ?? false}
+          sidebarApps={sidebarApps}
+          onAddSidebarApp={handleAddSidebarApp}
+          onRemoveSidebarApp={handleRemoveSidebarApp}
           onSelectApp={selectApp}
           activeRoutingApp={
             currentView === "routingOverview" ? activeRoutingApp : null
           }
-          onSelectRoutingApp={selectRoutingApp}
+          activeLocalApp={activeLocalApp}
+          onSelectLocalApp={selectLocalApp}
           terminalCounts={Object.fromEntries(
             terminals.sessions
               .filter(terminalAlive)
@@ -1822,7 +1949,6 @@ function App() {
               ]),
           )}
           onSelectPage={openPageFromNav}
-          onSelectSettingsSection={setSettingsSection}
           appsUpdateAvailable={
             checkToolUpdatesOnStartup && toolUpdatesAvailable
           }
@@ -1892,7 +2018,7 @@ function App() {
             className="flex flex-col p-0 sm:rounded-none"
           >
             <DialogHeader className="border-b border-border">
-              <DialogTitle className="flex items-center gap-2 px-6 py-4 text-lg font-semibold">
+              <DialogTitle className="flex items-center gap-2 px-6 py-4 text-page">
                 {t("appPage.openclawConfig")}
                 <span className="text-fg-2">· {APP_DISPLAY_NAME.openclaw}</span>
               </DialogTitle>

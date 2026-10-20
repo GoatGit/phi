@@ -386,6 +386,10 @@ export interface Settings {
   // 主页面显示的应用（默认全部显示）
   visibleApps?: VisibleApps;
 
+  // 侧栏「应用」区里用户自己添加的快捷方式（默认空：不列任何应用）。
+  // 只影响左侧菜单，不改变应用是否可用、也不影响它的配置与同步。
+  sidebarApps?: string[];
+
   // ===== 设备级目录覆盖 =====
   // 覆盖 Claude Code 配置目录（可选）
   claudeConfigDir?: string;

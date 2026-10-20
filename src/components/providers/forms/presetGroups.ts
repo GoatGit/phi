@@ -19,6 +19,7 @@ type Translate = (key: string) => unknown;
  * （很多行为依赖它）。
  */
 export type PresetGroup =
+  | "subscription"
   | "login"
   | "vendor"
   | "thirdparty"
@@ -27,6 +28,7 @@ export type PresetGroup =
 
 export const PRESET_GROUP_ORDER: PresetGroup[] = [
   "login",
+  "subscription",
   "vendor",
   "thirdparty",
   "cloud",
@@ -430,6 +432,7 @@ export function presetNeedsRouting(
   appId: AppId | undefined,
   entry: PresetEntry,
 ): boolean {
+  if (presetGroup(entry.preset) === "subscription") return true;
   if (!appId) return false;
   const p = entry.preset as PresetFields;
   const provider = {

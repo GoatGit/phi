@@ -36,6 +36,7 @@ type RequestLogsKey = {
   appType?: string;
   providerName?: string;
   model?: string;
+  bindingId?: string;
   statusCode?: number;
 };
 
@@ -59,12 +60,13 @@ export const usageKeys = {
       filters?.appType ?? null,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.bindingId ?? null,
     ] as const,
   summaryByApp: (
     preset: UsageRangeSelection["preset"],
     customStartDate: number | undefined,
     customEndDate: number | undefined,
-    filters?: Pick<UsageScopeFilters, "providerName" | "model">,
+    filters?: Pick<UsageScopeFilters, "providerName" | "model" | "bindingId">,
     liveEndTime?: boolean,
   ) =>
     [
@@ -76,6 +78,7 @@ export const usageKeys = {
       liveEndTime ?? false,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.bindingId ?? null,
     ] as const,
   trends: (
     preset: UsageRangeSelection["preset"],
@@ -94,6 +97,7 @@ export const usageKeys = {
       filters?.appType ?? null,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.bindingId ?? null,
     ] as const,
   firstDate: (filters?: UsageScopeFilters) =>
     [
@@ -102,6 +106,7 @@ export const usageKeys = {
       filters?.appType ?? null,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.bindingId ?? null,
     ] as const,
   providerStats: (
     preset: UsageRangeSelection["preset"],
@@ -120,6 +125,7 @@ export const usageKeys = {
       filters?.appType ?? null,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.bindingId ?? null,
     ] as const,
   modelStats: (
     preset: UsageRangeSelection["preset"],
@@ -138,6 +144,7 @@ export const usageKeys = {
       filters?.appType ?? null,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.bindingId ?? null,
     ] as const,
   logs: (key: RequestLogsKey, page: number, pageSize: number) =>
     [
@@ -150,6 +157,7 @@ export const usageKeys = {
       key.appType ?? "",
       key.providerName ?? "",
       key.model ?? "",
+      key.bindingId ?? "",
       key.statusCode ?? -1,
       page,
       pageSize,
@@ -171,6 +179,7 @@ function normalizeScopeFilters(filters?: UsageScopeFilters): UsageScopeFilters {
     appType: filters?.appType === "all" ? undefined : filters?.appType,
     providerName: filters?.providerName,
     model: filters?.model,
+    bindingId: filters?.bindingId,
   };
 }
 
@@ -199,6 +208,7 @@ export function useUsageSummary(
         effective.appType,
         effective.providerName,
         effective.model,
+        effective.bindingId,
       );
     },
     placeholderData: keepPreviousData,
@@ -209,7 +219,7 @@ export function useUsageSummary(
 
 export function useUsageSummaryByApp(
   range: UsageRangeSelection,
-  filters?: Pick<UsageScopeFilters, "providerName" | "model">,
+  filters?: Pick<UsageScopeFilters, "providerName" | "model" | "bindingId">,
   options?: UsageQueryOptions,
 ) {
   return useQuery({
@@ -227,6 +237,7 @@ export function useUsageSummaryByApp(
         endDate,
         filters?.providerName,
         filters?.model,
+        filters?.bindingId,
       );
     },
     placeholderData: keepPreviousData,
@@ -257,6 +268,7 @@ export function useUsageTrends(
         effective.appType,
         effective.providerName,
         effective.model,
+        effective.bindingId,
       );
     },
     enabled: options?.enabled ?? true,
@@ -279,6 +291,7 @@ export function useUsageFirstDate(
         effective.appType,
         effective.providerName,
         effective.model,
+        effective.bindingId,
       ),
     placeholderData: keepPreviousData,
     refetchInterval: options?.refetchInterval ?? DEFAULT_REFETCH_INTERVAL_MS,
@@ -308,6 +321,7 @@ export function useProviderStats(
         effective.appType,
         effective.providerName,
         effective.model,
+        effective.bindingId,
       );
     },
     placeholderData: keepPreviousData,
@@ -338,6 +352,7 @@ export function useModelStats(
         effective.appType,
         effective.providerName,
         effective.model,
+        effective.bindingId,
       );
     },
     placeholderData: keepPreviousData,
@@ -361,6 +376,7 @@ export function useRequestLogs({
     appType: filters.appType,
     providerName: filters.providerName,
     model: filters.model,
+    bindingId: filters.bindingId,
     statusCode: filters.statusCode,
   };
 

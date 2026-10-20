@@ -1534,10 +1534,18 @@ impl RequestForwarder {
         }
         if let Some((supplier, model, index)) = attempt {
             let latency = started.elapsed().as_millis() as u64;
+            let local_refusal = result
+                .as_ref()
+                .err()
+                .is_some_and(super::ledger_observer::is_local_refusal);
             let error = result.as_ref().err().map(crate::gateway::error_category);
             if let Some(db) = &self.gateway_db {
-                db.gateway_runtime
-                    .attempt_finished(&supplier, &model, error, latency);
+                if local_refusal {
+                    db.gateway_runtime.release(&supplier, &model, latency);
+                } else {
+                    db.gateway_runtime
+                        .attempt_finished(&supplier, &model, error, latency);
+                }
                 if let Some(trace) = &self.gateway_trace {
                     if let Ok(mut trace) = trace.lock() {
                         if let Some(event) = trace.events.get_mut(index) {

@@ -203,6 +203,7 @@ impl Database {
             request_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, app_type TEXT NOT NULL, model TEXT NOT NULL,
             request_model TEXT,
             pricing_model TEXT,
+            binding_id TEXT NOT NULL DEFAULT '', binding_name TEXT NOT NULL DEFAULT '',
             input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
             cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
             input_token_semantics INTEGER NOT NULL DEFAULT 0,
@@ -286,6 +287,8 @@ impl Database {
                 model TEXT NOT NULL,
                 request_model TEXT NOT NULL DEFAULT '',
                 pricing_model TEXT NOT NULL DEFAULT '',
+                binding_id TEXT NOT NULL DEFAULT '',
+                binding_name TEXT NOT NULL DEFAULT '',
                 request_count INTEGER NOT NULL DEFAULT 0,
                 success_count INTEGER NOT NULL DEFAULT 0,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -295,7 +298,7 @@ impl Database {
                 input_token_semantics INTEGER NOT NULL DEFAULT 0,
                 total_cost_usd TEXT NOT NULL DEFAULT '0',
                 avg_latency_ms INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (date, app_type, provider_id, model, request_model, pricing_model)
+                PRIMARY KEY (date, app_type, provider_id, model, request_model, pricing_model, binding_id)
             )",
             [],
         )
@@ -590,6 +593,11 @@ impl Database {
                             .map_err(|e| AppError::Database(format!("迁移 PHI 代理端口失败: {e}")))?;
                         }
                         Self::set_user_version(conn, 21)?;
+                    }
+                    21 => {
+                        log::info!("迁移数据库从 v21 到 v22（用量日志记录外部密钥归属）");
+                        Self::migrate_v21_to_v22(conn)?;
+                        Self::set_user_version(conn, 22)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1639,6 +1647,70 @@ impl Database {
             )?;
         }
         Ok(())
+    }
+
+    /// v21 -> v22: usage rows learn which external gateway key served them.
+    ///
+    /// `binding_id` is the stable access binding identity; `binding_name` is the
+    /// display label at write time. Rollups must carry the same dimension or a
+    /// key filter would silently lose usage once details are pruned after 30
+    /// days. SQLite cannot add a column to a primary key, so the rollup table is
+    /// rebuilt; historical rows keep an empty key (they predate the feature).
+    fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
+        if Self::table_exists(conn, "proxy_request_logs")? {
+            Self::add_column_if_missing(
+                conn,
+                "proxy_request_logs",
+                "binding_id",
+                "TEXT NOT NULL DEFAULT ''",
+            )?;
+            Self::add_column_if_missing(
+                conn,
+                "proxy_request_logs",
+                "binding_name",
+                "TEXT NOT NULL DEFAULT ''",
+            )?;
+        }
+        if !Self::table_exists(conn, "usage_daily_rollups")?
+            || Self::has_column(conn, "usage_daily_rollups", "binding_id")?
+        {
+            return Ok(());
+        }
+        conn.execute_batch(
+            "ALTER TABLE usage_daily_rollups RENAME TO usage_daily_rollups_v21;
+             CREATE TABLE usage_daily_rollups (
+                 date TEXT NOT NULL,
+                 app_type TEXT NOT NULL,
+                 provider_id TEXT NOT NULL,
+                 model TEXT NOT NULL,
+                 request_model TEXT NOT NULL DEFAULT '',
+                 pricing_model TEXT NOT NULL DEFAULT '',
+                 binding_id TEXT NOT NULL DEFAULT '',
+                 binding_name TEXT NOT NULL DEFAULT '',
+                 request_count INTEGER NOT NULL DEFAULT 0,
+                 success_count INTEGER NOT NULL DEFAULT 0,
+                 input_tokens INTEGER NOT NULL DEFAULT 0,
+                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                 input_token_semantics INTEGER NOT NULL DEFAULT 0,
+                 total_cost_usd TEXT NOT NULL DEFAULT '0',
+                 avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (date, app_type, provider_id, model, request_model, pricing_model, binding_id)
+             );
+             INSERT INTO usage_daily_rollups
+                 (date, app_type, provider_id, model, request_model, pricing_model,
+                  binding_id, binding_name, request_count, success_count,
+                  input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                  input_token_semantics, total_cost_usd, avg_latency_ms)
+             SELECT date, app_type, provider_id, model, request_model, pricing_model,
+                  '', '', request_count, success_count,
+                  input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                  input_token_semantics, total_cost_usd, avg_latency_ms
+             FROM usage_daily_rollups_v21;
+             DROP TABLE usage_daily_rollups_v21;",
+        )
+        .map_err(|e| AppError::Database(format!("v21 -> v22 重建 usage_daily_rollups 失败: {e}")))
     }
 
     /// 插入默认模型定价数据
@@ -3768,7 +3840,21 @@ mod tests {
             [],
         )?;
         conn.execute(
-            "CREATE TABLE usage_daily_rollups (date TEXT PRIMARY KEY)",
+            "CREATE TABLE usage_daily_rollups (
+                 date TEXT NOT NULL, app_type TEXT NOT NULL,
+                 provider_id TEXT NOT NULL, model TEXT NOT NULL,
+                 request_model TEXT NOT NULL DEFAULT '',
+                 pricing_model TEXT NOT NULL DEFAULT '',
+                 request_count INTEGER NOT NULL DEFAULT 0,
+                 success_count INTEGER NOT NULL DEFAULT 0,
+                 input_tokens INTEGER NOT NULL DEFAULT 0,
+                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                 total_cost_usd TEXT NOT NULL DEFAULT '0',
+                 avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (date, app_type, provider_id, model, request_model, pricing_model)
+             )",
             [],
         )?;
         Database::set_user_version(&conn, 12)?;
@@ -3857,6 +3943,60 @@ mod tests {
         )?;
         assert_eq!(port, 15721);
         assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v21_to_v22_preserves_rollups_and_adds_key_dimension() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE proxy_request_logs (
+                 request_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL,
+                 app_type TEXT NOT NULL, model TEXT NOT NULL,
+                 input_tokens INTEGER NOT NULL DEFAULT 0,
+                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                 status_code INTEGER NOT NULL, created_at INTEGER NOT NULL
+             );
+             CREATE TABLE usage_daily_rollups (
+                 date TEXT NOT NULL, app_type TEXT NOT NULL, provider_id TEXT NOT NULL,
+                 model TEXT NOT NULL, request_model TEXT NOT NULL DEFAULT '',
+                 pricing_model TEXT NOT NULL DEFAULT '',
+                 request_count INTEGER NOT NULL DEFAULT 0,
+                 success_count INTEGER NOT NULL DEFAULT 0,
+                 input_tokens INTEGER NOT NULL DEFAULT 0,
+                 output_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                 cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                 input_token_semantics INTEGER NOT NULL DEFAULT 2,
+                 total_cost_usd TEXT NOT NULL DEFAULT '0',
+                 avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (date, app_type, provider_id, model, request_model, pricing_model)
+             );
+             INSERT INTO usage_daily_rollups
+                 (date, app_type, provider_id, model, request_count, total_cost_usd)
+             VALUES ('2026-01-01', 'codex', 'p', 'm', 2, '3.5');",
+        )?;
+        Database::set_user_version(&conn, 21)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let count: i64 = conn.query_row(
+            "SELECT SUM(request_count) FROM usage_daily_rollups WHERE binding_id = ''",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(count, 2);
+        assert!(Database::has_column(
+            &conn,
+            "proxy_request_logs",
+            "binding_id"
+        )?);
+        assert!(Database::has_column(
+            &conn,
+            "proxy_request_logs",
+            "binding_name"
+        )?);
         Ok(())
     }
 

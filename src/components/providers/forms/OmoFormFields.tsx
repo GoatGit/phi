@@ -159,7 +159,7 @@ function ModelCombobox({
           type="button"
           role="combobox"
           aria-expanded={open}
-          className="flex flex-1 h-8 items-center justify-between whitespace-nowrap rounded-md border border-border bg-surface px-3 py-1 text-sm shadow-sm ring-offset-background focus:outline-none focus-visible:outline-none focus:border-border focus-visible:border-border focus:ring-0 focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex flex-1 h-8 items-center justify-between whitespace-nowrap rounded-md border border-border bg-surface px-3 py-1 text-sm shadow-sm ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span className={cn("truncate", !value && "text-fg-2")}>
             {selectedLabel || placeholderText}

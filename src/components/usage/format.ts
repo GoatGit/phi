@@ -97,7 +97,9 @@ export function isSessionLogRequest(log: { dataSource?: unknown }): boolean {
   return (
     typeof log.dataSource === "string" &&
     log.dataSource !== "" &&
-    log.dataSource !== "proxy"
+    log.dataSource !== "proxy" &&
+    // 路由观测行也是代理侧计时的，没有首字字段，不能按会话日志估速度。
+    log.dataSource !== "gateway"
   );
 }
 
