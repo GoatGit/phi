@@ -164,10 +164,10 @@
                 {{/each~}}
             </Component>
             {{#each binaries as |bin| ~}}
-            {{! 每用户安装（INSTALLDIR 在 LocalAppData 下）的组件不能用文件当 KeyPath：
-                 WiX 的 ICE38 会拦下来，所以和 Path 组件一样用 HKCU 注册表值。
-                 注意这里在 each 里，上下文是 bin，取外层的键名要回退一层（{{../...}}），
-                 否则键名会渲染成空串，light 报 ICE03 Invalid registry path。 ~}}
+            <!-- 每用户安装（INSTALLDIR 在 LocalAppData 下）的组件不能用文件当 KeyPath，WiX 的
+                 ICE38 会拦下来，所以和 Path 组件一样用 HKCU 注册表值。这里在 each 内部，
+                 上下文是 bin，取外层键名要回退一层（../），否则键名会渲染成空串，
+                 light 报 ICE03 Invalid registry path。 -->
             <Component Id="{{ bin.id }}" Guid="{{bin.guid}}" Win64="$(var.Win64)">
                 <File Id="Bin_{{ bin.id }}" Source="{{bin.path}}" KeyPath="no"/>
                 <RegistryValue Root="HKCU" Key="Software\\{{../manufacturer}}\\{{../product_name}}" Name="Bin_{{ bin.id }}" Type="integer" Value="1" KeyPath="yes" />
