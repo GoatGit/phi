@@ -451,14 +451,29 @@ jobs:
         timeout-minutes: 60
         run: pnpm tauri build --target ${{ matrix.target }} --no-bundle
 
+      # 把要传的两个二进制放到同一个平铺目录，artifact 下载后就是 phi 与
+      # phi-subscriptions-<triple> 并列在顶层，universal 合并步骤直接取。
+      - name: Stage macOS binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="macos-upload-${{ matrix.target }}"
+          mkdir -p "$stage"
+          cp "src-tauri/target/${{ matrix.target }}/release/phi" "$stage/phi"
+          cp "src-tauri/binaries/phi-subscriptions-${{ matrix.target }}" \
+             "$stage/phi-subscriptions-${{ matrix.target }}"
+          ls -l "$stage"
+
       - name: Upload binary
         uses: actions/upload-artifact@v7
         with:
           name: macos-binary-${{ matrix.target }}
           # 主程序和订阅引擎 sidecar 都要传：universal 打包时两者都得 lipo 合并。
+          # 先拷到同一个平铺目录再传：多路径上传会按各自的第一个通配符前缀保留
+          # target/... 与 binaries/... 的层级，下载后就拿不到顶层的 phi。
           path: |
-            src-tauri/target/${{ matrix.target }}/release/phi
-            src-tauri/binaries/phi-subscriptions-${{ matrix.target }}
+            macos-upload-${{ matrix.target }}/phi
+            macos-upload-${{ matrix.target }}/phi-subscriptions-${{ matrix.target }}
           if-no-files-found: error
           retention-days: 1
 
@@ -591,6 +606,27 @@ jobs:
         with:
           name: ghostty-resources
           path: src-tauri/ghostty-sdk/share
+
+      # 下载回来的 artifact 目录层级不由我们控制（多路径上传会保留 src-tauri/... 这类
+      # 前缀），所以先把两个二进制找出来放到固定路径，再交给 lipo。
+      - name: Normalize macOS binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            dir="macos-binaries/macos-binary-$target"
+            main=$(find "$dir" -type f -name phi | head -1)
+            side=$(find "$dir" -type f -name "phi-subscriptions-$target" | head -1)
+            if [ -z "$main" ] || [ -z "$side" ]; then
+              echo "❌ missing binaries for $target under $dir:" >&2
+              find "$dir" -type f >&2 || true
+              exit 1
+            fi
+            mv "$main" "$dir/phi"
+            mv "$side" "$dir/phi-subscriptions-$target"
+            echo "$target: $dir/phi + $dir/phi-subscriptions-$target"
+          done
+          ls -lR macos-binaries | head -40
 
       # tauri bundle 只读这个 universal 二进制（和 tauri build --target universal-apple-darwin
       # 的 lipo 结果相同），不需要各架构的 target 目录。
