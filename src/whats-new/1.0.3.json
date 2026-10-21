@@ -1,0 +1,19 @@
+{
+  "version": "1.0.3",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "Windows 安装包现在包含订阅功能，装好即可直接登录",
+      "zh-TW": "Windows 安裝檔現在包含訂閱功能，裝好即可直接登入",
+      "en": "The Windows installer now ships the subscription engine",
+      "ja": "Windows 版インストーラーにサブスク機能が含まれるようになりました"
+    },
+    {
+      "type": "fix",
+      "zh": "macOS 通用包补上订阅组件，Intel 与 Apple 芯片都可用",
+      "zh-TW": "macOS 通用包補上訂閱元件，Intel 與 Apple 晶片都可用",
+      "en": "The universal macOS build now includes subscriptions on both chips",
+      "ja": "macOS のユニバーサル版でもサブスクが使えるようになりました"
+    }
+  ]
+}
