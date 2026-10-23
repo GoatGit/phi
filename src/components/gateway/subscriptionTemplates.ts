@@ -38,5 +38,7 @@ export function subscriptionFromTemplate(id?: string) {
 /** 订阅供应商的品牌图标；资源池卡片用它，不靠名称猜。 */
 export function subscriptionIconFromBase(base?: string) {
   const id = subscriptionIdFromBase(base);
-  return id ? subscriptionTypes.find((provider) => provider.id === id)?.icon : undefined;
+  return id
+    ? subscriptionTypes.find((provider) => provider.id === id)?.icon
+    : undefined;
 }
