@@ -1,0 +1,26 @@
+{
+  "version": "1.0.4",
+  "items": [
+    {
+      "type": "fix",
+      "zh": "用量页显示三方应用自己的名字，不再借用 OpenCode 等内置应用",
+      "zh-TW": "用量頁顯示三方應用自己的名字，不再借用 OpenCode 等內建應用",
+      "en": "Usage pages show third-party app names instead of the built-in app they borrow",
+      "ja": "使用状況ページで、サードパーティアプリ自身の名前が表示されるようになりました"
+    },
+    {
+      "type": "fix",
+      "zh": "修复 Chat 接 Anthropic 上游时可选参数导致反复重试",
+      "zh-TW": "修復 Chat 接 Anthropic 上游時可選參數導致反覆重試",
+      "en": "Fixed Chat-protocol requests failing on optional fields when routed to Anthropic upstreams",
+      "ja": "Chat プロトコルから Anthropic 上流への接続で、任意パラメータにより失敗する問題を修正"
+    },
+    {
+      "type": "fix",
+      "zh": "上游安全拦截时返回原因，不再显示空回复",
+      "zh-TW": "上游安全攔截時回傳原因，不再顯示空回覆",
+      "en": "Safety refusals now pass through their reason instead of an empty reply",
+      "ja": "上流の安全ポリシーによる拒否時、理由が表示されるようになりました"
+    }
+  ]
+}

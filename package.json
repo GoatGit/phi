@@ -1,6 +1,6 @@
 {
   "name": "phi",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Local-first AI agent gateway & configuration manager desktop app built with Tauri 2, Rust, React and TypeScript",
   "keywords": [
     "tauri",
