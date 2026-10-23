@@ -33,6 +33,7 @@ fn trace(c: &Catalog, decision: RouteDecision, outcome: &str) -> RequestTrace {
         id: uuid::Uuid::new_v4().to_string(),
         created_at: now(),
         app_id: "claude".into(),
+        app_type: None,
         binding_id: None,
         binding_name: None,
         request_model: "group/root".into(),

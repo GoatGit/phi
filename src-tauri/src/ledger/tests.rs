@@ -321,6 +321,7 @@ fn route_explanation_survives_disabled_and_deleted_diagnostic_traces() {
         id: r.id.clone(),
         created_at: r.created_at,
         app_id: "claude".into(),
+        app_type: None,
         binding_id: None,
         binding_name: None,
         request_model: "alias".into(),

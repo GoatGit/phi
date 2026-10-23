@@ -131,6 +131,11 @@ pub struct RequestTrace {
     pub id: String,
     pub created_at: i64,
     pub app_id: String,
+    /// 三方应用的内部身份（`tool = external` 时才有）：它的请求按入口协议借用
+    /// 某个应用的协议链路（Chat → opencode），轨迹的 `app_id` 仍必须是被借用的
+    /// 那个应用，不能冒充成三方应用本身。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1493,8 +1498,12 @@ impl Database {
         body: &serde_json::Value,
         persist: bool,
     ) -> Result<Option<(ResolvedRoute, crate::proxy::gateway_observer::Trace)>, AppError> {
+        // 三方应用（`tool = external`）的请求以入口协议的协议身份参与选组，但轨迹要
+        // 同时记下它自己的身份：`app_id` 始终是真正被借用的应用身份。
+        let uses_external_key = crate::proxy::ledger_observer::has_access_binding();
+        let app_type = uses_external_key.then(|| app_id.to_string());
         let catalog = self.gateway_catalog()?;
-        let policy = if crate::proxy::ledger_observer::has_access_binding() {
+        let policy = if uses_external_key {
             routing::matched_unbound_policy(&catalog, app_id, model)?
         } else {
             routing::matched_policy(&catalog, app_id, model)?
@@ -1523,6 +1532,7 @@ impl Database {
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             created_at: chrono::Utc::now().timestamp_millis(),
             app_id: app_id.into(),
+            app_type,
             binding_id: binding.as_ref().map(|binding| binding.id.clone()),
             binding_name: binding.map(|binding| binding.name),
             request_model: model.into(),
@@ -2836,6 +2846,7 @@ mod tests {
             id: format!("trace-{i}"),
             created_at: i,
             app_id: "claude".into(),
+            app_type: None,
             binding_id: Some("client-key".into()),
             binding_name: Some("Cursor".into()),
             request_model: "m".into(),

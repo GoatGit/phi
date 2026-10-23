@@ -381,12 +381,21 @@ pub fn transform_claude_request_for_api_format(
         .meta
         .as_ref()
         .and_then(|m| m.prompt_cache_key.as_deref());
+    // 会话密钥只在上游声明支持 `prompt_cache_key` 时才可用。此前该判断只覆盖
+    // Chat 转换路径，Responses 路径会把会话 ID 无条件当成 `prompt_cache_key`
+    // 发给上游；DeepSeek 的 Anthropic 端点会直接回
+    // 400 「invalid prompt_cache_key」，客户端只好去掉参数重试。
+    // 显式配置的 cache key 仍然优先，不受该判断约束。
+    let session_cache_key_allowed = super::codex::should_send_codex_chat_prompt_cache_key(provider);
     let (cache_key, cache_key_source) = if let Some(key) = explicit_cache_key {
         (Some(key), "explicit")
-    } else if let Some(key) = session_cache_key.as_deref() {
+    } else if let Some(key) = session_cache_key
+        .as_deref()
+        .filter(|_| session_cache_key_allowed)
+    {
         (Some(key), "session")
     } else {
-        (None, "none")
+        (None, "unsupported")
     };
     match api_format {
         "openai_responses" => {
@@ -1879,6 +1888,7 @@ mod tests {
             ProviderMeta {
                 api_format: Some("openai_responses".to_string()),
                 provider_type: Some("codex_oauth".to_string()),
+                prompt_cache_routing: Some("enabled".to_string()),
                 ..ProviderMeta::default()
             },
         );
@@ -1897,6 +1907,7 @@ mod tests {
         )
         .unwrap();
 
+        // 会话密钥仅在供应商开启「提示词缓存路由」或上游已知支持时注入。
         assert_eq!(transformed["prompt_cache_key"], "session-123");
     }
 
@@ -1933,6 +1944,71 @@ mod tests {
     }
 
     #[test]
+    fn test_transform_claude_request_for_responses_skips_session_cache_key_on_unknown_upstream() {
+        // 第三方 Anthropic 端点（如 DeepSeek ANTHROPIC_BASE_URL）不认识
+        // `prompt_cache_key`，会以 400 「invalid prompt_cache_key」拒绝请求。
+        let provider = create_provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic"
+                }
+            }),
+            ProviderMeta {
+                api_format: Some("openai_responses".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+        let body = json!({
+            "model": "deepseek-v4-pro",
+            "messages": [{ "role": "user", "content": "hello" }],
+            "max_tokens": 128
+        });
+
+        let transformed = transform_claude_request_for_api_format(
+            body,
+            &provider,
+            "openai_responses",
+            Some("claude-session-123"),
+            None,
+        )
+        .unwrap();
+
+        assert!(transformed.get("prompt_cache_key").is_none());
+    }
+
+    #[test]
+    fn test_transform_claude_request_for_responses_honors_enabled_cache_routing() {
+        let provider = create_provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic"
+                }
+            }),
+            ProviderMeta {
+                api_format: Some("openai_responses".to_string()),
+                prompt_cache_routing: Some("enabled".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+        let body = json!({
+            "model": "deepseek-v4-pro",
+            "messages": [{ "role": "user", "content": "hello" }],
+            "max_tokens": 128
+        });
+
+        let transformed = transform_claude_request_for_api_format(
+            body,
+            &provider,
+            "openai_responses",
+            Some("claude-session-123"),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(transformed["prompt_cache_key"], "claude-session-123");
+    }
+
+    #[test]
     fn test_transform_claude_request_for_responses_uses_session_cache_key() {
         let provider = create_provider_with_meta(
             json!({
@@ -1942,6 +2018,7 @@ mod tests {
             }),
             ProviderMeta {
                 api_format: Some("openai_responses".to_string()),
+                prompt_cache_routing: Some("enabled".to_string()),
                 ..ProviderMeta::default()
             },
         );

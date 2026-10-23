@@ -2926,6 +2926,7 @@
       "sourceSession": "セッションログ",
       "sourceGateway": "ゲートウェイ経由 · ステータス {{code}}",
       "key": "アクセスキー",
+      "keyEntry": "使用した入口",
       "total": "合計",
       "firstToken": "最初のトークン",
       "duration": "所要時間",

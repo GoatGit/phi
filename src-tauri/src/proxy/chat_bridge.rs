@@ -1254,6 +1254,7 @@ mod tests {
             id: "t".into(),
             created_at: 0,
             app_id: "pi".into(),
+            app_type: None,
             binding_id: None,
             binding_name: None,
             request_model: "glm-5".into(),

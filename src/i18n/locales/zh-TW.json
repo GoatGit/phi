@@ -2926,6 +2926,7 @@
       "sourceSession": "工作階段日誌",
       "sourceGateway": "閘道請求 · 狀態碼 {{code}}",
       "key": "接入金鑰",
+      "keyEntry": "使用入口",
       "total": "合計",
       "firstToken": "首字",
       "duration": "耗時",

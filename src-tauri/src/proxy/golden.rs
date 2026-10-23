@@ -572,12 +572,34 @@ async fn golden_external_token_serves_every_protocol_entry() {
         .unwrap()
         .query_row(
             "SELECT COUNT(*) FROM proxy_request_logs
-             WHERE binding_id = ?1 AND data_source = 'gateway' AND app_type = 'external'",
+             WHERE binding_id = ?1 AND data_source = 'gateway'",
             [&binding.binding.id],
             |row| row.get(0),
         )
         .unwrap();
     assert_eq!(usage_rows, 5);
+    // `app_type` 记的是这次请求实际使用的入口应用身份，不是三方应用自己：
+    // Messages → claude、Chat ×2 → opencode、Responses → codex、Gemini → gemini。
+    for (app_type, rows) in [
+        ("claude", 1),
+        ("opencode", 2),
+        ("codex", 1),
+        ("gemini", 1),
+        ("external", 0),
+    ] {
+        let count: i64 = db
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM proxy_request_logs
+                 WHERE binding_id = ?1 AND data_source = 'gateway' AND app_type = ?2",
+                rusqlite::params![&binding.binding.id, app_type],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, rows, "{app_type}");
+    }
     proxy.stop().await.unwrap();
     for (_, _, _, _, task) in endpoints {
         task.abort();

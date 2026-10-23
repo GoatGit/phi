@@ -28,7 +28,11 @@ import {
   getResolvedLang,
   parseFiniteNumber,
 } from "./format";
-import { appDisplayName } from "./RequestLogTable";
+import {
+  appDisplayName,
+  externalKeyAppName,
+  isKnownAppId,
+} from "./RequestLogTable";
 import { getUsageProviderLabel } from "./providerLabel";
 
 interface RequestDetailPanelProps {
@@ -111,7 +115,9 @@ function useDetailSections(request: RequestLog) {
     {
       key: "app",
       label: t("usage.app"),
-      value: appDisplayName(request.appType),
+      // 三方应用的请求记的是被借用的入口应用身份；详情里要显示它自己的名字，
+      // 并在旁注里说明实际借用的入口，方便判断协议链路。
+      value: externalKeyAppName(request, t) ?? appDisplayName(request.appType),
     },
     {
       key: "provider",
@@ -149,6 +155,15 @@ function useDetailSections(request: RequestLog) {
       value: request.bindingName || request.bindingId || "",
       title: request.bindingId,
     });
+    // 三方应用借的是某个入口协议的协议链路，用哪个协议进来决定了走哪条路由：
+    // 不写清楚就容易被当成那个内置应用自己发的请求。
+    if (isKnownAppId(request.appType)) {
+      basic.push({
+        key: "bindingEntry",
+        label: t("usage.detail.keyEntry"),
+        value: appDisplayName(request.appType),
+      });
+    }
   }
   basic.push(
     {
@@ -368,7 +383,7 @@ export function RequestDetailPanel({
   const subtitle = request
     ? [
         new Date(request.createdAt * 1000).toLocaleString(),
-        appDisplayName(request.appType),
+        externalKeyAppName(request, t) ?? appDisplayName(request.appType),
         getUsageProviderLabel(request.providerName, t).shortLabel,
       ].join(" · ")
     : undefined;

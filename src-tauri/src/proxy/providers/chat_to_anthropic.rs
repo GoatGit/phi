@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::proxy::error::ProxyError;
 use crate::proxy::json_canonical::canonical_json_string;
 
-const CHAT_FIELDS: [&str; 17] = [
+const CHAT_FIELDS: [&str; 33] = [
     "model",
     "messages",
     "stream",
@@ -27,6 +27,28 @@ const CHAT_FIELDS: [&str; 17] = [
     "store",
     "user",
     "n",
+    // OpenAI 的提示词缓存亲和键。它没有 Anthropic 对应字段，转成 Messages 时
+    // 丢弃即可；在这里报 400 会让客户端以为上游拒绝该参数，从而去掉参数重试。
+    "prompt_cache_key",
+    // 以下都是 Chat 协议里合法的可选字段，Anthropic Messages 没有对应概念。
+    // 它们只影响 OpenAI 侧的采样、推理、限流或统计行为，丢给上游既不改变语义
+    // 也不影响正确性；若统一按「未知字段」回 400，客户端看到的只是笼统的
+    // invalid messages，根本看不出是哪个字段，也无从修正。
+    "prompt_cache_retention",
+    "stop",
+    "reasoning",
+    "service_tier",
+    "safety_identifier",
+    "frequency_penalty",
+    "presence_penalty",
+    "logprobs",
+    "top_logprobs",
+    "logit_bias",
+    "seed",
+    "modalities",
+    "audio",
+    "prediction",
+    "verbosity",
 ];
 
 fn invalid(field: &str) -> ProxyError {
@@ -39,6 +61,9 @@ pub(crate) fn chat_request_to_anthropic(
     default_max_tokens: u64,
 ) -> Result<Value, ProxyError> {
     let object = body.as_object().ok_or_else(|| invalid("body"))?;
+    // 白名单只用来挡住这条一跳转换表达不了、又不能静默猜的字段；列进白名单但
+    // 没有 Anthropic 对应概念的（store、metadata、prompt_cache_key 等）由下面
+    // 按字段取值的代码决定去向，取不到就不写进结果，等价于丢弃。
     for key in object.keys() {
         if !CHAT_FIELDS.contains(&key.as_str()) {
             return Err(invalid(key));
@@ -394,6 +419,14 @@ pub(crate) fn anthropic_response_to_chat(body: Value) -> Result<Value, ProxyErro
                         text.push_str(value);
                     }
                 }
+                // Anthropic 判定安全策略拦截时返回 stop_reason=refusal，content
+                // 里可能只有一个 refusal 块。保留它的文案，否则客户端收到的是
+                // 一个没有任何内容的空回复，看起来像上游异常。
+                "refusal" => {
+                    if let Some(value) = block.get("refusal").and_then(Value::as_str) {
+                        text.push_str(value);
+                    }
+                }
                 "thinking" => {
                     if let Some(value) = block.get("thinking").and_then(Value::as_str) {
                         reasoning.push_str(value);
@@ -605,6 +638,114 @@ mod tests {
         assert_eq!(result["tools"][0]["name"], "read");
         assert_eq!(result["tools"][0]["input_schema"]["type"], "object");
         assert_eq!(result["tool_choice"]["type"], "any");
+    }
+
+    /// OpenAI 客户端（如 Semibot）会在 Chat 请求里带提示词缓存亲和键。Anthropic
+    /// 没有对应字段，这里只能丢弃；早点报 invalid prompt_cache_key 会让客户端
+    /// 以为上游拒绝该参数，进而去掉参数重试（「正在使用兼容格式重试」）。
+    #[test]
+    fn chat_request_drops_prompt_cache_key_instead_of_rejecting_it() {
+        let body = json!({
+            "model": "deepseek-v4-pro",
+            "messages": [{ "role": "user", "content": "hi" }],
+            "max_tokens": 64,
+            "prompt_cache_key": "sess-abc-123"
+        });
+        let result = chat_request_to_anthropic(body, 8192).unwrap();
+        assert_eq!(result["max_tokens"], 64);
+        assert!(result.get("prompt_cache_key").is_none());
+    }
+
+    /// Chat 协议里合法的可选字段（采样、限流、推理、统计类）在 Anthropic 没有
+    /// 对应概念。它们必须被丢弃而不是让整轮请求 400：客户端只会拿到
+    /// 「invalid messages」，无法定位是哪个字段。
+    #[test]
+    fn chat_request_drops_portable_optional_fields() {
+        let body = json!({
+            "model": "deepseek-v4-pro",
+            "messages": [{ "role": "user", "content": "hi" }],
+            "prompt_cache_retention": "24h",
+            "stop": "\n\n",
+            "reasoning": { "effort": "low" },
+            "service_tier": "auto",
+            "safety_identifier": "user-1",
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+            "logprobs": false,
+            "top_logprobs": 0,
+            "logit_bias": {},
+            "seed": 7,
+            "modalities": ["text"],
+            "prediction": null,
+            "verbosity": "high"
+        });
+        let result = chat_request_to_anthropic(body, 8192).unwrap();
+        assert_eq!(result["messages"][0]["content"][0]["text"], "hi");
+        for field in [
+            "prompt_cache_retention",
+            "stop",
+            "reasoning",
+            "service_tier",
+            "safety_identifier",
+            "frequency_penalty",
+            "presence_penalty",
+            "logprobs",
+            "top_logprobs",
+            "logit_bias",
+            "seed",
+            "modalities",
+            "prediction",
+            "verbosity",
+        ] {
+            assert!(result.get(field).is_none(), "{field} must be dropped");
+        }
+    }
+
+    /// 安全策略拦截时 Anthropic 返回 refusal 块。文案要透传给 Chat 客户端，
+    /// 否则用户看到的是一个没有内容的空回复。
+    #[test]
+    fn anthropic_refusal_block_is_surfaced_to_chat() {
+        let body = json!({
+            "id": "msg_2",
+            "type": "message",
+            "role": "assistant",
+            "model": "deepseek-v4-pro",
+            "content": [{"type": "refusal", "refusal": "policy violation"}],
+            "stop_reason": "refusal",
+            "usage": {"input_tokens": 3, "output_tokens": 2}
+        });
+        let result = anthropic_response_to_chat(body).unwrap();
+        assert_eq!(
+            result["choices"][0]["message"]["content"],
+            "policy violation"
+        );
+        assert_eq!(result["choices"][0]["finish_reason"], "content_filter");
+    }
+
+    /// OpenAI 拒绝空的 developer/system 消息，但这里不能用整个请求失败来回应。
+    #[test]
+    fn chat_request_skips_empty_developer_message() {
+        let body = json!({
+            "model": "deepseek-v4-pro",
+            "messages": [
+                { "role": "developer", "content": [] },
+                { "role": "user", "content": "hi" }
+            ]
+        });
+        let result = chat_request_to_anthropic(body, 8192).unwrap();
+        assert!(result.get("system").is_none());
+        assert_eq!(result["messages"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn chat_request_still_rejects_unknown_fields() {
+        let body = json!({
+            "model": "deepseek-v4-pro",
+            "messages": [{ "role": "user", "content": "hi" }],
+            "definitely_not_a_chat_field": true
+        });
+        let error = chat_request_to_anthropic(body, 8192).unwrap_err();
+        assert!(format!("{error:?}").contains("definitely_not_a_chat_field"));
     }
 
     #[test]

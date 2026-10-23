@@ -2926,6 +2926,7 @@
       "sourceSession": "会话日志",
       "sourceGateway": "网关请求 · 状态码 {{code}}",
       "key": "接入密钥",
+      "keyEntry": "使用入口",
       "total": "合计",
       "firstToken": "首字",
       "duration": "耗时",

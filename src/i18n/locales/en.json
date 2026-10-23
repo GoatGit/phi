@@ -2926,6 +2926,7 @@
       "sourceSession": "Session log",
       "sourceGateway": "Gateway request · status {{code}}",
       "key": "Access key",
+      "keyEntry": "Protocol entry",
       "total": "Total",
       "firstToken": "First token",
       "duration": "Duration",

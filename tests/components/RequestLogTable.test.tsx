@@ -271,6 +271,63 @@ describe("RequestLogTable", () => {
     expect(appShortName("claude-desktop")).toBe("Desktop");
     expect(appShortName("unknown-app")).toBe("unknown-app");
   });
+
+  it("names a third-party app by its own name instead of the borrowed app", () => {
+    const base = {
+      providerId: "p1",
+      providerName: "DeepSeek",
+      model: "deepseek-v4-pro",
+      costMultiplier: "1",
+      inputTokens: 10,
+      outputTokens: 10,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      inputCostUsd: "0",
+      outputCostUsd: "0",
+      cacheReadCostUsd: "0",
+      cacheCreationCostUsd: "0",
+      totalCostUsd: "0",
+      isStreaming: false,
+      statusCode: 200,
+      latencyMs: 0,
+      createdAt: Math.floor(Date.now() / 1000),
+    };
+    useRequestLogsMock.mockReturnValue({
+      data: {
+        data: [
+          // 三方应用的 Chat 请求：库里 appType 记的是被借用的 opencode
+          {
+            ...base,
+            requestId: "key-chat",
+            appType: "opencode",
+            bindingId: "b-1",
+            bindingName: "semibot",
+          },
+          // 历史行：appType 还是 external
+          { ...base, requestId: "legacy", appType: "external" },
+          // 原生应用不受影响
+          { ...base, requestId: "native", appType: "opencode" },
+        ],
+        total: 3,
+        page: 0,
+        pageSize: 20,
+      },
+      isLoading: false,
+    });
+
+    render(
+      <RequestLogTable range={{ preset: "today" }} refreshIntervalMs={0} />,
+    );
+
+    const rows = screen.getAllByRole("row").slice(1);
+    // 三方应用列只显示它自己的名字，不冒充 opencode。
+    expect(rows[0]).toHaveTextContent("semibot");
+    expect(rows[0]).not.toHaveTextContent("OpenCode");
+    // 历史行没有可借用的入口身份，回落到通用名称。
+    expect(rows[1]).toHaveTextContent("usage.externalApp");
+    // 内置应用自己的流量仍然显示短名。
+    expect(rows[2]).toHaveTextContent("OpenCode");
+  });
 });
 
 describe("formatLogTime", () => {

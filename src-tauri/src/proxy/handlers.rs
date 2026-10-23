@@ -1074,6 +1074,8 @@ pub async fn handle_typesafe_systemone(
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             created_at: chrono::Utc::now().timestamp_millis(),
             app_id: crate::gateway::typesafe::APP_ID.into(),
+            // System One 入口本身就是它的协议身份，不存在借用其他应用。
+            app_type: None,
             binding_id: binding.as_ref().map(|binding| binding.id.clone()),
             binding_name: binding.map(|binding| binding.name),
             request_model: parsed.model.clone(),

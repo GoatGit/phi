@@ -360,9 +360,13 @@ fn dedup_app_type_match_sql(left: &str, right: &str) -> String {
 ///
 /// 三方应用用一枚令牌按入口协议接入：Chat 记成 opencode、Responses 记成 codex、
 /// Messages 记成 claude……凭证由 PHI 注入，请求本质上就是那个应用的流量，只是
-/// 来源换成了外部客户端。用量明细行因此写成 `app_type = 'external'`（见
-/// `log_external_usage`），并把真实身份放在 `binding_name` 里；按应用统计时
-/// 要把它并回那个应用，否则所有外部客户端的流量都不计入任何应用。
+/// 来源换成了外部客户端。用量明细行因此直接写成那个入口应用的身份（见
+/// `log_external_usage`），`binding_id` / `binding_name` 另存三方应用身份，两者
+/// 互不妨碍：按应用筛选命中 `app_type`，按三方应用筛选命中 `binding_id`。
+///
+/// 唯一还需要并回来的是**历史行**：早先版本把这类请求记成 `app_type =
+/// 'external'`、把入口身份放在 `binding_name` 里，这里只兜住那些行，新行不受
+/// 影响（旧行的 `binding_name` 是应用 id，如 `opencode`）。
 ///
 /// 只在**没有**限定三方应用（未按 `binding_id` 过滤）时使用：限定某个令牌时，
 /// 那一层已经按 `binding_id` 过滤，这里再并回应用就等于把两个互斥的筛选范围
@@ -373,13 +377,20 @@ fn external_key_identity(alias: &str) -> String {
     format!("COALESCE(NULLIF({alias}.binding_name, ''), {alias}.binding_id)")
 }
 
-/// 三方应用的请求在**按应用**看用量时并入它实际使用的应用身份：这类请求靠
-/// 入口协议确定身份（Chat → opencode、Responses → codex、Messages → claude…），
-/// 凭证由 PHI 注入，本质就是那个应用的流量。明细行因此写成
-/// `app_type = 'external'`，真实身份留在 `binding_name` 里（见
-/// `log_external_usage`），不并回去的话外部客户端的流量不会计入任何应用。
+/// 历史三方应用行（`app_type = 'external'`）在**按应用**看用量时并入它当时使用
+/// 的应用身份。新行已经直接带着入口应用身份，不会再落到这个条件里。
 fn external_traffic_sql(app_type: &str, identity: &str) -> String {
     format!("({app_type} = 'external' AND {identity} = (?))")
+}
+
+/// 按应用统计时的展示身份：折叠 `claude-desktop`，并把历史三方应用行还原成
+/// 它们实际使用的应用身份。
+fn app_scoped_app_type_sql(alias: &str) -> String {
+    let folded = folded_app_type_sql(&format!("{alias}.app_type"));
+    format!(
+        "CASE WHEN {folded} = 'external' THEN {} ELSE {folded} END",
+        external_key_identity(alias)
+    )
 }
 
 fn folded_app_type_sql(column: &str) -> String {
@@ -983,7 +994,7 @@ impl Database {
             push_app_scoped_conditions(
                 &mut conditions,
                 &mut params_vec,
-                folded_app_type_sql("l.app_type"),
+                app_scoped_app_type_sql("l"),
                 "l",
                 Some(at),
                 true,
@@ -1024,7 +1035,7 @@ impl Database {
         push_app_scoped_conditions(
             &mut rollup_conditions,
             &mut rollup_params,
-            folded_app_type_sql("r.app_type"),
+            app_scoped_app_type_sql("r"),
             "r",
             app_type.filter(|_| binding_id.is_none()),
             true,
@@ -1104,7 +1115,7 @@ impl Database {
     ) -> Result<UsageSummary, AppError> {
         let conn = lock_conn!(self.conn);
         let fresh_input = fresh_input_sql("l");
-        let app_type_expr = folded_app_type_sql("l.app_type");
+        let app_type_expr = app_scoped_app_type_sql("l");
         let data_source = data_source_expr("l");
         let sql = format!(
             "SELECT
@@ -1214,24 +1225,16 @@ impl Database {
         let fresh_input_detail = fresh_input_sql("l");
         let fresh_input_rollup = fresh_input_sql("r");
         // 折叠 claude-desktop → claude：内层投影成同一桶名，外层 GROUP BY 自然合并。
-        // 三方应用（外部接入）的行记成 external，但要并回它实际使用的应用身份，
-        // 否则 Chat 入口的流量会被单独算成一个叫「external」的应用；按某个三方
-        // 应用筛选时那一层已经按 binding_id 过滤，不再并回，避免两个范围重复计数。
-        let fold_detail = folded_app_type_sql("l.app_type");
-        let fold_rollup = folded_app_type_sql("r.app_type");
+        // 历史三方应用（外部接入）的行记成 external，投影时还原成它们实际使用的
+        // 应用身份，不要单独冒出一个叫「external」的应用；按某个三方应用筛选时
+        // 那一层已经按 binding_id 过滤，不再还原，避免两个范围重复计数。
         let (detail_app_type, rollup_app_type) = if binding_id.is_some() {
-            (fold_detail, fold_rollup)
-        } else {
             (
-                format!(
-                    "CASE WHEN {fold_detail} = 'external' THEN {} ELSE {fold_detail} END",
-                    external_key_identity("l")
-                ),
-                format!(
-                    "CASE WHEN {fold_rollup} = 'external' THEN {} ELSE {fold_rollup} END",
-                    external_key_identity("r")
-                ),
+                folded_app_type_sql("l.app_type"),
+                folded_app_type_sql("r.app_type"),
             )
+        } else {
+            (app_scoped_app_type_sql("l"), app_scoped_app_type_sql("r"))
         };
 
         let sql = format!(
@@ -1378,7 +1381,7 @@ impl Database {
                 push_app_scoped_conditions(
                     &mut extra_conditions,
                     &mut extra_params,
-                    folded_app_type_sql("l.app_type"),
+                    app_scoped_app_type_sql("l"),
                     "l",
                     Some(at),
                     binding_id.is_none(),
@@ -1499,7 +1502,7 @@ impl Database {
             push_app_scoped_conditions(
                 &mut extra_conditions,
                 &mut extra_params,
-                folded_app_type_sql("l.app_type"),
+                app_scoped_app_type_sql("l"),
                 "l",
                 Some(at),
                 binding_id.is_none(),
@@ -1587,7 +1590,7 @@ impl Database {
             &rollup_bounds,
         );
         if let Some(at) = app_type {
-            rollup_conditions.push(format!("{} = ?", folded_app_type_sql("r.app_type")));
+            rollup_conditions.push(format!("{} = ?", app_scoped_app_type_sql("r")));
             rollup_params.push(Box::new(at.to_string()));
         }
         push_provider_model_filters(
@@ -1726,7 +1729,7 @@ impl Database {
         push_app_scoped_conditions(
             &mut detail_conditions,
             &mut detail_params,
-            folded_app_type_sql("l.app_type"),
+            app_scoped_app_type_sql("l"),
             "l",
             app_type,
             binding_id.is_none(),
@@ -1766,7 +1769,7 @@ impl Database {
         let mut rollup_conditions = Vec::new();
         let mut rollup_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(at) = app_type {
-            rollup_conditions.push(format!("{} = ?", folded_app_type_sql("r.app_type")));
+            rollup_conditions.push(format!("{} = ?", app_scoped_app_type_sql("r")));
             rollup_params.push(Box::new(at.to_string()));
         }
         push_provider_model_filters(
@@ -1846,7 +1849,7 @@ impl Database {
             detail_params.push(Box::new(end));
         }
         if let Some(at) = app_type {
-            detail_conditions.push(format!("{} = ?", folded_app_type_sql("l.app_type")));
+            detail_conditions.push(format!("{} = ?", app_scoped_app_type_sql("l")));
             detail_params.push(Box::new(at.to_string()));
         }
         push_provider_model_filters(
@@ -1874,7 +1877,7 @@ impl Database {
             &rollup_bounds,
         );
         if let Some(at) = app_type {
-            rollup_conditions.push(format!("{} = ?", folded_app_type_sql("r.app_type")));
+            rollup_conditions.push(format!("{} = ?", app_scoped_app_type_sql("r")));
             rollup_params.push(Box::new(at.to_string()));
         }
         push_provider_model_filters(
@@ -1895,6 +1898,9 @@ impl Database {
         // UNION detail logs + rollup data, then aggregate
         let detail_pname = provider_name_coalesce("l", "p");
         let rollup_pname = provider_name_coalesce("r", "p2");
+        // 统计行里的 app_type 同样还原成实际使用的入口应用身份（历史三方应用行）。
+        let detail_stat_app = app_scoped_app_type_sql("l");
+        let rollup_stat_app = app_scoped_app_type_sql("r");
         let real_total_detail = real_total_tokens_sql("l");
         let real_total_rollup = real_total_tokens_sql("r");
         let speed_ok = speed_eligible_sql("l");
@@ -1914,7 +1920,7 @@ impl Database {
                 SUM(est_output) as est_output,
                 SUM(est_ms) as est_ms
             FROM (
-                SELECT l.provider_id, l.app_type,
+                SELECT l.provider_id, {detail_stat_app} as app_type,
                     {detail_pname} as provider_name,
                     COUNT(*) as request_count,
                     COALESCE(SUM({real_total_detail}), 0) as total_tokens,
@@ -1930,7 +1936,7 @@ impl Database {
                 {detail_where}
                 GROUP BY l.provider_id, l.app_type
                 UNION ALL
-                SELECT r.provider_id, r.app_type,
+                SELECT r.provider_id, {rollup_stat_app} as app_type,
                     {rollup_pname} as provider_name,
                     COALESCE(SUM(r.request_count), 0),
                     COALESCE(SUM({real_total_rollup}), 0),
@@ -2028,7 +2034,7 @@ impl Database {
         push_app_scoped_conditions(
             &mut detail_conditions,
             &mut detail_params,
-            folded_app_type_sql("l.app_type"),
+            app_scoped_app_type_sql("l"),
             "l",
             app_type,
             binding_id.is_none(),
@@ -2063,7 +2069,7 @@ impl Database {
             &rollup_bounds,
         );
         if let Some(at) = app_type {
-            rollup_conditions.push(format!("{} = ?", folded_app_type_sql("r.app_type")));
+            rollup_conditions.push(format!("{} = ?", app_scoped_app_type_sql("r")));
             rollup_params.push(Box::new(at.to_string()));
         }
         push_provider_model_filters(
@@ -2205,11 +2211,15 @@ impl Database {
         if let Some(ref app_type) = filters.app_type {
             // 仅过滤口径折叠 claude-desktop→claude；行投影仍返回原始 app_type，
             // 详情面板据此展示真实入口（路由接管账单审计需要）。
-            // 三方应用的请求虽然记成 external，本质仍是该应用流量，一并命中。
-            let folded = folded_app_type_sql("l.app_type");
+            // 三方应用的新行已经直接带着入口应用身份，只有历史行记成 external，
+            // 所以这里再補上「external 且入口身份等于该应用」的历史行。
+            let folded = app_scoped_app_type_sql("l");
             conditions.push(format!(
                 "({folded} = ? OR {})",
-                external_traffic_sql(&folded, &external_key_identity("l"))
+                external_traffic_sql(
+                    &folded_app_type_sql("l.app_type"),
+                    &external_key_identity("l")
+                )
             ));
             params.push(Box::new(app_type.clone()));
             params.push(Box::new(app_type.clone()));
@@ -4238,8 +4248,10 @@ mod tests {
         Ok(())
     }
 
-    /// 三方应用（外部接入）的请求记成 `app_type = 'external'`，真实身份在
-    /// `binding_name`：按应用看用量时必须并回那个应用，按三方应用筛选时不能重复计数。
+    /// 三方应用（外部接入）的请求记成它实际借用的入口应用身份（Chat → opencode），
+    /// 三方应用自己的身份在 `binding_id` / `binding_name`：按应用看用量直接命中，
+    /// 按三方应用筛选时也不能重复计数。历史行（`app_type = 'external'` +
+    /// `binding_name` 存入口身份）仍要还原。
     #[test]
     fn external_binding_traffic_rolls_into_its_app_identity() -> Result<(), AppError> {
         let db = Database::memory()?;
@@ -4247,6 +4259,10 @@ mod tests {
             let conn = lock_conn!(db.conn);
             for (id, app, name) in [
                 ("native", "codex", ""),
+                // 新行：直接带入口应用身份，binding_name 是三方应用自己的名字。
+                ("current-opencode", "opencode", "semibot"),
+                ("current-claude", "claude", "semibot"),
+                // 历史行：记成 external，binding_name 存的是入口身份。
                 ("external-codex", "external", "codex"),
                 ("external-claude", "external", "claude"),
                 ("legacy-external", "external", ""),
@@ -4264,15 +4280,19 @@ mod tests {
 
         // 全部应用：三方应用的流量照样计入总量。
         let all = db.get_usage_summary(None, None, None, None, None)?;
-        assert_eq!(all.total_requests, 4);
+        assert_eq!(all.total_requests, 6);
 
-        // 选中 codex：原生 + 外部客户端的 Codex 入口都算 codex。
+        // 选中 codex：原生 + 历史外部行都能命中。
         let codex = db.get_usage_summary(None, None, Some("codex"), None, None)?;
         assert_eq!(codex.total_requests, 2);
 
-        // 选中 claude：只有从外部 Chat/Messages 入口进来的那条。
+        // 选中 claude：新的三方应用行与历史行都算进来。
         let claude = db.get_usage_summary(None, None, Some("claude"), None, None)?;
-        assert_eq!(claude.total_requests, 1);
+        assert_eq!(claude.total_requests, 2);
+
+        // 选中 opencode：新行的 app_type 就是 opencode，不再需要靠 binding_name 反推。
+        let opencode = db.get_usage_summary(None, None, Some("opencode"), None, None)?;
+        assert_eq!(opencode.total_requests, 1);
 
         // 按应用拆分时并入身份，不再出现一个叫 external 的独立应用。
         let by_app = db.get_usage_summary_by_app(None, None, None, None)?;
@@ -4281,18 +4301,23 @@ mod tests {
             .map(|item| (item.app_type.as_str(), item.summary.total_requests))
             .collect();
         assert_eq!(counts.get("codex"), Some(&2));
-        assert_eq!(counts.get("claude"), Some(&1));
+        assert_eq!(counts.get("claude"), Some(&2));
+        assert_eq!(counts.get("opencode"), Some(&1));
         assert!(!counts.contains_key("external"));
         // 没有可识别身份的历史行回落到 binding_id，仍留在总量里、也仍按自己的
         // 应用名出现，不会因为并入身份而丢掉。
         assert_eq!(counts.get("external-codex"), None);
         let total: u64 = by_app.iter().map(|item| item.summary.total_requests).sum();
-        assert_eq!(total, 4);
+        assert_eq!(total, 6);
 
         // 限定某个三方应用时只数它自己的行，不和上面两个范围重复。
         let one_key =
-            db.get_usage_summary_filtered(None, None, None, None, None, Some("external-codex"))?;
+            db.get_usage_summary_filtered(None, None, None, None, None, Some("current-opencode"))?;
         assert_eq!(one_key.total_requests, 1);
+        // 同一枚令牌跨协议：Chat 与 Messages 两个入口的行都归它名下。
+        let semibot =
+            db.get_usage_summary_filtered(None, None, None, None, None, Some("current-claude"))?;
+        assert_eq!(semibot.total_requests, 1);
 
         Ok(())
     }
@@ -5360,18 +5385,21 @@ mod tests {
                 params!["shared-p1", "claude-desktop", "Shared Provider"],
             )?;
 
-            // Detail log under claude
+            // 三方应用（外部接入）的明细行：app_type 记它借用的入口应用身份
+            // claude，自己是谁在 binding_name 里。统计必须仍然只有 claude 与
+            // claude-desktop 两个桶。
             conn.execute(
                 "INSERT INTO proxy_request_logs (
-                    request_id, provider_id, app_type, model,
+                    request_id, provider_id, app_type, model, binding_name,
                     input_tokens, output_tokens, total_cost_usd,
                     latency_ms, status_code, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
                     "req-1",
                     "shared-p1",
                     "claude",
                     "m1",
+                    "semibot",
                     100,
                     50,
                     "0.01",
@@ -5406,25 +5434,60 @@ mod tests {
             )?;
         }
 
-        // Folded query for "claude" matches both claude and claude-desktop
+        // 按 claude 看供应商：明细（原生 claude + 三方应用行）与 claude-desktop
+        // 的日汇总各成一桶，两行都带着各自的真实身份，不合并、也不丢行。
+        // 汇总口径把 claude-desktop 折叠进 claude：两条明细（原生 + 三方应用行）
+        // 与 claude-desktop 的日汇总共用一个桶，不会因为 binding 再拆出别的身份。
         let stats = db.get_provider_stats(None, None, Some("claude"), None, None)?;
-        assert_eq!(stats.len(), 2);
+        assert_eq!(stats.len(), 1, "{stats:?}");
+        assert_eq!(stats[0].app_type, "claude");
+        assert_eq!(stats[0].provider_id, "shared-p1");
+        assert_eq!(stats[0].provider_name, "Shared Provider");
+        assert_eq!(stats[0].request_count, 11);
 
-        let claude_stat = stats
-            .iter()
-            .find(|s| s.app_type == "claude")
-            .expect("claude stat");
-        assert_eq!(claude_stat.provider_id, "shared-p1");
-        assert_eq!(claude_stat.provider_name, "Shared Provider");
-        assert_eq!(claude_stat.request_count, 1);
+        Ok(())
+    }
 
-        let desktop_stat = stats
+    /// 三方应用（外部接入）的请求在统计行里也用它实际借用的入口应用身份：
+    /// 供应商统计不能因此冒出 opencode 之外的第二个身份，按三方应用筛选也照样命中。
+    #[test]
+    fn external_rows_report_the_borrowed_app_identity() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        {
+            let conn = lock_conn!(db.conn);
+            for (id, app, name) in [
+                ("native", "opencode", ""),
+                ("key-opencode", "opencode", "semibot"),
+                ("key-claude", "claude", "semibot"),
+                // 历史行：app_type 记为 external，入口身份在 binding_name 里。
+                ("legacy-opencode", "external", "opencode"),
+            ] {
+                conn.execute(
+                    "INSERT INTO proxy_request_logs (
+                        request_id, provider_id, app_type, model, binding_id, binding_name,
+                        input_tokens, output_tokens, total_cost_usd,
+                        latency_ms, status_code, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    params![id, "p1", app, "m1", id, name, 100, 50, "0.01", 100, 200, 1000],
+                )?;
+            }
+        }
+
+        let stats = db.get_provider_stats(None, None, None, None, None)?;
+        assert_eq!(stats.len(), 2, "{stats:?}");
+        let opencode = stats
             .iter()
-            .find(|s| s.app_type == "claude-desktop")
-            .expect("claude-desktop stat");
-        assert_eq!(desktop_stat.provider_id, "shared-p1");
-        assert_eq!(desktop_stat.provider_name, "Shared Provider");
-        assert_eq!(desktop_stat.request_count, 10);
+            .find(|s| s.app_type == "opencode")
+            .expect("opencode stat");
+        // 原生 + 三方应用 + 历史行都用 opencode 这个入口身份，落进同一桶。
+        assert_eq!(opencode.request_count, 3);
+        assert_eq!(stats.iter().filter(|s| s.app_type == "external").count(), 0);
+
+        let key =
+            db.get_provider_stats_filtered(None, None, None, None, None, Some("key-opencode"))?;
+        assert_eq!(key.len(), 1);
+        assert_eq!(key[0].app_type, "opencode");
+        assert_eq!(key[0].request_count, 1);
 
         Ok(())
     }

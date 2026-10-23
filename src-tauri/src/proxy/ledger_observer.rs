@@ -315,9 +315,12 @@ struct Completion {
 
 /// 外部接入的密钥流量写进用量明细，用量页才能按密钥筛选。
 ///
-/// 账本始终是计费口径；这里只复制展示所需的字段。`app_type` 记为
-/// `external`：外部请求可能来自任何协议，而 Tauri 层的应用筛选是按协议
-/// 身份分的，混进某个应用的桶会把它算成那个应用自己的流量。
+/// 账本始终是计费口径；这里只复制展示所需的字段。
+///
+/// `app_type` 记成这次请求实际使用的入口应用身份（Chat → opencode、Messages →
+/// claude…），与账本里凭证注入用的身份一致；它一定不会是三方应用自己的名字。
+/// `binding_id` / `binding_name` 才是三方应用的身份，按应用看用量时据此归属（见
+/// `services::usage_stats`），按三方应用筛选时只看这两列。
 fn log_external_usage(
     active: &Active,
     no: u64,
@@ -377,7 +380,7 @@ fn log_external_usage(
     let log = RequestLog {
         request_id: active.id.clone(),
         provider_id: attempt.provider_id.clone(),
-        app_type: "external".into(),
+        app_type: active.app.clone(),
         model: attempt.model.clone(),
         request_model: attempt.model.clone(),
         pricing_model: attempt.model.clone(),

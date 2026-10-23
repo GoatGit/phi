@@ -101,6 +101,22 @@ export function appShortName(appType: string): string {
   return isKnownAppId(appType) ? APP_SHORT_NAME[appType] : appType;
 }
 
+/**
+ * 三方应用（外部接入）的名字：这类请求在库里记的是它实际借用的入口应用身份
+ * （Chat → opencode、Messages → claude…），三方应用自己的名字在 `bindingName`
+ * 里。返回 `null` 表示这条请求不属于三方应用。
+ *
+ * 历史行（`appType === "external"`）没有借用的应用身份，回落到通用名称。
+ */
+export function externalKeyAppName(
+  log: { appType: string; bindingName?: string },
+  t: (key: string) => string,
+): string | null {
+  const name = log.bindingName?.trim();
+  if (name) return name;
+  return log.appType === "external" ? t("usage.externalApp") : null;
+}
+
 const isSuccessStatus = (code: number) => code >= 200 && code < 300;
 
 export function RequestLogTable({
@@ -172,13 +188,12 @@ export function RequestLogTable({
     const fullTime = formatLogFullTime(log.createdAt);
     const providerLabel = getUsageProviderLabel(log.providerName, t);
     const provider = providerLabel.shortLabel;
-    const isExternalApp = log.appType === "external";
-    const appName = isExternalApp
-      ? t("usage.externalApp")
-      : appDisplayName(log.appType);
-    const appShort = isExternalApp
-      ? t("usage.externalApp")
-      : appShortName(log.appType);
+    // 三方应用（外部接入）的请求在库里记的是它实际借用的入口应用身份（Chat →
+    // opencode），三方应用自己的名字在 bindingName 里：列里只展示那个名字，
+    // 不能用被借用的内置应用名字冒充它。
+    const keyName = externalKeyAppName(log, t);
+    const appName = keyName ?? appDisplayName(log.appType);
+    const appShort = keyName ?? appShortName(log.appType);
     const exactTps = formatOutputTokensPerSecond(log);
     // 会话日志导入的请求没有首字计时，速度是按日志时间戳估的，前面带 ≈
     const estimatedTps =
@@ -241,7 +256,8 @@ export function RequestLogTable({
             className="flex max-w-[88px] items-center gap-1.5"
             title={appName}
           >
-            {isKnownAppId(log.appType) && (
+            {/* 三方应用借用的入口应用图标会让人以为是它自己发的请求：这类行不画图标。 */}
+            {isKnownAppId(log.appType) && !keyName && (
               <AppGlyph
                 app={log.appType}
                 size={14}
