@@ -26,7 +26,7 @@ cc = "1"
 
 [dependencies]
 serde_json = { version = "1.0", features = ["preserve_order"] }
-shlex = "1.3"
+shlex = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
@@ -39,21 +39,21 @@ tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-window-state = "2"
-dirs = "5.0"
-toml = "0.8"
-toml_edit = "0.22"
+dirs = "7.0"
+toml = "1.1"
+toml_edit = "0.25"
 reqwest = { version = "0.12", features = ["rustls-tls", "json", "stream", "socks"] }
 arboard = "3.6"
 flate2 = "1"
-brotli = "7"
-zstd = "0.13"
+brotli = "9"
+zstd = "0.14"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
 futures = "0.3"
 async-stream = "0.3"
 bytes = "1.5"
-axum = "0.7"
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors"] }
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio", "http1", "client-legacy"] }
 hyper-rustls = { version = "0.27", features = ["http1", "tls12", "ring", "webpki-tokio"] }
@@ -63,29 +63,29 @@ http-body-util = "0.1"
 httparse = "1"
 tokio-rustls = "0.26"
 rustls = "0.23"
-webpki-roots = "0.26"
+webpki-roots = "1.0"
 rustls-native-certs = "0.8"
 regex = "1.10"
-rquickjs = { version = "0.8", features = ["array-buffer", "classes"] }
+rquickjs = { version = "0.14", features = ["array-buffer", "classes"] }
 thiserror = "2.0"
 anyhow = "1.0"
-zip = "2.2"
+zip = "4.6"
 serde_yaml = "0.9"
 tempfile = "3"
 url = "2.5"
-auto-launch = "0.5"
+auto-launch = "0.6"
 once_cell = "1.21.3"
-base64 = "0.22"
-rusqlite = { version = "0.31", features = ["bundled", "backup", "hooks"] }
+base64 = "0.23"
+rusqlite = { version = "0.41", features = ["bundled", "backup", "hooks"] }
 indexmap = { version = "2", features = ["serde"] }
 rust_decimal = "1.33"
 uuid = { version = "1.11", features = ["v4"] }
-sha2 = "0.10"
-hmac = "0.12"
-json5 = "0.4"
+sha2 = "0.11"
+hmac = "0.13"
+json5 = "1.3"
 json-five = "0.3.1"
 sys-locale = "0.3"
-tauri-plugin-notification = "=2.3.3"
+tauri-plugin-notification = "=2.7.0"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2"
@@ -96,13 +96,13 @@ gtk = "0.18"
 # tauri-plugin-deep-link 2.6.2 仍在用旧的 `ini::ParseOption` 结构体字面量，
 # rust-ini 0.21.3 给它加了两个必填字段，Linux 构建会报 E0063。
 # deep-link 目前没有修好的 2.x 版本，所以在这里钉住最后一个可用的 rust-ini。
-rust-ini = "=0.21.1"
+rust-ini = "=0.21.3"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winreg = "0.52"
+winreg = "0.56"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Globalization",
@@ -118,8 +118,8 @@ rquickjs = { version = "0.8", features = ["bindgen"] }
 # macOS Swift-backed Foundation collections can report signed/unsigned
 # encodings differently for ABI-identical integer returns (e.g. NSScreen count).
 # Keep message verification while accepting that signedness difference.
-objc2 = { version = "0.5", features = ["relax-sign-encoding"] }
-objc2-app-kit = { version = "0.2", features = ["NSColor", "NSWindow", "NSView", "NSButton", "NSControl", "NSResponder", "NSEvent", "NSScreen"] }
+objc2 = { version = "0.6", features = ["relax-sign-encoding"] }
+objc2-app-kit = { version = "0.3", features = ["NSColor", "NSWindow", "NSView", "NSButton", "NSControl", "NSResponder", "NSEvent", "NSScreen"] }
 
 # dev 构建只用行号表代替完整调试信息：体积大幅缩小（磁盘紧张时的取舍），
 # backtrace 仍带符号和行号，足以定位崩溃；需要完整调试信息时删除本段即可。
@@ -139,5 +139,5 @@ panic = "unwind"
 strip = "symbols"
 
 [dev-dependencies]
-serial_test = "3"
+serial_test = "4"
 tempfile = "3"
