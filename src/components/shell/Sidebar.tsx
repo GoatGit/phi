@@ -79,10 +79,15 @@ interface SidebarProps {
   onSelectLocalApp?: (appId: string) => void;
 }
 
-type DirectoryProps = SidebarProps & { collapsed: boolean };
+type SidebarStatus = ReturnType<typeof useSidebarStatus>;
+type DirectoryProps = SidebarProps & {
+  collapsed: boolean;
+  status: SidebarStatus;
+};
 
 /**
- * 主导航（v8）：顶条 44 → 供应商/路由/工具箱/用量统计/设置 → 滚动区（应用列表）。
+ * 主导航（v8）：顶条 44 → 品牌行（PHI + 今日花费）→ 供应商/路由/工具箱/设置 → 滚动区（应用列表）。
+ * 用量统计不再单独占一行：品牌行右侧的「今日 $x.xx」就是入口，点它进用量页。
  * 设置是一级菜单项，它的分区是页内标签，进入设置后侧栏不变。收起时是 52px 的图标轨；
  * 展开 / 收起时宽度一步到位，边缘的滑动由盖板的 transform 动画画出（见 useSidebarCollapsed），文字不换行、被裁掉而不是挤成两行。
  * 收起时各行只剩图标，名字由 HoverTip 从右侧报；展开时文字可见，不再挂提示。
@@ -91,6 +96,8 @@ export function Sidebar(props: SidebarProps) {
   const { t } = useTranslation();
   const navRef = useRef<HTMLElement>(null);
   const { collapsed, toggle } = useSidebarCollapsed(navRef);
+  // 今日花费既在品牌行显示，也是用量页的入口，所以状态提到这一层
+  const status = useSidebarStatus();
 
   return (
     <nav
@@ -108,8 +115,14 @@ export function Sidebar(props: SidebarProps) {
       >
         {t("nav.skipToContent")}
       </a>
-      <SidebarTopBar collapsed={collapsed} onToggle={toggle} />
-      <MainDirectory {...props} collapsed={collapsed} />
+      <SidebarTopBar
+        collapsed={collapsed}
+        onToggle={toggle}
+        todayCost={status.todayCost}
+        usageSelected={props.view === "usage"}
+        onOpenUsage={() => props.onSelectPage("usage")}
+      />
+      <MainDirectory {...props} collapsed={collapsed} status={status} />
     </nav>
   );
 }
@@ -117,9 +130,15 @@ export function Sidebar(props: SidebarProps) {
 function SidebarTopBar({
   collapsed,
   onToggle,
+  todayCost,
+  usageSelected,
+  onOpenUsage,
 }: {
   collapsed: boolean;
   onToggle: () => void;
+  todayCost: number;
+  usageSelected: boolean;
+  onOpenUsage: () => void;
 }) {
   const { t } = useTranslation();
   const [controlsCenterY, setControlsCenterY] = useState(22);
@@ -208,6 +227,48 @@ function SidebarTopBar({
     </span>
   );
 
+  // 品牌行右侧的今日花费就是用量页的入口（左侧菜单不再单独放「用量统计」）
+  const todayLabel = t("nav.todayCost", { cost: fmtUsd(todayCost, 2) });
+  const usageTip = `${t("nav.usage")} · ${todayLabel}`;
+
+  const usageChip = (
+    <button
+      type="button"
+      onClick={onOpenUsage}
+      aria-current={usageSelected ? "page" : undefined}
+      aria-label={usageTip}
+      title={t("nav.usage")}
+      style={NO_DRAG}
+      className={cn(
+        "flex h-[22px] min-w-0 items-center overflow-hidden whitespace-nowrap rounded-full px-2 text-[11px] font-medium tabular-nums transition-colors",
+        usageSelected
+          ? "bg-selected text-fg-1"
+          : "text-fg-3 hover:bg-subtle hover:text-fg-1",
+      )}
+    >
+      <span className="truncate">{todayLabel}</span>
+    </button>
+  );
+
+  // 收起成 52px 图标轨时放不下金额，只留一个图标，金额进悬浮提示
+  const usageRail = (
+    <HoverTip content={usageTip} side="right" disableHoverableContent>
+      <button
+        type="button"
+        onClick={onOpenUsage}
+        aria-label={usageTip}
+        aria-current={usageSelected ? "page" : undefined}
+        style={NO_DRAG}
+        className={cn(
+          "flex h-7 w-7 items-center justify-center rounded-control text-fg-3 transition-colors hover:bg-subtle hover:text-fg-1",
+          usageSelected && "bg-selected text-fg-1 hover:bg-selected",
+        )}
+      >
+        <ChartColumn aria-hidden className="h-[18px] w-[18px]" />
+      </button>
+    </HoverTip>
+  );
+
   // macOS：展开时按钮对齐红绿灯；收起时移到下一行，在窄侧栏中居中。
   if (isMac()) {
     return (
@@ -227,16 +288,22 @@ function SidebarTopBar({
           )}
         </div>
         {collapsed ? (
-          <div className="mb-2 flex h-9 shrink-0 items-center justify-center">
-            {toggleButton}
-          </div>
+          <>
+            <div className="flex h-9 shrink-0 items-center justify-center">
+              {toggleButton}
+            </div>
+            <div className="mb-2 flex h-8 shrink-0 items-center justify-center">
+              {usageRail}
+            </div>
+          </>
         ) : (
           <div
-            className="mb-2 flex h-9 shrink-0 items-center pe-2 ps-4"
+            className="mb-2 flex h-9 shrink-0 items-center gap-1.5 pe-2 ps-4"
             {...DRAG_REGION_ATTR}
             style={DRAG_REGION_STYLE as React.CSSProperties}
           >
             {brand}
+            {usageChip}
           </div>
         )}
       </>
@@ -244,17 +311,25 @@ function SidebarTopBar({
   }
 
   return (
-    <div
-      className={cn(
-        "flex h-11 shrink-0 items-center gap-0.5 px-2",
-        collapsed ? "justify-center" : "justify-end",
+    <>
+      <div
+        className={cn(
+          "flex h-11 shrink-0 items-center gap-0.5 px-2",
+          collapsed ? "justify-center" : "justify-end",
+        )}
+        {...DRAG_REGION_ATTR}
+        style={DRAG_REGION_STYLE as React.CSSProperties}
+      >
+        {!collapsed && brand}
+        {!collapsed && usageChip}
+        {toggleButton}
+      </div>
+      {collapsed && (
+        <div className="mb-1 flex h-8 shrink-0 items-center justify-center">
+          {usageRail}
+        </div>
       )}
-      {...DRAG_REGION_ATTR}
-      style={DRAG_REGION_STYLE as React.CSSProperties}
-    >
-      {!collapsed && brand}
-      {toggleButton}
-    </div>
+    </>
   );
 }
 
@@ -285,10 +360,11 @@ function MainDirectory({
   activeRoutingApp = null,
   activeLocalApp = null,
   onSelectLocalApp,
+  status,
 }: DirectoryProps) {
   const { t } = useTranslation();
   const { hasUpdate } = useUpdate();
-  const { appStatus, todayCost, serviceRunning } = useSidebarStatus();
+  const { appStatus, serviceRunning } = status;
   // 只列用户添加过的应用，按“进行中 → 最近有流量 → 已接入路由组 → 其余”排序。
   const sidebarEntries = useSidebarApps(sidebarApps);
   const onAppPage = isAppPage(view);
@@ -335,11 +411,6 @@ function MainDirectory({
         }
       : appStatus(entry.appId as AppId);
 
-  const todayLabel =
-    todayCost > 0
-      ? t("nav.todayCost", { cost: fmtUsd(todayCost, 2) })
-      : undefined;
-
   // 工具箱（MCP/Skills/提示词/会话 的二级菜单）：进入其中任一页时自动展开一次
   const toolboxActive = (TOOLBOX_PAGES as string[]).includes(view);
   const [toolboxOpen, setToolboxOpen] = useState(toolboxActive);
@@ -371,14 +442,6 @@ function MainDirectory({
           onToggleOpen={() => setToolboxOpen((value) => !value)}
           view={view}
           onSelectPage={onSelectPage}
-        />
-        <NavItem
-          collapsed={collapsed}
-          selected={view === "usage"}
-          icon={ChartColumn}
-          label={t("nav.usage")}
-          trailing={todayLabel}
-          onClick={() => onSelectPage("usage")}
         />
         <NavItem
           collapsed={collapsed}

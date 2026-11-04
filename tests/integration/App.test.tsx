@@ -202,12 +202,26 @@ const openAppProviders = async (name: string) => {
   );
 };
 
-const sidebarApp = (name: string) =>
+const sidebarApp = (name: string) => {
   // 首次启动提示是模态对话框，会把侧栏标成 aria-hidden，所以带上 hidden
-  within(document.querySelector("nav") as HTMLElement).getByRole("button", {
-    name,
+  const nav = document.querySelector("nav") as HTMLElement;
+  const find = () => within(nav).queryByRole("button", { name, hidden: true });
+  const direct = find();
+  if (direct) return direct;
+  // 侧栏只露出前几个应用，其余折叠在「展开其余」后面；需要时先展开再找
+  const more = within(nav).queryByRole("button", {
+    name: /moreApps|展开其余/,
     hidden: true,
   });
+  if (more) fireEvent.click(more);
+  return within(nav).getByRole("button", { name, hidden: true });
+};
+
+/** 用量入口在品牌行：名字是「用量统计 · 今日 $x.xx」，所以按前缀找。 */
+const sidebarUsage = () => {
+  const nav = document.querySelector("nav") as HTMLElement;
+  return within(nav).getByRole("button", { name: /nav\.usage/, hidden: true });
+};
 
 const renderApp = (AppComponent: ComponentType) => {
   const client = new QueryClient();
@@ -462,7 +476,7 @@ describe("App integration with MSW", () => {
 
     fireEvent.click(screen.getByText("usage"));
     expect(screen.getByTestId("usage-modal")).toBeInTheDocument();
-    fireEvent.click(sidebarApp("nav.usage"));
+    fireEvent.click(sidebarUsage());
     await waitFor(() =>
       expect(screen.queryByTestId("usage-modal")).not.toBeInTheDocument(),
     );
@@ -478,6 +492,30 @@ describe("App integration with MSW", () => {
     fireEvent.keyDown(window, { key: ",", metaKey: true });
     expect(await screen.findByTestId("settings-page")).toBeInTheDocument();
     expect(screen.queryByTestId("add-provider-dialog")).not.toBeInTheDocument();
+  }, 10_000);
+
+  it("shows today's cost in the sidebar brand row instead of a usage nav row", async () => {
+    const { default: App } = await import("@/App");
+    renderApp(App);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list")).toBeInTheDocument(),
+    );
+
+    const nav = document.querySelector("nav") as HTMLElement;
+    // 左侧菜单不再有单独的一行「用量统计」，只剩品牌行右侧的金额
+    expect(within(nav).queryByText("nav.usage")).not.toBeInTheDocument();
+    const usage = sidebarUsage();
+    expect(usage).toHaveTextContent("nav.todayCost");
+    expect(usage).toHaveAttribute("title", "nav.usage");
+
+    // 首次启动提示是模态对话框，会把内容区标成 aria-hidden，所以带上 hidden
+    fireEvent.click(usage);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("tablist", { name: "nav.usage", hidden: true }),
+      ).toBeInTheDocument(),
+    );
   }, 10_000);
 
   it("asks before leaving an editor page with unsaved changes", async () => {
