@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { X } from "lucide-react";
 import {
   Dialog,
   DialogBody,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -218,13 +220,29 @@ export function SubscriptionSupplierDialog({
       }}
     >
       <DialogContent className="max-h-[85vh] max-w-lg overflow-hidden">
-        <DialogHeader>
-          <DialogTitle>
-            {subscription.name} · {t("providerPreset.group.subscription")}
-          </DialogTitle>
-          <DialogDescription>
-            {t("gateway.subscription.description")}
-          </DialogDescription>
+        <DialogHeader className="flex-row items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <DialogTitle>
+              {subscription.name} · {t("providerPreset.group.subscription")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("gateway.subscription.description")}
+            </DialogDescription>
+          </div>
+          {/* 遮罩点击被统一拦掉，等待授权时底部又只有「取消登录」（只撤销会话），
+              所以这里必须有常驻的关闭入口；保存中禁止关闭。 */}
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="quiet"
+              size="icon-compact"
+              aria-label={t("common.close")}
+              disabled={saving}
+              className="-mr-2 -mt-1 shrink-0"
+            >
+              <X aria-hidden className="h-4 w-4" strokeWidth={1.5} />
+            </Button>
+          </DialogClose>
         </DialogHeader>
         <DialogBody className="space-y-4">
           <Notice tone="route" title={t("gateway.subscription.routeHint")} />

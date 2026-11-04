@@ -139,6 +139,18 @@ describe("subscription supplier authorization", () => {
     );
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
+  it("closes from the header close button while waiting for authorization", async () => {
+    const { onClose } = mount();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "gateway.subscription.login" }),
+    );
+    // 等待授权时底部只有「取消登录」（只撤销会话），关闭入口必须在标题行常驻可用。
+    await screen.findByText("ABCD-EFGH");
+    const close = screen.getByRole("button", { name: "common.close" });
+    expect(close).toBeEnabled();
+    fireEvent.click(close);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
   it("cancels pending login listeners when the dialog closes", async () => {
     const { unmount } = mount();
     fireEvent.click(
