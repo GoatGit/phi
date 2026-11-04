@@ -410,18 +410,16 @@ describe("routing overview", () => {
     ).toBeInTheDocument();
   });
 
-  it("restores every app to direct from the routing page", async () => {
+  it("no longer hosts the exit-all restore action on the routing page", async () => {
     vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
     mount(<RoutingOverviewPage />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "routingSettings.exitAll" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "routingSettings.exitAllConfirm" }),
-    );
-    await waitFor(() =>
-      expect(proxyApi.stopProxyWithRestore).toHaveBeenCalledTimes(1),
-    );
+    // 一键还原入口已从路由页移除（设置页也不再有该按钮）；
+    // 还原走代理停止流程，不再经由路由页触发。
+    await screen.findByRole("region", { name: "gateway.flow.title" });
+    expect(
+      screen.queryByRole("button", { name: "routingSettings.exitAll" }),
+    ).not.toBeInTheDocument();
+    expect(proxyApi.stopProxyWithRestore).not.toHaveBeenCalled();
   });
 
   it.each(["direct", "route"] as const)(

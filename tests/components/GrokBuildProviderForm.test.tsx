@@ -61,7 +61,7 @@ describe("GrokBuildProviderForm", () => {
     // 官网链接输入框已随表单减负移除，预设回填只验证 API Key 链接
     expect(screen.getByRole("link", { name: /API Key/ })).toHaveAttribute(
       "href",
-      "https://88api.ai/sign-up?aff=HSGY",
+      "https://88api.ai/sign-up", // 官网链接输入框减负后，预设里不再带推广参数
     );
   });
 

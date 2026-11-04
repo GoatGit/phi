@@ -269,6 +269,7 @@ describe("terminal workspaces", () => {
         "claude",
         "/tmp/中文 项目",
         '--model "test model" --resume',
+        { theme: "auto", dark: false }, // 终端主题在会话启动前应用
       ),
     );
     await waitFor(() =>
@@ -435,6 +436,7 @@ describe("terminal workspaces", () => {
       "claude",
       "/tmp/其他项目",
       "--model test",
+      { theme: "auto", dark: false },
     );
     expect(localStorage.getItem("phi.terminal.cwd.claude")).toBe(
       "/tmp/其他项目",
@@ -472,7 +474,7 @@ describe("terminal workspaces", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(terminalApi.close).not.toHaveBeenCalled();
-    expect(screen.getByRole("tab", { name: "首页" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "配置" })).toBeInTheDocument(); // 无会话页签改叫「配置」
     fireEvent.click(screen.getByRole("button", { name: "关闭终端 phi" }));
     fireEvent.click(screen.getByRole("button", { name: "结束并关闭" }));
     await waitFor(() =>

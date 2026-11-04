@@ -234,14 +234,11 @@ describe("HermesFormFields", () => {
     const input = screen.getByLabelText("请求间隔（秒）");
     expect(input).toHaveValue(0.5);
     expect(screen.getByText("请求间隔（秒）")).toHaveClass(
-      "text-sm",
+      "text-body", // Label 统一走 text-body 字号令牌
       "font-medium",
       "leading-none",
     );
-    expect(input.closest("div.border-l")).toHaveClass(
-      "border-border",
-      "pl-3",
-    );
+    expect(input.closest("div.border-l")).toHaveClass("border-border", "pl-3");
     expect(
       screen.queryByRole("button", { name: "供应商高级选项" }),
     ).not.toBeInTheDocument();
