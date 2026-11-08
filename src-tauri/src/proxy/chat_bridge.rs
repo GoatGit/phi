@@ -1002,6 +1002,105 @@ impl StreamBridge {
     }
 }
 
+pub async fn handle(state: ProxyState, request: Request) -> Result<Response, ProxyError> {
+    let (mut parts, body) = request.into_parts();
+    let bytes = axum::body::to_bytes(body, 16 * 1024 * 1024)
+        .await
+        .map_err(|_| invalid("request body too large"))?;
+    let bytes = super::handlers::decode_codex_request_body(&mut parts.headers, bytes)?;
+    let chat: Value = serde_json::from_slice(&bytes).map_err(|_| invalid("JSON"))?;
+    let converted = request_to_responses(&chat)?;
+    let include_usage = chat
+        .pointer("/stream_options/include_usage")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    parts.uri = "/v1/responses".parse().unwrap();
+    parts.headers.remove("content-length");
+    parts.headers.remove("content-encoding");
+    let response = super::handlers::handle_responses(
+        State(state),
+        Request::from_parts(parts, Body::from(converted.to_string())),
+    )
+    .await?;
+    if !response.status().is_success() {
+        return Ok(response);
+    }
+    let streaming = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.contains("text/event-stream"));
+    let (mut parts, body) = response.into_parts();
+    parts.headers.remove("content-length");
+    parts.headers.remove("content-encoding");
+    if !streaming {
+        let bytes = axum::body::to_bytes(body, 16 * 1024 * 1024)
+            .await
+            .map_err(|_| ProxyError::TransformError("Responses body unreadable".into()))?;
+        let response: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| ProxyError::TransformError("Responses body is not JSON".into()))?;
+        if let Some(tokens) = super::usage::parser::TokenUsage::from_codex_response_auto(&response)
+        {
+            if let Some(reporter) = super::ledger_observer::usage_reporter() {
+                reporter.report(
+                    tokens,
+                    if response["status"] == "incomplete" {
+                        "interrupted"
+                    } else {
+                        "completed"
+                    },
+                )?;
+            }
+        }
+        return Ok(Response::from_parts(
+            parts,
+            Body::from(response_to_chat(&response)?.to_string()),
+        ));
+    }
+    let reporter = super::ledger_observer::usage_reporter();
+    let output = responses_sse_to_chat_stream(
+        body.into_data_stream(),
+        chat["model"].as_str().unwrap_or_default(),
+        include_usage,
+        reporter,
+        None,
+    );
+    Ok(Response::from_parts(parts, Body::from_stream(output)))
+}
+
+/// Responses SSE → Chat SSE。网关把 Chat 入口接到的请求归一成 Responses 之后，
+/// 上游回包也要按同一形状转回客户端。
+pub(crate) fn responses_sse_to_chat_stream<E>(
+    stream: impl futures::Stream<Item = Result<bytes::Bytes, E>> + Send + 'static,
+    model: &str,
+    include_usage: bool,
+    reporter: Option<super::ledger_observer::UsageReporter>,
+    trace: Option<super::gateway_observer::Trace>,
+) -> impl futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send
+where
+    E: std::fmt::Display + Send + 'static,
+{
+    let model = model.to_string();
+    async_stream::try_stream! {
+        let mut buffer=String::new();let mut remainder=vec![];
+        let mut bridge=StreamBridge{id:format!("chatcmpl-{}",uuid::Uuid::new_v4()),model,created:chrono::Utc::now().timestamp(),tools:BTreeMap::new(),texts:BTreeMap::new(),refusals:BTreeMap::new(),done:false,retained_bytes:0,include_usage,reporter,trace};
+        tokio::pin!(stream);
+        while let Some(chunk)=stream.next().await {
+            let chunk=chunk.map_err(|e|std::io::Error::other(e.to_string()))?;
+            if buffer.len()+chunk.len()>2*1024*1024 {Err(std::io::Error::other("Responses event exceeds limit"))?;}
+            super::sse::append_utf8_safe(&mut buffer,&mut remainder,&chunk);
+            while let Some(block)=super::sse::take_sse_block(&mut buffer) {
+                let data=block.lines().filter_map(|s|s.strip_prefix("data:").map(str::trim)).collect::<Vec<_>>().join("\n");
+                if data.is_empty()||data=="[DONE]" {continue;}
+                let value=serde_json::from_str(&data).map_err(|_|std::io::Error::other("Invalid Responses event"))?;
+                for chunk in bridge.event(value).map_err(|e|std::io::Error::other(e.to_string()))? {yield bytes::Bytes::from(format!("data: {chunk}\n\n"));}
+                if bridge.done {yield bytes::Bytes::from_static(b"data: [DONE]\n\n");return;}
+            }
+        }
+        Err(std::io::Error::other("Responses stream ended without a terminal event"))?;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1304,104 +1403,5 @@ mod tests {
         let trace = trace.lock().unwrap();
         assert_eq!(trace.input_tokens, Some(7));
         assert_eq!(trace.output_tokens, Some(2));
-    }
-}
-
-pub async fn handle(state: ProxyState, request: Request) -> Result<Response, ProxyError> {
-    let (mut parts, body) = request.into_parts();
-    let bytes = axum::body::to_bytes(body, 16 * 1024 * 1024)
-        .await
-        .map_err(|_| invalid("request body too large"))?;
-    let bytes = super::handlers::decode_codex_request_body(&mut parts.headers, bytes)?;
-    let chat: Value = serde_json::from_slice(&bytes).map_err(|_| invalid("JSON"))?;
-    let converted = request_to_responses(&chat)?;
-    let include_usage = chat
-        .pointer("/stream_options/include_usage")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    parts.uri = "/v1/responses".parse().unwrap();
-    parts.headers.remove("content-length");
-    parts.headers.remove("content-encoding");
-    let response = super::handlers::handle_responses(
-        State(state),
-        Request::from_parts(parts, Body::from(converted.to_string())),
-    )
-    .await?;
-    if !response.status().is_success() {
-        return Ok(response);
-    }
-    let streaming = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|s| s.contains("text/event-stream"));
-    let (mut parts, body) = response.into_parts();
-    parts.headers.remove("content-length");
-    parts.headers.remove("content-encoding");
-    if !streaming {
-        let bytes = axum::body::to_bytes(body, 16 * 1024 * 1024)
-            .await
-            .map_err(|_| ProxyError::TransformError("Responses body unreadable".into()))?;
-        let response: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| ProxyError::TransformError("Responses body is not JSON".into()))?;
-        if let Some(tokens) = super::usage::parser::TokenUsage::from_codex_response_auto(&response)
-        {
-            if let Some(reporter) = super::ledger_observer::usage_reporter() {
-                reporter.report(
-                    tokens,
-                    if response["status"] == "incomplete" {
-                        "interrupted"
-                    } else {
-                        "completed"
-                    },
-                )?;
-            }
-        }
-        return Ok(Response::from_parts(
-            parts,
-            Body::from(response_to_chat(&response)?.to_string()),
-        ));
-    }
-    let reporter = super::ledger_observer::usage_reporter();
-    let output = responses_sse_to_chat_stream(
-        body.into_data_stream(),
-        chat["model"].as_str().unwrap_or_default(),
-        include_usage,
-        reporter,
-        None,
-    );
-    Ok(Response::from_parts(parts, Body::from_stream(output)))
-}
-
-/// Responses SSE → Chat SSE。网关把 Chat 入口接到的请求归一成 Responses 之后，
-/// 上游回包也要按同一形状转回客户端。
-pub(crate) fn responses_sse_to_chat_stream<E>(
-    stream: impl futures::Stream<Item = Result<bytes::Bytes, E>> + Send + 'static,
-    model: &str,
-    include_usage: bool,
-    reporter: Option<super::ledger_observer::UsageReporter>,
-    trace: Option<super::gateway_observer::Trace>,
-) -> impl futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send
-where
-    E: std::fmt::Display + Send + 'static,
-{
-    let model = model.to_string();
-    async_stream::try_stream! {
-        let mut buffer=String::new();let mut remainder=vec![];
-        let mut bridge=StreamBridge{id:format!("chatcmpl-{}",uuid::Uuid::new_v4()),model,created:chrono::Utc::now().timestamp(),tools:BTreeMap::new(),texts:BTreeMap::new(),refusals:BTreeMap::new(),done:false,retained_bytes:0,include_usage,reporter,trace};
-        tokio::pin!(stream);
-        while let Some(chunk)=stream.next().await {
-            let chunk=chunk.map_err(|e|std::io::Error::other(e.to_string()))?;
-            if buffer.len()+chunk.len()>2*1024*1024 {Err(std::io::Error::other("Responses event exceeds limit"))?;}
-            super::sse::append_utf8_safe(&mut buffer,&mut remainder,&chunk);
-            while let Some(block)=super::sse::take_sse_block(&mut buffer) {
-                let data=block.lines().filter_map(|s|s.strip_prefix("data:").map(str::trim)).collect::<Vec<_>>().join("\n");
-                if data.is_empty()||data=="[DONE]" {continue;}
-                let value=serde_json::from_str(&data).map_err(|_|std::io::Error::other("Invalid Responses event"))?;
-                for chunk in bridge.event(value).map_err(|e|std::io::Error::other(e.to_string()))? {yield bytes::Bytes::from(format!("data: {chunk}\n\n"));}
-                if bridge.done {yield bytes::Bytes::from_static(b"data: [DONE]\n\n");return;}
-            }
-        }
-        Err(std::io::Error::other("Responses stream ended without a terminal event"))?;
     }
 }

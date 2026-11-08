@@ -1,8 +1,9 @@
 //! System One（`POST /v1/systemone`）↔ 决策 IR。
 //!
-//! 只接受官方顶层字段 `state` / `model` / `questions`，并保留每个 question
-//! 与 answer 的原始 JSON，避免丢掉 probabilities、legend、confidence 等
-//! 决策协议特有的形状。
+//! 顶层只取官方字段 `state` / `model` / `questions`，未知顶层键容忍（这个
+//! 解析器是 `/typesafe/v1/systemone` 入口的活校验器，硬拒会让客户端等 PHI
+//! 发版才能用新字段）；每个 question 与 answer 保留原始 JSON，避免丢掉
+//! probabilities、legend、confidence 等决策协议特有的形状。
 
 use std::collections::BTreeMap;
 
@@ -16,11 +17,8 @@ const QUESTION_TYPES: [&str; 4] = ["noul", "choice", "score", "box"];
 
 pub(crate) fn parse_request(body: Value) -> Result<Request, ProxyError> {
     let object = body.as_object().ok_or_else(|| invalid("body"))?;
-    for key in object.keys() {
-        if !matches!(key.as_str(), "state" | "model" | "questions") {
-            return Err(invalid(key));
-        }
-    }
+    // 未知顶层键不报错：校验器硬拒会让任何带新字段的客户端在网关这里 400，
+    // 与 chat_to_anthropic「容忍可移植字段」的哲学一致。
     let model = object
         .get("model")
         .and_then(Value::as_str)
@@ -204,6 +202,19 @@ mod tests {
         }
         assert!(parse_request(json!({"model":"jev-latest","state":"x"})).is_err());
         assert!(parse_request(json!({"model":"jev-latest","state":"x","questions":{}})).is_err());
+    }
+
+    #[test]
+    fn unknown_top_level_keys_are_tolerated() {
+        // 客户端带上新字段（如追踪 ID）不应被网关硬拒：解析器只取官方字段。
+        let request = parse_request(json!({
+            "model":"jev-latest",
+            "state":"x",
+            "questions":{"q":{"type":"noul","instructions":"x"}},
+            "trace_id":"abc"
+        }))
+        .unwrap();
+        assert_eq!(request.model, "jev-latest");
     }
 
     #[test]

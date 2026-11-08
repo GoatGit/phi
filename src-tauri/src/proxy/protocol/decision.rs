@@ -4,6 +4,8 @@
 //! 响应是「每个问题的 typed answer + 概率/置信度」。因此不复用聊天的 IR
 //! 消息结构，也不做聊天 ↔ 决策的伪转换。
 
+#![allow(dead_code)]
+
 use std::collections::BTreeMap;
 
 use serde_json::Value;

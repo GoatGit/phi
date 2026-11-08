@@ -1603,11 +1603,13 @@ impl RequestForwarder {
         // catalog matching and to the transform's own strip+beta detection).
         let mut codex_responses_to_chat = matches!(app_type, AppType::Codex | AppType::GrokBuild)
             && super::providers::should_convert_codex_responses_to_chat(provider, endpoint);
+        // 括号不能省：第三个子句（chat_upstream → Anthropic）刻意绕过 Codex/
+        // GrokBuild 守卫，写成 `(a && b) || c` 而不是依赖 && 的优先级。
         let mut codex_responses_to_anthropic =
-            matches!(app_type, AppType::Codex | AppType::GrokBuild)
+            (matches!(app_type, AppType::Codex | AppType::GrokBuild)
                 && super::providers::should_convert_codex_responses_to_anthropic(
                     provider, endpoint,
-                )
+                ))
                 || chat_upstream == Some(super::chat_upstream::Upstream::Anthropic);
         let mut copilot_endpoint_override: Option<String> = None;
         let codex_official_auth_passthrough = matches!(app_type, AppType::Codex)

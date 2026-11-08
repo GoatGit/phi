@@ -8,6 +8,12 @@
 //!   `citationMetadata`、`promptFeedback`；
 //! - Anthropic：thinking block 的 `signature`；
 //! - 两家的工具调用 id / 工具结果关联。
+//!
+//! 目前只有 System One 入口在生产路径上使用 `Usage`（`codec::system_one` 也
+//! 校验请求）；其余 IR 形状与 `translate` 只被单测覆盖，属于尚未接入调用链的
+//! 迁移底座，先允许死代码，避免为了消警告去伪造一个假的调用者。
+
+#![allow(dead_code)]
 
 use serde_json::Value;
 

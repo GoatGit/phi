@@ -2,6 +2,11 @@
 //!
 //! 目前接入 Anthropic 与 Gemini 的 codec；Chat / Responses 的 codec 在下一
 //! 步补齐后，调用方不需要改这里的选择逻辑。
+//!
+//! 转发路径目前仍走 `providers` 下已有的方向转换器，这里只被单测覆盖，因此先
+//! 允许死代码：删掉它会连带丢掉「同一份 IR 能不能互转」的证据。
+
+#![allow(dead_code)]
 
 use serde_json::Value;
 

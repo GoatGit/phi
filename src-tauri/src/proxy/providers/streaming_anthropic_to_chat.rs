@@ -159,19 +159,27 @@ pub(crate) fn create_chat_sse_stream_from_anthropic<E: std::error::Error + Send 
 }
 
 fn process_anthropic_block(state: &mut ChatStreamState, block: &str) -> Vec<Bytes> {
-    let mut data = None;
+    // SSE 规范：同一事件的多行 data: 必须以换行拼接成一个载荷，而不是只留
+    // 最后一行。Anthropic 目前不拆行，但这里与 transform_codex_anthropic 的
+    // 解析保持同一行为，避免两个实现漂移出「偶发丢输出」。
+    let mut data_lines: Vec<&str> = Vec::new();
     for line in block.lines() {
         if let Some(value) = strip_sse_field(line, "data") {
-            data = Some(value.trim());
+            data_lines.push(value.trim());
         }
     }
-    let Some(data) = data else {
+    if data_lines.is_empty() {
         return Vec::new();
-    };
+    }
+    let data = data_lines.join("\n");
     if data == "[DONE]" {
         return Vec::new();
     }
-    let Ok(event) = serde_json::from_str::<Value>(data) else {
+    let Ok(event) = serde_json::from_str::<Value>(&data) else {
+        log::debug!(
+            "[CHAT-SSE] dropped unparsable upstream event ({bytes} bytes)",
+            bytes = data.len()
+        );
         return Vec::new();
     };
     let mut out = Vec::new();

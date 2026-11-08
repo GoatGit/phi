@@ -118,10 +118,15 @@ pub(crate) fn chat_request_to_anthropic(
 
     for message in messages {
         let message = message.as_object().ok_or_else(|| invalid("messages"))?;
+        // PHI 自己的 Chat 响应会携带 reasoning_content（streaming_anthropic_to_chat
+        // 与 anthropic_response_to_chat 都会输出），OpenCode/Pi 系客户端把它原样
+        // 回传；第二轮对话若在这里被拒，客户端只会看到笼统的 invalid messages。
+        // 历史消息里的思考文本不带 Anthropic 签名，无法作为 thinking 块回放，
+        // 忽略即可。name 是 Chat 协议的标准可选字段，同样没有 Anthropic 对应概念。
         if message.keys().any(|key| {
             !matches!(
                 key.as_str(),
-                "role" | "content" | "tool_calls" | "tool_call_id"
+                "role" | "content" | "tool_calls" | "tool_call_id" | "reasoning_content" | "name"
             )
         }) {
             return Err(invalid("messages"));
@@ -698,6 +703,28 @@ mod tests {
             "verbosity",
         ] {
             assert!(result.get(field).is_none(), "{field} must be dropped");
+        }
+    }
+
+    /// 多轮对话第二轮：客户端会原样回传 PHI 上一轮响应里的 reasoning_content，
+    /// 历史里还可能有标准可选字段 name。它们必须被容忍而不是 400，否则
+    /// 思考型模型在第二次请求就会断流。
+    #[test]
+    fn chat_history_echoing_reasoning_content_and_name_is_accepted() {
+        let body = json!({
+            "model": "claude-sonnet-4-5",
+            "messages": [
+                {"role":"user","name":"yang","content":"你好"},
+                {"role":"assistant","content":"答案是 4","reasoning_content":"先算 2+2"},
+                {"role":"user","content":"那再加 1 呢"}
+            ]
+        });
+        let result = chat_request_to_anthropic(body, 8192).unwrap();
+        assert_eq!(result["messages"].as_array().unwrap().len(), 3);
+        assert_eq!(result["messages"][1]["content"][0]["text"], "答案是 4");
+        for message in result["messages"].as_array().unwrap() {
+            assert!(message.get("reasoning_content").is_none());
+            assert!(message.get("name").is_none());
         }
     }
 
