@@ -55,3 +55,7 @@ __pycache__/
 
 # Local agent runtime state
 /.pi/
+
+# 本地临时脚本（截图取色 / OCR 校验），不参与构建，不入库
+/ocr_vision.swift
+/pixel_map.swift
