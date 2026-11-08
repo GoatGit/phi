@@ -36,6 +36,7 @@ mod opencode_config;
 mod panic_hook;
 mod pi_config;
 pub mod plugin;
+pub mod privacy;
 mod process_output;
 mod prompt;
 mod prompt_files;
@@ -1579,6 +1580,10 @@ pub fn run() {
             commands::list_plugins,
             commands::set_plugin_enabled,
             commands::preview_plugin_request,
+            // Privacy redaction: request-body stage + error-log scrubbing
+            commands::get_privacy_config,
+            commands::save_privacy_config,
+            commands::preview_privacy_redaction,
             // Prompt management
             commands::get_prompts,
             commands::upsert_prompt,

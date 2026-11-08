@@ -175,7 +175,9 @@ impl ProxyServer {
             codex_chat_history: Arc::new(CodexChatHistoryStore::default()),
             app_handle,
             failover_manager,
-            plugin_runtime: Arc::new(crate::plugin::PluginRuntime::from_config_dir()),
+            plugin_runtime: Arc::new(crate::plugin::PluginRuntime::from_config_dir_with_builtins(
+                crate::privacy::builtin_request_stages,
+            )),
         };
 
         Self {
