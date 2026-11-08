@@ -17,6 +17,9 @@ use std::sync::{Mutex, OnceLock};
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use tauri::image::Image;
+#[cfg(not(target_os = "linux"))]
+use tauri::menu::Submenu;
+#[cfg(target_os = "linux")]
 use tauri::menu::{
     CheckMenuItem, Menu, MenuBuilder, MenuItem, MenuItemKind, Submenu, SubmenuBuilder,
 };
@@ -62,6 +65,7 @@ fn app_display_name(app: &AppType) -> &'static str {
 }
 
 /// 问题区最多几行，再多写「还有 N 个问题」。
+#[cfg(target_os = "linux")]
 const MAX_PROBLEM_ROWS: usize = 2;
 /// 原生菜单不会自己截断，名字太长会把整个菜单撑宽。
 const MAX_NAME_CHARS: usize = 32;
@@ -81,6 +85,9 @@ static TRAY_SECTION_SUBMENUS: Lazy<Mutex<HashMap<AppType, Submenu<tauri::Wry>>>>
 ///
 /// 模板占位：`{app}` `{name}` `{port}` `{mode}` `{reason}` `{count}` `{value}` `{when}`；
 /// 档名用 `{label}`，中文模板用 `{labelSp}`（档名以字母数字结尾时自动补一个空格）。
+///
+/// 字段全部保留：文案表按语种整份填入，字段的必要性由「托盘还剩哪些平台」决定。
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct TrayTexts {
     pub show_main: &'static str,
@@ -1459,6 +1466,7 @@ fn current_feedback() -> Option<TrayFeedback> {
 
 /// 点了托盘图标：这次弹出的菜单里已经有反馈行了，算显示过；下次重建（悬停图标时）就拿掉。
 /// 只算会弹出菜单的点击：Windows 左键是打开主界面，不算。
+#[cfg(target_os = "linux")]
 pub fn note_tray_click(button: tauri::tray::MouseButton) {
     let opens_menu = match button {
         tauri::tray::MouseButton::Right => true,
@@ -1498,6 +1506,7 @@ struct MenuStatus {
 // ─── 菜单模型（纯数据）────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg(target_os = "linux")]
 enum TrayEntry {
     Item {
         id: String,
@@ -1520,6 +1529,7 @@ enum TrayEntry {
     Separator,
 }
 
+#[cfg(target_os = "linux")]
 impl TrayEntry {
     fn item(id: impl Into<String>, text: impl Into<String>) -> Self {
         Self::Item {
@@ -1580,6 +1590,7 @@ fn problem_text(texts: &TrayTexts, problem: &TrayProblem) -> String {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn problem_id(problem: &TrayProblem) -> String {
     match problem {
         TrayProblem::ServiceDown { .. } => "nav:settings:routing".to_string(),
@@ -1644,6 +1655,7 @@ fn display_names(providers: &[&ProviderEntry]) -> Vec<String> {
         .collect()
 }
 
+#[cfg(target_os = "linux")]
 fn provider_rows(texts: &TrayTexts, snapshot: &AppSnapshot) -> Vec<TrayEntry> {
     let app = &snapshot.app;
     let current = snapshot.current_id.as_deref();
@@ -1753,6 +1765,7 @@ fn provider_rows(texts: &TrayTexts, snapshot: &AppSnapshot) -> Vec<TrayEntry> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn app_children(
     texts: &TrayTexts,
     snapshot: &AppSnapshot,
@@ -1835,6 +1848,7 @@ fn app_children(
     children
 }
 
+#[cfg(target_os = "linux")]
 fn app_entry(
     texts: &TrayTexts,
     snapshot: &AppSnapshot,
@@ -1859,6 +1873,7 @@ fn app_entry(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn build_menu_model(
     texts: &TrayTexts,
     status: &MenuStatus,
@@ -1928,6 +1943,7 @@ fn build_menu_model(
 
 // ─── 读状态 → 模型 ─────────────────────────────────────────────────────────────
 
+#[cfg(target_os = "linux")]
 struct TrayModel {
     entries: Vec<TrayEntry>,
     status: MenuStatus,
@@ -1979,6 +1995,7 @@ fn collect_status(
     Ok((snapshots, status))
 }
 
+#[cfg(target_os = "linux")]
 fn collect_model(app_state: &AppState, texts: &TrayTexts) -> Result<TrayModel, AppError> {
     let (snapshots, status) = collect_status(app_state, texts)?;
     let entries = build_menu_model(
@@ -2001,10 +2018,12 @@ fn routing_in_use(app_state: &AppState) -> bool {
 
 // ─── 模型 → Tauri 菜单 ─────────────────────────────────────────────────────────
 
+#[cfg(target_os = "linux")]
 fn menu_error(e: impl std::fmt::Display) -> AppError {
     AppError::Message(format!("创建托盘菜单失败: {e}"))
 }
 
+#[cfg(target_os = "linux")]
 fn attach_entry(
     app: &tauri::AppHandle,
     entry: &TrayEntry,
@@ -2047,7 +2066,8 @@ fn attach_entry(
     }))
 }
 
-/// 创建动态托盘菜单
+/// 创建动态托盘菜单（只有 Linux 挂原生菜单；macOS / Windows 用的是自绘面板）。
+#[cfg(target_os = "linux")]
 pub fn create_tray_menu(
     app: &tauri::AppHandle,
     app_state: &AppState,
@@ -2858,7 +2878,7 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
     join_all(usage_futures).await;
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
     use crate::provider::{UsageData, UsageResult};
@@ -2869,14 +2889,17 @@ mod tests {
         TIER_WEEKLY_LIMIT,
     };
 
+    #[cfg(target_os = "linux")]
     fn en() -> TrayTexts {
         TrayTexts::from_language("en")
     }
 
+    #[cfg(target_os = "linux")]
     fn zh() -> TrayTexts {
         TrayTexts::from_language("zh")
     }
 
+    #[cfg(target_os = "linux")]
     fn now() -> chrono::DateTime<chrono::Local> {
         chrono::Local::now()
     }
@@ -2884,12 +2907,14 @@ mod tests {
     // ─── 基础 ───
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn tray_id_is_unique_to_app() {
         assert_eq!(TRAY_ID, "phi");
         assert_ne!(TRAY_ID, "main");
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn tray_lists_switch_apps_in_sidebar_order_without_additive_apps() {
         let names: Vec<&str> = TRAY_APPS.iter().map(app_display_name).collect();
         assert_eq!(
@@ -2908,6 +2933,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn locale_maps_traditional_chinese_variants_to_zh_tw() {
         for locale in [
             "zh-TW",
@@ -2926,6 +2952,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn locale_maps_simplified_chinese_variants_to_zh() {
         for locale in ["zh", "zh-CN", "zh-SG", "zh-Hans", "zh-Hans-CN"] {
             assert_eq!(
@@ -2937,6 +2964,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn locale_maps_japanese_and_english() {
         assert_eq!(map_locale_to_tray_language("ja-JP"), "ja");
         assert_eq!(map_locale_to_tray_language("ja"), "ja");
@@ -2945,6 +2973,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn locale_unknown_falls_back_to_zh() {
         // 与前端 getInitialLanguage 的默认值保持一致。
         for locale in ["de-DE", "fr", "ko-KR", ""] {
@@ -2957,6 +2986,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn mode_names_follow_the_v7_terms_in_every_language() {
         let zh = zh();
         assert_eq!(
@@ -2987,6 +3017,7 @@ mod tests {
 
     // ─── 额度文字 ───
 
+    #[cfg(target_os = "linux")]
     fn make_quota(tool: &str, success: bool, tiers: Vec<QuotaTier>) -> SubscriptionQuota {
         SubscriptionQuota {
             tool: tool.to_string(),
@@ -3002,6 +3033,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn tier(name: &str, utilization: f64) -> QuotaTier {
         QuotaTier {
             name: name.to_string(),
@@ -3012,6 +3044,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn usage_data(plan_name: Option<&str>, utilization: f64) -> UsageData {
         UsageData {
             plan_name: plan_name.map(String::from),
@@ -3025,6 +3058,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn usage_result(success: bool, data: Vec<UsageData>) -> UsageResult {
         UsageResult {
             success,
@@ -3033,15 +3067,18 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn title(view: Option<QuotaView>) -> Option<(String, bool)> {
         view.as_ref().and_then(quota_title)
     }
 
+    #[cfg(target_os = "linux")]
     fn sub_title(texts: &TrayTexts, quota: &SubscriptionQuota) -> Option<String> {
         title(format_subscription_quota(texts, quota)).map(|(text, _)| text)
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn subscription_quota_is_written_as_what_is_left() {
         let quota = make_quota(
             "claude",
@@ -3064,6 +3101,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn subscription_quota_is_written_as_what_is_used_when_chosen() {
         let used = |texts: TrayTexts| TrayTexts {
             quota_used: true,
@@ -3099,6 +3137,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn almost_out_only_below_twenty_percent_left_and_not_when_used_up() {
         let at = |used: f64| {
             title(format_subscription_quota(
@@ -3114,6 +3153,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn latin_labels_get_a_space_before_the_chinese_word() {
         let quota = make_quota(
             "gemini",
@@ -3127,6 +3167,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn title_writes_every_tier_in_original_order() {
         let quota = make_quota(
             "gemini",
@@ -3144,6 +3185,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn fable_stays_separate_and_weekly_aliases_use_the_highest() {
         let quota = make_quota(
             "claude",
@@ -3166,6 +3208,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn monthly_and_thirty_day_windows_keep_their_own_words() {
         let codex_free = make_quota("codex", true, vec![tier(TIER_THIRTY_DAY, 85.0)]);
         assert_eq!(
@@ -3188,6 +3231,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn flattened_subscription_tiers_match_the_subscription_text() {
         let quota = make_quota(
             "claude",
@@ -3208,6 +3252,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn balance_is_shown_and_never_warns_before_running_out() {
         let balance = |remaining: f64, total: Option<f64>| UsageData {
             plan_name: Some("CNY".to_string()),
@@ -3235,6 +3280,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn copilot_premium_requests_use_the_card_word() {
         let data = UsageData {
             plan_name: Some("copilot_pro".to_string()),
@@ -3253,6 +3299,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn expired_plan_and_failed_queries() {
         let mut expired = usage_data(None, 10.0);
         expired.is_valid = Some(false);
@@ -3297,12 +3344,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn unknown_tiers_alone_show_nothing() {
         let quota = make_quota("claude", true, vec![tier("one_hour", 80.0)]);
         assert_eq!(format_subscription_quota(&en(), &quota), None);
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn reset_note_appears_only_when_running_out() {
         let later = (now() + chrono::Duration::days(3)).to_rfc3339();
         let mut weekly = tier(TIER_SEVEN_DAY, 95.0);
@@ -3324,6 +3373,7 @@ mod tests {
 
     // ─── 🔴 #7267：托管 Codex 账号卡按账号取额度 ───
 
+    #[cfg(target_os = "linux")]
     fn codex_provider(account_id: Option<&str>, enabled: Option<bool>) -> Provider {
         serde_json::from_value(serde_json::json!({
             "id": "managed-codex",
@@ -3348,6 +3398,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn managed_codex_quota_stays_out_of_the_app_wide_tray_cache() {
         let provider = |id| codex_provider(id, Some(true));
         assert!(!provider_uses_official_subscription(&provider(Some(
@@ -3357,6 +3408,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn managed_codex_tray_refresh_respects_binding_and_usage_toggle() {
         for enabled in [Some(true), None] {
             let provider = codex_provider(Some("account-1"), enabled);
@@ -3387,6 +3439,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn managed_codex_tray_uses_bound_account_after_switch_or_rebind() {
         let cache = UsageCache::new();
         let texts = en();
@@ -3456,6 +3509,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn native_codex_tray_still_uses_cli_subscription() {
         let cache = UsageCache::new();
         let mut native = codex_provider(None, Some(true));
@@ -3483,6 +3537,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn cli_subscription_tray_reads_the_cache_the_card_writes() {
         let cache = UsageCache::new();
         let native = codex_provider(None, Some(true));
@@ -3535,6 +3590,7 @@ mod tests {
 
     // ─── 「需要路由」判定（和前端 providerNeedsRouting 对照）───
 
+    #[cfg(target_os = "linux")]
     fn provider(meta: serde_json::Value, settings: serde_json::Value) -> Provider {
         serde_json::from_value(serde_json::json!({
             "id": "p1",
@@ -3546,6 +3602,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn needs_routing_mirrors_the_frontend_rule() {
         let plain = provider(serde_json::json!({}), serde_json::json!({}));
         for app in TRAY_APPS {
@@ -3613,6 +3670,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn codex_wire_api_falls_back_to_a_single_assignment_when_toml_is_broken() {
         assert_eq!(
             codex_wire_api("wire_api = \"chat\"\nbroken = [").as_deref(),
@@ -3626,6 +3684,7 @@ mod tests {
 
     // ─── 菜单模型 ───
 
+    #[cfg(target_os = "linux")]
     fn entry(id: &str, name: &str) -> ProviderEntry {
         ProviderEntry {
             id: id.to_string(),
@@ -3637,6 +3696,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn snapshot(app: AppType, mode: TrayMode, providers: Vec<ProviderEntry>) -> AppSnapshot {
         AppSnapshot {
             app,
@@ -3652,6 +3712,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn model(problems: &[TrayProblem], apps: &[AppSnapshot]) -> Vec<TrayEntry> {
         let status = MenuStatus {
             problems: problems.to_vec(),
@@ -3660,6 +3721,7 @@ mod tests {
         build_menu_model(&zh(), &status, apps, false, now())
     }
 
+    #[cfg(target_os = "linux")]
     fn text_of(entry: &TrayEntry) -> String {
         match entry {
             TrayEntry::Item { text, .. }
@@ -3669,10 +3731,12 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn texts_of(entries: &[TrayEntry]) -> Vec<String> {
         entries.iter().map(text_of).collect()
     }
 
+    #[cfg(target_os = "linux")]
     fn children_of(menu: &[TrayEntry], app: &AppType) -> Vec<TrayEntry> {
         menu.iter()
             .find_map(|entry| match entry {
@@ -3687,6 +3751,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn top_level_order_is_open_apps_lightweight_website_quit() {
         let apps = [
             snapshot(
@@ -3716,6 +3781,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn direct_submenu_sends_needs_routing_providers_to_the_app_page() {
         let mut copilot = entry("copilot", "GitHub Copilot");
         copilot.needs_routing = true;
@@ -3751,6 +3817,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn route_submenu_disables_official_plans_with_the_reason() {
         let mut official = entry("xai", "xAI Official");
         official.official = true;
@@ -3771,6 +3838,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn failover_submenu_is_read_only_and_lists_only_the_queue() {
         let mut app = snapshot(
             AppType::Claude,
@@ -3811,6 +3879,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn stack_submenu_lists_members_and_the_codex_official_card() {
         let mut official = entry("official", "OpenAI Official");
         official.official = true;
@@ -3842,6 +3911,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn desktop_submenu_marks_mapping_cards_without_a_mode_header() {
         let mut mapping = entry("kimi", "Kimi For Coding");
         mapping.needs_routing = true;
@@ -3871,6 +3941,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn service_down_shows_the_problem_row_and_needs_attention_instead_of_quota() {
         let mut mapping = entry("kimi", "Kimi For Coding");
         mapping.needs_routing = true;
@@ -3904,6 +3975,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn problem_area_keeps_two_rows_then_says_how_many_more() {
         let problems = [
             TrayProblem::ServiceDown { port: 15721 },
@@ -3935,6 +4007,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn quota_title_and_almost_out_suffix_on_the_app_row() {
         let mut app = snapshot(
             AppType::Claude,
@@ -3954,6 +4027,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn app_row_title_writes_every_tier_including_the_roomy_five_hour_one() {
         // #8011：火山三档里 5 小时剩得最多，只留剩余最少两档时它总被挤掉。
         let mut app = snapshot(
@@ -3977,6 +4051,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn projects_live_inside_the_app_submenu() {
         let mut app = snapshot(
             AppType::Codex,
@@ -4015,6 +4090,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn long_and_duplicate_names_stay_readable() {
         let long = "An Extremely Long Provider Name That Keeps Going On";
         let mut first = entry("a", "OpenAI Official");
@@ -4029,6 +4105,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn lightweight_mode_is_a_check_item() {
         let menu = build_menu_model(&en(), &MenuStatus::default(), &[], true, now());
         assert!(menu.iter().any(|entry| matches!(entry,
@@ -4037,6 +4114,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn stack_header_falls_back_to_the_generic_word_without_a_default() {
         let mut app = snapshot(
             AppType::Claude,
@@ -4054,6 +4132,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn quit_says_the_routing_service_stops_only_while_it_is_in_use() {
         let quit_text = |texts: &TrayTexts, routing: bool| {
             let status = MenuStatus {
@@ -4095,6 +4174,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn tooltip_names_the_first_problem_and_is_plain_otherwise() {
         assert_eq!(tray_tooltip(&zh(), &[]), "PHI");
         let problems = [
@@ -4116,6 +4196,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn problem_dot_sits_bottom_right_with_a_clear_ring() {
         let size = 72u32;
         let pixel = |image: &Image<'_>, x: u32, y: u32| {
@@ -4147,6 +4228,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn feedback_only_for_switches_that_need_a_client_restart() {
         let name = || "DeepSeek".to_string();
         for app in [AppType::Codex, AppType::Gemini, AppType::GrokBuild] {
@@ -4178,6 +4260,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn feedback_row_is_a_grey_line_after_the_problems() {
         let status = MenuStatus {
             problems: vec![TrayProblem::ServiceDown { port: 15721 }],
@@ -4238,6 +4321,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn feedback_goes_away_after_the_menu_showed_it_or_two_minutes() {
         let record = |at: std::time::Instant| {
             *lock(&FEEDBACK) = Some(FeedbackRecord {
@@ -4267,6 +4351,7 @@ mod tests {
     // ─── 托盘 → 主界面 ───
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn nav_ids_parse_into_navigation_requests() {
         assert_eq!(
             parse_nav_id("nav:needs:claude:pkg:with:colons"),
@@ -4311,6 +4396,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn problems_drop_attach_failures_once_the_app_routes_again() {
         lock(&ATTACH_FAILURES).clear();
         lock(&SWITCH_FAILURES).clear();

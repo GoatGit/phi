@@ -380,9 +380,79 @@ pub fn get_usage_data_sources(
     crate::services::session_usage::get_data_source_breakdown(&state.db)
 }
 
+/// 本机负载（CPU 使用率、内存占用），托盘用量面板展示与高负载提示用。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemLoad {
+    /// 全局 CPU 使用率（0-100）。
+    pub cpu_percent: f32,
+    pub memory_used_bytes: u64,
+    pub memory_total_bytes: u64,
+}
+
+/// 获取本机负载。CPU 占用率需要两个采样点做差，中间约 300ms；
+/// 放到阻塞线程池，避免短睡眠占用异步 worker。
+#[tauri::command]
+pub async fn get_system_load() -> Result<SystemLoad, AppError> {
+    use std::sync::{Mutex, OnceLock};
+    use sysinfo::System;
+    // 复用同一个 System 实例：sysinfo 按两次刷新的差值算占用率，
+    // 每次新建实例会让首个采样失去基线，永远返回 0。
+    static SYSTEM: OnceLock<Mutex<System>> = OnceLock::new();
+    tauri::async_runtime::spawn_blocking(|| {
+        let mutex = SYSTEM.get_or_init(|| Mutex::new(System::new()));
+        let mut system = mutex
+            .lock()
+            .map_err(|error| AppError::Message(format!("系统负载查询锁失败: {error}")))?;
+        system.refresh_cpu_usage();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        system.refresh_cpu_usage();
+        system.refresh_memory();
+        Ok(SystemLoad {
+            cpu_percent: system.global_cpu_usage(),
+            memory_used_bytes: system.used_memory(),
+            memory_total_bytes: system.total_memory(),
+        })
+    })
+    .await
+    .map_err(|error| AppError::Message(format!("系统负载查询任务失败: {error}")))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_load_serializes_camel_case_for_the_frontend() {
+        // 托盘面板按 cpuPercent / memoryUsedBytes / memoryTotalBytes 读取；
+        // 命名不匹配会让前端拿到 undefined 并在渲染时崩溃。
+        let value = serde_json::to_value(SystemLoad {
+            cpu_percent: 12.5,
+            memory_used_bytes: 1,
+            memory_total_bytes: 2,
+        })
+        .expect("serialize");
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "cpuPercent": 12.5,
+                "memoryUsedBytes": 1,
+                "memoryTotalBytes": 2
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn system_load_samples_the_real_machine() {
+        let load = get_system_load().await.expect("sample system load");
+        assert!(
+            (0.0..=100.0).contains(&load.cpu_percent),
+            "cpu_percent out of range: {}",
+            load.cpu_percent
+        );
+        assert!(load.memory_total_bytes > 0, "no total memory reported");
+        assert!(load.memory_used_bytes <= load.memory_total_bytes);
+    }
 
     #[test]
     fn codex_rebuild_notifies_when_reimport_is_empty() {

@@ -1210,7 +1210,7 @@ function App() {
     (appId: string) => {
       if (!sidebarApps.includes(appId)) return;
       if (terminals.sessions.some((session) => session.appId === appId)) {
-        toast.error(t("terminal.closeBeforeHiding"));
+        toast.error(t("terminal.closeBeforeRemove"));
         return;
       }
       const next = sidebarApps.filter((id) => id !== appId);

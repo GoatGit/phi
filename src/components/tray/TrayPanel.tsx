@@ -268,6 +268,15 @@ export function TrayPanel() {
     enabled: visible && tab === "routes",
     refetchInterval: visible && tab === "routes" ? 3000 : false,
   });
+  // 本机负载：只在用量页可见时轮询；CPU 占用率要两个采样点做差，
+  // 采样约 300ms，5 秒一次足够跟手又不常驻打查询。
+  const load = useQuery({
+    queryKey: ["tray-system-load"],
+    queryFn: trayPanelApi.systemLoad,
+    enabled: visible && tab === "usage",
+    refetchInterval: visible && tab === "usage" ? 5000 : false,
+    staleTime: 4000,
+  });
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented)
@@ -444,6 +453,12 @@ export function TrayPanel() {
                 <ExternalLink data-icon="inline-end" />
               </Button>
             </div>
+            {load.data &&
+              (load.data.cpuPercent >= 90 ||
+                load.data.memoryUsedBytes * 100 >=
+                  load.data.memoryTotalBytes * 90) && (
+                <Notice tone="warning" title={t("trayPanel.loadWarning")} />
+              )}
             {usage.isPending ? (
               <Skeleton className="h-32 w-full" />
             ) : usage.error ? (
@@ -467,6 +482,19 @@ export function TrayPanel() {
                   ]}
                 />
               )
+            )}
+            {load.data && (
+              <Stats
+                items={[
+                  [t("trayPanel.cpu"), `${num(load.data.cpuPercent)}%`],
+                  [
+                    t("trayPanel.memory"),
+                    `${num(load.data.memoryUsedBytes / 1024 ** 3)} / ${num(
+                      load.data.memoryTotalBytes / 1024 ** 3,
+                    )} GB`,
+                  ],
+                ]}
+              />
             )}
             <p className="text-xs text-fg-3">{t("trayPanel.usageHint")}</p>
           </TabsContent>

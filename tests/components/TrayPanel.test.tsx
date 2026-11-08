@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   afterAll,
@@ -13,6 +14,7 @@ import i18n from "i18next";
 import zh from "@/i18n/locales/zh.json";
 import { TrayPanel } from "@/components/tray/TrayPanel";
 import { trayPanelApi, type TraySnapshot } from "@/lib/api/trayPanel";
+import { usageApi } from "@/lib/api/usage";
 import { gatewayApi } from "@/lib/api/gateway";
 import { proxyApi } from "@/lib/api/proxy";
 import { createTestQueryClient } from "../utils/testQueryClient";
@@ -106,6 +108,22 @@ beforeEach(() => {
   vi.spyOn(trayPanelApi, "action").mockResolvedValue([]);
   vi.spyOn(trayPanelApi, "hide").mockResolvedValue();
   vi.spyOn(trayPanelApi, "refresh").mockResolvedValue();
+  vi.spyOn(trayPanelApi, "systemLoad").mockResolvedValue({
+    cpuPercent: 23.4,
+    memoryUsedBytes: 18.5 * 1024 ** 3,
+    memoryTotalBytes: 32 * 1024 ** 3,
+  });
+  vi.spyOn(usageApi, "getUsageSummary").mockResolvedValue({
+    totalRequests: 12,
+    totalCost: "0.12",
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheCreationTokens: 0,
+    totalCacheReadTokens: 0,
+    successRate: 100,
+    realTotalTokens: 3456,
+    cacheHitRate: 0,
+  });
   vi.spyOn(gatewayApi, "connectApp").mockResolvedValue();
   vi.spyOn(proxyApi, "setProxyTakeoverForApp").mockResolvedValue();
 });
@@ -197,13 +215,22 @@ describe("menu-bar panel", () => {
     });
     vi.mocked(trayPanelApi.snapshot).mockResolvedValue(current);
     mount();
-    fireEvent.keyDown(await screen.findByRole("combobox", {
-      name: "选择 Claude Code 的模型",
-    }), { key: "Enter" });
-    expect(await screen.findByRole("group", { name: "路由组" })).toBeInTheDocument();
+    fireEvent.keyDown(
+      await screen.findByRole("combobox", {
+        name: "选择 Claude Code 的模型",
+      }),
+      { key: "Enter" },
+    );
+    expect(
+      await screen.findByRole("group", { name: "路由组" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "sonnet" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "资源池路由组" }));
-    await waitFor(() => expect(trayPanelApi.action).toHaveBeenCalledWith("group:claude:pool-route"));
+    await waitFor(() =>
+      expect(trayPanelApi.action).toHaveBeenCalledWith(
+        "group:claude:pool-route",
+      ),
+    );
   });
   it("disables an empty model list", async () => {
     mount();
@@ -271,5 +298,29 @@ describe("menu-bar panel", () => {
     unmount();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(trayPanelApi.hide).toHaveBeenCalledTimes(1);
+  });
+  it("shows local cpu and memory load in the usage tab", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("tab", { name: /用量/ }));
+    // CPU 百分比与内存（已用 / 总量）并排出现；负载不高时没有警示。
+    expect(await screen.findByText("23.4%")).toBeInTheDocument();
+    expect(screen.getByText("18.5 / 32 GB")).toBeInTheDocument();
+    expect(
+      screen.queryByText(zh.trayPanel.loadWarning),
+    ).not.toBeInTheDocument();
+  });
+  it("warns to stop adding tasks when the load is high", async () => {
+    vi.spyOn(trayPanelApi, "systemLoad").mockResolvedValue({
+      cpuPercent: 96.2,
+      memoryUsedBytes: 31 * 1024 ** 3,
+      memoryTotalBytes: 32 * 1024 ** 3,
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("tab", { name: /用量/ }));
+    expect(
+      await screen.findByText(zh.trayPanel.loadWarning),
+    ).toBeInTheDocument();
   });
 });

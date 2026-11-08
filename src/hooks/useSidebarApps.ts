@@ -21,6 +21,9 @@ export function useSidebarApps(appIds: readonly string[]): SidebarAppEntry[] {
     queryFn: () => gatewayApi.getTraces(),
     refetchInterval: 15_000,
     staleTime: 5_000,
+    // 侧栏默认没有应用；没有要展示轨迹的对象时不打这个常驻轮询，
+    // 用户添加应用后 enabled 翻转，查询自动开始。
+    enabled: appIds.length > 0,
   });
   return useMemo(
     () => buildSidebarApps({ appIds, catalog, traces }),

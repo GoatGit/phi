@@ -30,10 +30,17 @@ export interface TraySnapshot {
   profiles: { scope: string; name: string; items: TrayOption[] }[];
   updatedAt: number;
 }
+export interface SystemLoad {
+  /** 全局 CPU 使用率（0-100）。 */
+  cpuPercent: number;
+  memoryUsedBytes: number;
+  memoryTotalBytes: number;
+}
 export const trayPanelApi = {
   snapshot: (): Promise<TraySnapshot> => invoke("get_tray_panel"),
   refresh: (): Promise<void> => invoke("refresh_tray_panel"),
   action: (id: string): Promise<string[]> =>
     invoke("tray_panel_action", { id }),
   hide: (): Promise<void> => invoke("hide_tray_panel"),
+  systemLoad: (): Promise<SystemLoad> => invoke("get_system_load"),
 };
