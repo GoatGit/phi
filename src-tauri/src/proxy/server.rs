@@ -14,6 +14,7 @@ use super::{
     log_codes::srv as log_srv,
     provider_router::ProviderRouter,
     providers::{codex_chat_history::CodexChatHistoryStore, gemini_shadow::GeminiShadowStore},
+    responses_websocket,
     types::*,
     ProxyError,
 };
@@ -110,11 +111,13 @@ async fn serve_connection(stream: tokio::net::TcpStream, app: Router) {
         }
     });
 
-    if let Err(e) = hyper::server::conn::http1::Builder::new()
+    // `with_upgrades()` 是 Responses WebSocket 的前提：不开的话 axum 拿不到
+    // `OnUpgrade`，升级提取器直接报 “Connection not upgradable”，连接会被降级成 400。
+    // 普通 HTTP/1.1 请求不走升级路径，行为不变。
+    let connection = hyper::server::conn::http1::Builder::new()
         .preserve_header_case(true)
-        .serve_connection(TokioIo::new(stream), service)
-        .await
-    {
+        .serve_connection(TokioIo::new(stream), service);
+    if let Err(e) = connection.with_upgrades().await {
         // Connection reset / broken pipe 等在代理场景下很常见，debug 级别
         log::debug!("[{SRV}] connection error: {e}", SRV = log_srv::CONN_ERR);
     }
@@ -392,22 +395,23 @@ impl ProxyServer {
             .route("/models", get(handlers::handle_models))
             .route("/v1/models", get(handlers::handle_models))
             // OpenAI Responses API (Codex CLI，支持带前缀和不带前缀)。GET 是 WebSocket
-            // 握手：Codex 内置的 openai（代理的官方路由）会先试 WebSocket。
+            // 升级：Codex 内置的 openai 默认先试 WebSocket，升级后每一轮
+            // `response.create` 帧都走到同一套 HTTP/SSE 语义上（见 `responses_websocket`）。
             .route(
                 "/responses",
-                post(handlers::handle_responses).get(handlers::handle_responses_websocket),
+                post(handlers::handle_responses).get(responses_websocket::handle),
             )
             .route(
                 "/v1/responses",
-                post(handlers::handle_responses).get(handlers::handle_responses_websocket),
+                post(handlers::handle_responses).get(responses_websocket::handle),
             )
             .route(
                 "/v1/v1/responses",
-                post(handlers::handle_responses).get(handlers::handle_responses_websocket),
+                post(handlers::handle_responses).get(responses_websocket::handle),
             )
             .route(
                 "/codex/v1/responses",
-                post(handlers::handle_responses).get(handlers::handle_responses_websocket),
+                post(handlers::handle_responses).get(responses_websocket::handle),
             )
             // Grok Build uses the Responses protocol but has an independent
             // provider namespace and failover queue.
@@ -654,42 +658,347 @@ mod tests {
         body: Value,
     }
 
-    /// Codex 内置的 openai 先用 WebSocket 连 Responses：握手回 426 它才立刻改走 HTTP。
-    #[tokio::test]
-    async fn responses_websocket_handshake_is_answered_with_upgrade_required() {
+    /// 用真实网关配置拼路由（不启动监听）：升级链路要验证的是 axum 那一层，端口无关。
+    fn responses_router() -> Router {
         let db = Arc::new(Database::memory().expect("memory database"));
-        let proxy = ProxyServer::new(
+        ProxyServer::new(
             ProxyConfig {
                 listen_port: 0,
                 ..ProxyConfig::default()
             },
             db,
             None,
-        );
-        let proxy_info = proxy.start().await.expect("start test proxy");
-        let client = reqwest::Client::new();
+        )
+        .build_router()
+    }
+
+    fn plain_get(path: &str) -> axum::http::Request<axum::body::Body> {
+        axum::http::Request::builder()
+            .method(axum::http::Method::GET)
+            .uri(path)
+            .header(header::HOST, "127.0.0.1")
+            .header(
+                header::AUTHORIZATION,
+                format!("Bearer {}", super::super::ingress::token("codex")),
+            )
+            .body(axum::body::Body::empty())
+            .expect("build request")
+    }
+
+    #[tokio::test]
+    async fn responses_get_without_upgrade_is_answered_with_upgrade_required() {
+        let _test_home = with_test_home();
+        let router = responses_router();
         for path in [
             "/responses",
             "/v1/responses",
             "/v1/v1/responses",
             "/codex/v1/responses",
         ] {
-            let response = client
-                .get(format!("http://127.0.0.1:{}{path}", proxy_info.port))
-                .header(header::CONNECTION, "Upgrade")
-                .header(header::UPGRADE, "websocket")
-                .header("sec-websocket-version", "13")
-                .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
-                .header(
-                    header::AUTHORIZATION,
-                    format!("Bearer {}", super::super::ingress::token("codex")),
-                )
-                .send()
+            let response = serve_over_tcp(vec![plain_get(path)])
                 .await
-                .expect("websocket handshake");
-            assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED, "{path}");
+                .pop()
+                .expect("one response");
+            assert_eq!(response.0, 426, "{path}");
         }
-        proxy.stop().await.expect("stop test proxy");
+        drop(router);
+    }
+
+    #[tokio::test]
+    async fn responses_upgrade_handshake_switches_protocols() {
+        let _test_home = with_test_home();
+        let _router = responses_router();
+        let request = axum::http::Request::builder()
+            .method(axum::http::Method::GET)
+            .uri("/v1/responses")
+            .header(header::CONNECTION, "Upgrade")
+            .header(header::UPGRADE, "websocket")
+            .header("sec-websocket-version", "13")
+            .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+            .header(
+                header::AUTHORIZATION,
+                format!("Bearer {}", super::super::ingress::token("codex")),
+            )
+            .body(axum::body::Body::empty())
+            .expect("build upgrade request");
+
+        let response = serve_over_tcp(vec![request])
+            .await
+            .pop()
+            .expect("one response");
+
+        assert_eq!(response.0, 101);
+        assert_eq!(
+            response
+                .1
+                .get(header::UPGRADE)
+                .and_then(|value| value.to_str().ok()),
+            Some("websocket")
+        );
+    }
+
+    /// 起一条真实 TCP 连接，按顺序发请求并读回每个响应（状态码 + 响应头）。
+    /// 路由直调拿不到 `OnUpgrade`，升级路径必须走真实的 hyper 连接才有意义。
+    async fn serve_over_tcp(
+        requests: Vec<axum::http::Request<axum::body::Body>>,
+    ) -> Vec<(u16, HeaderMap)> {
+        use tokio::io::AsyncWriteExt;
+
+        let router = responses_router();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind test listener");
+        let addr = listener.local_addr().expect("test address");
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                serve_connection(stream, router).await;
+            }
+        });
+
+        let mut stream = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connect test listener");
+        let mut responses = Vec::new();
+        for request in requests {
+            let (parts, body) = request.into_parts();
+            let bytes = axum::body::to_bytes(body, 1024 * 1024)
+                .await
+                .expect("read request body");
+            let mut head = format!("{} {} HTTP/1.1\r\n", parts.method, parts.uri);
+            if !parts.headers.contains_key(header::HOST) {
+                head.push_str(&format!("Host: {}\r\n", addr));
+            }
+            for (name, value) in &parts.headers {
+                head.push_str(&format!(
+                    "{}: {}\r\n",
+                    name,
+                    value.to_str().expect("ascii header")
+                ));
+            }
+            head.push_str(&format!("content-length: {}\r\n\r\n", bytes.len()));
+            stream
+                .write_all(head.as_bytes())
+                .await
+                .expect("write request head");
+            stream.write_all(&bytes).await.expect("write request body");
+
+            let (status, headers) = read_response_head(&mut stream).await;
+            responses.push((status, headers));
+            if status == 101 {
+                break;
+            }
+        }
+        responses
+    }
+
+    async fn read_response_head(stream: &mut tokio::net::TcpStream) -> (u16, HeaderMap) {
+        use tokio::io::AsyncReadExt;
+
+        let mut buffer = Vec::new();
+        let mut byte = [0u8; 1];
+        while !buffer.ends_with(b"\r\n\r\n") {
+            let read = stream.read(&mut byte).await.expect("read response head");
+            if read == 0 {
+                break;
+            }
+            buffer.push(byte[0]);
+        }
+        let text = String::from_utf8_lossy(&buffer).to_string();
+        let mut lines = text.split("\r\n");
+        let status_line = lines.next().unwrap_or_default();
+        let status = status_line
+            .split_whitespace()
+            .nth(1)
+            .and_then(|code| code.parse::<u16>().ok())
+            .unwrap_or(0);
+        let mut headers = HeaderMap::new();
+        for line in lines {
+            let Some((name, value)) = line.split_once(':') else {
+                continue;
+            };
+            if let (Ok(name), Ok(value)) = (
+                axum::http::HeaderName::from_bytes(name.trim().as_bytes()),
+                axum::http::HeaderValue::from_str(value.trim()),
+            ) {
+                headers.insert(name, value);
+            }
+        }
+        (status, headers)
+    }
+
+    /// 一轮 `response.create` 要真的走到上游：WS 入站的帧被聚合成 Responses 请求，
+    /// 上游的 SSE 再被拆成帧推回连接。这条测试同时盯住“WS 入口和 HTTP 入口共用语义层”。
+    #[tokio::test]
+    async fn responses_websocket_relays_a_turn_to_the_upstream() {
+        use tokio::io::AsyncWriteExt;
+
+        let _test_home = with_test_home();
+        let captured = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let mock_app = Router::new().route(
+            "/v1/responses",
+            post({
+                let captured = captured.clone();
+                move |request: axum::extract::Request| {
+                    let captured = captured.clone();
+                    async move {
+                        let (_, body) = request.into_parts();
+                        let bytes = axum::body::to_bytes(body, 1024 * 1024)
+                            .await
+                            .expect("read mock request body");
+                        let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+                        captured.lock().await.push(parsed);
+                        let sse = format!(
+                            "event: response.created\ndata: {{\"type\":\"response.created\",\"response\":{{\"id\":\"resp_ws\",\"model\":{model}}}}}\n\nevent: response.output_text.delta\ndata: {{\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}}\n\nevent: response.completed\ndata: {{\"type\":\"response.completed\",\"response\":{{\"id\":\"resp_ws\",\"model\":{model},\"usage\":{{\"input_tokens\":3,\"output_tokens\":1,\"total_tokens\":4}}}}}}\n\n",
+                            model = json!("gpt-5.5")
+                        );
+                        (
+                            StatusCode::OK,
+                            [(header::CONTENT_TYPE, "text/event-stream")],
+                            sse,
+                        )
+                    }
+                }
+            }),
+        );
+        let mock_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind mock upstream");
+        let mock_addr = mock_listener.local_addr().expect("mock upstream address");
+        let mock_handle = tokio::spawn(async move {
+            axum::serve(mock_listener, mock_app)
+                .await
+                .expect("serve mock upstream");
+        });
+
+        let db = Arc::new(Database::memory().expect("memory database"));
+        let provider = Provider::with_id(
+            "ws-upstream".to_string(),
+            "ws-upstream".to_string(),
+            json!({
+                "base_url": format!("http://{mock_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "upstream-secret"}
+            }),
+            None,
+        );
+        db.save_provider("codex", &provider)
+            .expect("save ws provider");
+        db.set_current_provider("codex", &provider.id)
+            .expect("select ws provider");
+
+        let router = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                ..ProxyConfig::default()
+            },
+            db,
+            None,
+        )
+        .build_router();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind test listener");
+        let addr = listener.local_addr().expect("test address");
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                serve_connection(stream, router).await;
+            }
+        });
+
+        let mut stream = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connect test listener");
+        let upgrade = format!(
+            "GET /v1/responses HTTP/1.1\r\nHost: {addr}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nsec-websocket-version: 13\r\nsec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\nAuthorization: Bearer {}\r\n\r\n",
+            super::super::ingress::token("codex")
+        );
+        stream
+            .write_all(upgrade.as_bytes())
+            .await
+            .expect("write upgrade request");
+        let (status, _) = read_response_head(&mut stream).await;
+        assert_eq!(status, 101);
+
+        let frame = json!({
+            "type": "response.create",
+            "response": {"model": "gpt-5.5", "input": "ping"}
+        })
+        .to_string();
+        write_client_text_frame(&mut stream, &frame).await;
+
+        let mut received = Vec::new();
+        while received.len() < 3 {
+            let text = read_server_text_frame(&mut stream)
+                .await
+                .expect("server frame");
+            received.push(serde_json::from_str::<Value>(&text).expect("json frame"));
+        }
+        assert_eq!(received[0]["type"], "response.created");
+        assert_eq!(received[1]["type"], "response.output_text.delta");
+        assert_eq!(received[2]["type"], "response.completed");
+
+        let upstream = captured.lock().await;
+        let request = upstream.first().expect("upstream request captured");
+        assert_eq!(request["model"], "gpt-5.5");
+        assert_eq!(request["stream"], true);
+
+        mock_handle.abort();
+    }
+
+    /// 客户端→服务端文本帧（带掩码位，按 RFC 6455 最小实现）。
+    async fn write_client_text_frame(stream: &mut tokio::net::TcpStream, text: &str) {
+        use tokio::io::AsyncWriteExt;
+
+        let payload = text.as_bytes();
+        let mut frame = vec![0x81u8];
+        if payload.len() < 126 {
+            frame.push(0x80 | payload.len() as u8);
+        } else {
+            frame.push(0x80 | 126);
+            frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        }
+        let mask = [0x12u8, 0x34, 0x56, 0x78];
+        frame.extend_from_slice(&mask);
+        frame.extend(
+            payload
+                .iter()
+                .enumerate()
+                .map(|(i, byte)| byte ^ mask[i % 4]),
+        );
+        stream.write_all(&frame).await.expect("write ws frame");
+    }
+
+    /// 读一帧服务端文本帧（服务端不发掩码）。
+    async fn read_server_text_frame(stream: &mut tokio::net::TcpStream) -> Option<String> {
+        use tokio::io::AsyncReadExt;
+
+        loop {
+            let mut head = [0u8; 2];
+            stream.read_exact(&mut head).await.ok()?;
+            let opcode = head[0] & 0x0f;
+            let masked = head[1] & 0x80 != 0;
+            let mut len = (head[1] & 0x7f) as usize;
+            if len == 126 {
+                let mut extended = [0u8; 2];
+                stream.read_exact(&mut extended).await.ok()?;
+                len = u16::from_be_bytes(extended) as usize;
+            } else if len == 127 {
+                let mut extended = [0u8; 8];
+                stream.read_exact(&mut extended).await.ok()?;
+                len = u64::from_be_bytes(extended) as usize;
+            }
+            if masked {
+                let mut mask = [0u8; 4];
+                stream.read_exact(&mut mask).await.ok()?;
+            }
+            let mut payload = vec![0u8; len];
+            stream.read_exact(&mut payload).await.ok()?;
+            match opcode {
+                0x1 => return String::from_utf8(payload).ok(),
+                0x8 => return None,
+                // ping / pong / continuation 不参与断言。
+                _ => continue,
+            }
+        }
     }
 
     /// A base URL pasted as a complete endpoint with the full-URL switch left off
