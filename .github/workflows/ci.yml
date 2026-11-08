@@ -70,6 +70,13 @@ jobs:
           go-version-file: subscriptions/bridge/go.mod
           cache-dependency-path: subscriptions/bridge/go.sum
 
+      # go vet 会连 cgo 依赖一起类型检查：bridge 的依赖链里有 magpie/internal/fonts，
+      # 它要 fontconfig.pc。release 用 CGO_ENABLED=0 构建不需要它，但 vet 需要。
+      - name: Install cgo headers for go vet
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
+
       - name: Vet
         working-directory: subscriptions/bridge
         run: go vet ./...
@@ -139,8 +146,9 @@ jobs:
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
+        # 版本以 .node-version 为唯一来源：硬编码 20 会和本地（22/24）跑出不同结果。
         with:
-          node-version: "20"
+          node-version-file: ".node-version"
 
       - name: Setup pnpm
         env:

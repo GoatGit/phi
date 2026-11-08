@@ -8,6 +8,9 @@
 //! 分三层：`collect_*` 从数据库和设备状态读出快照，`build_menu_model` 把快照变成纯数据的菜单
 //! 模型（单测覆盖这一层），`attach_*` 把模型挂到 Tauri 原生菜单上。
 
+// Linux 上没有托盘面板窗口，这个模块只在 macOS / Windows 被调用；
+// 平台条件编译在调用侧，所以这里对未使用项放行，而不是把整块代码也 cfg 掉。
+#[allow(dead_code)]
 pub mod panel;
 
 use std::collections::HashMap;

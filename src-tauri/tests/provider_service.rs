@@ -2970,7 +2970,11 @@ fn recover_from_crash_without_backup_cleans_placeholder_instead_of_writing_it_ba
         .expect("set current provider");
 
     // 启动时处理旧版遗留的接管态：没开代理（enabled=0），写回直连。
-    futures::executor::block_on(phi_lib::mode::controller::startup(&state));
+    // startup 内部会起 tokio 任务（含 TcpListener），必须在 runtime 上下文里跑：
+    // 用 futures::executor 会 panic "there is no reactor running"（nextest 每测
+    // 一进程时必然复现，cargo test 多线程时可能被别的测试的 runtime 掩盖）。
+    let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
+    rt.block_on(phi_lib::mode::controller::startup(&state));
 
     let live_after: serde_json::Value =
         read_json_file(&settings_path).expect("read live settings after recovery");

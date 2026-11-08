@@ -695,15 +695,16 @@ mod tests {
     #[test]
     fn crush_splits_the_provider_from_the_pick() {
         let home = Home::new();
-        connect(home.path(), "crush");
-        let config: Value =
-            json5::from_str(&read(&config_root(home.path()).join("crush/crush.json"))).unwrap();
+        let plan = connect(home.path(), "crush");
+        // 断言读计划自己给出的路径，而不是测试另算一份：
+        // Windows 上 Crush 把配置和数据都放在 %LOCALAPPDATA%\crush\crush.json，
+        // unix 上才分成 config_root / data_root 两个文件。
+        let config: Value = json5::from_str(&read(&plan.provider[0].path)).unwrap();
         assert_eq!(
             config["providers"]["phi-route-crush"]["base_url"],
             "http://127.0.0.1:15721/ingress/v1"
         );
-        let data: Value =
-            json5::from_str(&read(&data_root(home.path()).join("crush/crush.json"))).unwrap();
+        let data: Value = json5::from_str(&read(&plan.activate[0].path)).unwrap();
         assert_eq!(data["models"]["large"]["provider"], "phi-route-crush");
         assert_eq!(data["models"]["large"]["model"], "glm-5");
     }
