@@ -233,11 +233,24 @@ func main() {
 	if len(token) < 32 {
 		log.Fatal("missing runtime token")
 	}
+	// providers.json 由 //go:embed 编进二进制：启动时fail-fast校验一次，
+	// 解析失败说明构建产物坏了，别把问题拖到首个 types 请求才暴露。
+	var manifestTypes []subscription
+	if err := json.Unmarshal(manifest, &manifestTypes); err != nil {
+		log.Fatalf("embedded providers.json is invalid: %v", err)
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		log.Fatal(err)
 	}
-	srv := &http.Server{Handler: engine{gateway: gateway.New().Handler(), token: token}, ReadHeaderTimeout: 10 * time.Second}
+	// 仅回环监听，但完整超时仍是标配：半个请求不应拖住一个 goroutine。
+	srv := &http.Server{
+		Handler:           engine{gateway: gateway.New().Handler(), token: token},
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       90 * time.Second,
+	}
 	// The parent keeps stdin open. An app crash or exit closes it, stopping all
 	// login listeners and plugin children with the engine process.
 	go func() { _, _ = io.Copy(io.Discard, os.Stdin); _ = srv.Close(); os.Exit(0) }()

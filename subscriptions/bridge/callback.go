@@ -90,7 +90,13 @@ func startCodexRelay() (*codexRelay, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &codexRelay{ln: ln, srv: &http.Server{ReadHeaderTimeout: 10 * time.Second}}
+	// 浏览器回调只发一个 GET：完整超时防半个请求拖住 goroutine。
+	r := &codexRelay{ln: ln, srv: &http.Server{
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", r.serve)
 	r.srv.Handler = mux
