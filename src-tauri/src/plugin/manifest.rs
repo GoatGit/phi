@@ -386,7 +386,8 @@ fn validate_id(id: &str) -> Result<(), PluginValidationError> {
 /// 把入口路径规范化成相对路径，并拒绝任何逃出插件目录的写法。
 fn normalize_relative_js_path(entry: &str) -> Result<PathBuf, PluginValidationError> {
     let path = Path::new(entry);
-    if path.is_absolute() {
+    // Windows 上 `/tmp/main.js` 不算 absolute（没有盘符前缀），所以额外拒绝以分隔符开头的写法。
+    if path.is_absolute() || entry.starts_with('/') || entry.starts_with('\\') {
         return Err(PluginValidationError::new("entry", "入口必须是相对路径"));
     }
     if entry.contains('\\') {
@@ -459,7 +460,12 @@ mod tests {
 
     #[test]
     fn rejects_path_traversal_and_absolute_entry() {
-        for entry in ["../main.js", "/tmp/main.js", "sub/../../main.js"] {
+        for entry in [
+            "../main.js",
+            "/tmp/main.js",
+            "\\\\server\\share\\main.js",
+            "sub/../../main.js",
+        ] {
             let mut manifest = script_manifest();
             manifest.entry = Some(entry.to_string());
             let err = manifest.validate().unwrap_err();
