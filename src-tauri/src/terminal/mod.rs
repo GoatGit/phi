@@ -383,7 +383,7 @@ pub fn terminal_present(
 pub fn confirm_quit() -> bool {
     #[cfg(target_os = "macos")]
     {
-        return native::confirm_quit();
+        native::confirm_quit()
     }
     #[cfg(not(target_os = "macos"))]
     true

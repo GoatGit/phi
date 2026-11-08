@@ -339,7 +339,7 @@ pub fn adapters(
     let mut checks = vec![];
     let mut paths = std::collections::HashSet::new();
     for (app, path, format) in &files {
-        let resolved = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
         if !paths.insert(resolved) {
             checks.push(check(
                 app,

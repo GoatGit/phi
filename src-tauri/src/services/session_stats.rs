@@ -251,7 +251,7 @@ fn get_session_stats_impl(
 
         // 活跃时长：与上一请求的间隔 < 5 分钟才计为工作，归属本行（后一行）的星期/小时
         let gap = row.created_at - cur_prev;
-        if !new_session && gap >= 0 && gap < IDLE_GAP_SECONDS {
+        if !new_session && (0..IDLE_GAP_SECONDS).contains(&gap) {
             cur_active += gap;
             let key = (
                 row.app_type.clone(),
@@ -344,7 +344,7 @@ fn get_session_stats_impl(
     }
 
     // 上下文点列表：只保留最近活跃的 N 个会话（每会话最多 POINTS_PER_SESSION 个点）
-    context_sessions.sort_by(|a, b| b.1.cmp(&a.1));
+    context_sessions.sort_by_key(|(_, last_active)| std::cmp::Reverse(*last_active));
     let keep: std::collections::HashSet<String> = context_sessions
         .into_iter()
         .take(CONTEXT_SESSION_LIMIT)

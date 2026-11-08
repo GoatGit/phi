@@ -193,7 +193,7 @@ fn query_sessions(conn: &rusqlite::Connection) -> Result<Vec<(String, i64)>, App
                GROUP BY s.id \
                ORDER BY sync_watermark";
     let mut stmt = conn
-        .prepare(&sql)
+        .prepare(sql)
         .map_err(|e| AppError::Database(format!("准备会话查询失败: {e}")))?;
 
     let rows = stmt

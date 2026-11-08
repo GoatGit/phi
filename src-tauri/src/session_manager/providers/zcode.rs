@@ -57,7 +57,7 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
                WHERE COALESCE(s.parent_id, '') = '' \
                GROUP BY s.id \
                ORDER BY last_active DESC";
-    let mut stmt = match conn.prepare(&sql) {
+    let mut stmt = match conn.prepare(sql) {
         Ok(stmt) => stmt,
         Err(e) => {
             log::warn!("[ZCODE-SESSIONS] 查询失败: {e}");
