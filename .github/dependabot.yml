@@ -1,5 +1,7 @@
 version: 2
 updates:
+  # 依赖更新只覆盖 minor / patch。major 版本经常要配套改代码，交给人工处理，
+  # 避免自动 PR 被长期搁置后又变成一堆无法合并的旧快照。
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -9,10 +11,17 @@ updates:
       - "frontend"
     commit-message:
       prefix: "chore(deps)"
+    open-pull-requests-limit: 3
     groups:
-      frontend-deps:
+      frontend-patch:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
+        # 桌面端工具链跟着 Tauri 走，单独升级更稳妥。
+        exclude-patterns:
+          - "@tauri-apps/*"
 
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
@@ -23,10 +32,39 @@ updates:
       - "backend"
     commit-message:
       prefix: "chore(deps)"
+    open-pull-requests-limit: 3
     groups:
-      cargo-deps:
+      cargo-patch:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
+        # Tauri 及其配套（tauri-build / tauri-plugin-*）必须同步升级，
+        # 单独成组便于一次性验证桌面端构建。
+        exclude-patterns:
+          - "tauri"
+          - "tauri-build"
+          - "tauri-plugin-*"
+
+  # Tauri 升级会牵动构建脚本、权限清单和三个平台的产物，单独一条 PR，便于逐项验证。
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "backend"
+      - "tauri"
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 1
+    groups:
+      tauri-stack:
+        patterns:
+          - "tauri"
+          - "tauri-build"
+          - "tauri-plugin-*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -37,3 +75,4 @@ updates:
       - "actions"
     commit-message:
       prefix: "chore(deps)"
+    open-pull-requests-limit: 2
