@@ -62,6 +62,9 @@ export function SubscriptionSupplierDialog({
   const [error, setError] = useState("");
   const alive = useRef(true);
   const current = useRef<SubscriptionSignIn | null>(null);
+  // 切换登录方式会连发 prompt 请求：只让最后一次的结果落地，避免慢响应
+  // 迟到后把上一个方式的提示词写回界面（method 已指向新方式）。
+  const promptSeq = useRef(0);
   const call = <T,>(action: string, payload: Record<string, unknown> = {}) =>
     gatewayApi.subscriptionAction<T>(action, {
       id: subscription.id,
@@ -77,11 +80,12 @@ export function SubscriptionSupplierDialog({
     setModelsWarning(listed.warning ?? "");
   };
   const loadPrompt = async (index: number, values: Record<string, string>) => {
+    const seq = ++promptSeq.current;
     const next = await call<SubscriptionPrompt | null>("prompt", {
       method: index,
       inputs: values,
     });
-    if (alive.current) {
+    if (alive.current && seq === promptSeq.current) {
       setPrompt(next);
       setAnswer(next?.options?.[0]?.value ?? "");
     }

@@ -515,7 +515,7 @@ async fn materialization_preserves_multiple_models_and_pending_trace_without_log
 #[test]
 fn codex_gateway_entry_publishes_every_group_member_model() {
     let db = Database::memory().unwrap();
-    let mut c = db
+    let c = db
         .create_gateway_supplier(SupplierUpsert {
             revision: Some(0),
             name: Some("A".into()),

@@ -59,7 +59,6 @@ export interface GatewayRoutePolicy {
   groupId?: string | null;
 }
 
-/** 资源池 + 策略的整份目录，revision 做乐观锁。 */
 /** 累加式应用的路由接入状态（后端 gateway::attach::AttachmentStatus）。 */
 export interface GatewayAppStatus {
   appId: string;
@@ -70,6 +69,7 @@ export interface GatewayAppStatus {
   ingress: string;
 }
 
+/** 资源池 + 策略的整份目录，revision 做乐观锁。 */
 export interface GatewayCatalog {
   revision: number;
   suppliers: GatewaySupplier[];

@@ -179,6 +179,18 @@ export function GroupDialog({
       setValidation(t("gateway.groups.ruleRequired"));
       return;
     }
+    // number 输入的 min/max 只约束步进器，键入与清空都能产生越界值；
+    // 保存前按后端校验范围把关，避免存出非法配置。
+    const inRange = (value: number, min: number, max: number) =>
+      Number.isFinite(value) && value >= min && value <= max;
+    if (
+      !inRange(draft.maxAttempts, 1, 11) ||
+      !inRange(draft.affinityTtlSeconds, 60, 86400) ||
+      draft.members.some((m) => !inRange(m.weight, 1, 1000))
+    ) {
+      setValidation(t("gateway.groups.numberRange"));
+      return;
+    }
     const appIds = inferGroupApps(draft, catalog);
     if (!appIds.length) {
       setValidation(t("gateway.groups.incompatible"));

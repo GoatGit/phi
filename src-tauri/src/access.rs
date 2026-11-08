@@ -324,8 +324,7 @@ mod tests {
             .unwrap(),
         );
         db.save_gateway_catalog(catalog).unwrap();
-        let mut catalog = db.gateway_catalog().unwrap();
-        catalog = db
+        let mut catalog = db
             .create_gateway_supplier(crate::gateway::SupplierUpsert {
                 name: Some("Fixture Decision".into()),
                 endpoint: Some(crate::gateway::Endpoint {

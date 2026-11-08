@@ -12,6 +12,9 @@ use crate::gateway::routing::RouteGroup;
 use crate::gateway::Catalog;
 
 pub const APP_ID: &str = "typesafe";
+/// 网关侧的实际入口在 `server.rs` 的路由表里；这个常量只作为文档与单测的
+/// 单一真相，生产代码不读它。
+#[allow(dead_code)]
 pub const INGRESS: &str = "/typesafe";
 pub const PROTOCOL: &str = "systemone";
 

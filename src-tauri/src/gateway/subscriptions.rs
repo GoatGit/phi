@@ -136,6 +136,27 @@ fn start() -> Result<(String, String), String> {
     Ok((address, token))
 }
 
+/// 运行中的引擎地址与令牌；只做一次 try_wait，不启动新进程、不长持锁。
+fn running() -> Option<(String, String)> {
+    let mut held = RUNTIME.get_or_init(|| Mutex::new(None)).lock().ok()?;
+    let runtime = held.as_mut()?;
+    runtime
+        .child
+        .try_wait()
+        .ok()?
+        .is_none()
+        .then(|| (runtime.address.clone(), runtime.token.clone()))
+}
+
+fn ensure_started() -> Result<(String, String), String> {
+    // 常见路径（引擎已预热）零等待返回；只有引擎确实没起来才走 start() 的
+    // 慢路径（最长 15 秒）。
+    if let Some(pair) = running() {
+        return Ok(pair);
+    }
+    start()
+}
+
 /// 预热订阅引擎。启动后在后台线程调用，避免首个路由请求在异步 worker 上
 /// 同步等待子进程启动（最长 15 秒）。
 pub fn prewarm() -> Result<(), String> {
@@ -194,7 +215,17 @@ pub fn resolve(base: &str, secret: SupplierSecret) -> Result<(String, SupplierSe
     let Some(id) = subscription_id(base) else {
         return Ok((base.into(), secret));
     };
-    let (address, token) = start().map_err(AppError::Message)?;
+    let (address, token) = if tokio::runtime::Handle::try_current()
+        .is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread)
+    {
+        // 热请求路径跑在多线程 Tokio worker 上：引擎冷启动最长 15 秒，
+        // block_in_place 让出当前 worker 的队列，网关其余请求不被串行化。
+        // current_thread（测试）与普通线程直接走同步路径。
+        tokio::task::block_in_place(ensure_started)
+    } else {
+        ensure_started()
+    }
+    .map_err(AppError::Message)?;
     Ok((
         format!("{address}/provider/{id}/v1"),
         SupplierSecret {

@@ -509,13 +509,18 @@ pub async fn disconnect_local(state: &AppState, app_id: &str) -> Result<(), Stri
     let remove_error = local_apps::remove(&removal)
         .err()
         .map(|error| error.to_string());
-    local_apps::restore(&record.previous_values)
-        .map_err(|error| format!("恢复 {} 原配置失败: {error}", spec.label))?;
+    // 先解除组连接与附件记录（与 managed-app 断开同一策略）：即使后面的恢复
+    // 步骤失败，status_local 也应回到「原生配置」，不把用户卡在半接入状态，
+    // 否则界面上仍显示「已接入路由」而 PHI 供应商块已被删除。
     state
         .db
         .clear_gateway_group_connection(spec.id)
         .map_err(|error| error.to_string())?;
     remember_id(spec.id, None)?;
+    // 恢复失败不提前返回：收集起来与供应商行删除的错误一起上报。
+    let restore_error = local_apps::restore(&record.previous_values)
+        .err()
+        .map(|error| format!("恢复 {} 原配置失败: {error}", spec.label));
     let mut removal_error = None;
     if state
         .db
@@ -528,7 +533,7 @@ pub async fn disconnect_local(state: &AppState, app_id: &str) -> Result<(), Stri
         }
     }
     log::info!("[GATEWAY] {} 退出路由", spec.id);
-    if let Some(error) = remove_error.or(removal_error) {
+    if let Some(error) = restore_error.or(remove_error).or(removal_error) {
         return Err(error);
     }
     Ok(())

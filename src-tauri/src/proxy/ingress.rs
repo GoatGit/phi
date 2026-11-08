@@ -36,7 +36,7 @@ const APPS: [&str; 17] = [
 /// Written next to the other PHI state so a restart reuses the same identities.
 const TOKEN_FILE: &str = "local-tokens.json";
 
-static TOKENS: LazyLock<Vec<String>> = LazyLock::new(|| load_tokens());
+static TOKENS: LazyLock<Vec<String>> = LazyLock::new(load_tokens);
 
 fn generate(app: &str) -> String {
     // Three independent UUID v4 values provide more than 256 bits of entropy.
@@ -120,10 +120,15 @@ fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 pub fn token(app: &str) -> &'static str {
-    &TOKENS[APPS
-        .iter()
-        .position(|value| *value == app)
-        .expect("supported ingress app")]
+    match APPS.iter().position(|value| *value == app) {
+        Some(index) => &TOKENS[index],
+        None => {
+            // APPS 与应用注册表漂移时的护栏：请求路径上 panic 会把整个网关
+            // 打挂，回退到 claude 的身份令牌并显式报错。
+            log::error!("[INGRESS] unknown ingress app {app:?}; falling back to the claude token");
+            &TOKENS[0]
+        }
+    }
 }
 
 pub fn is_local_credential(value: &str) -> bool {
@@ -378,6 +383,19 @@ pub struct Identity {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_registered_ingress_app_has_a_token_slot() {
+        // APPS 数组、路由专用应用注册表与 System One 常量必须同步：新增应用
+        // 时漏掉这里，token() 在请求路径上就会退回护栏并打错误日志。
+        let registered = crate::gateway::local_apps::ids();
+        for id in registered.chain(std::iter::once(crate::gateway::typesafe::APP_ID)) {
+            assert!(
+                super::APPS.contains(&id),
+                "app {id:?} is missing from ingress::APPS"
+            );
+        }
+    }
+
     #[test]
     fn external_access_opens_every_protocol_entry() {
         for (path, app) in [

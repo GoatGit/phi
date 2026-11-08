@@ -1769,10 +1769,9 @@ impl Database {
         })
     }
     pub fn write_gateway_trace(&self, trace: &RequestTrace) -> Result<(), AppError> {
-        self.ledger_route(trace).map_err(|error| {
+        self.ledger_route(trace).inspect_err(|_error| {
             self.ledger_available
                 .store(false, std::sync::atomic::Ordering::Release);
-            error
         })?;
         self.gateway_runtime.observe(trace);
         if !trace.persist {

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { KeyRound, Plus } from "lucide-react";
 import { accessApi, type AccessBinding } from "@/lib/api/access";
-import { useGatewayCatalog } from "./useGatewayCatalog";
+import { useGatewayCatalog, useGatewayErrorMessage } from "./useGatewayCatalog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Notice } from "@/components/ui/notice";
@@ -45,6 +45,7 @@ export function AccessBindings() {
 
 function ExternalKeyManager() {
   const { t } = useTranslation();
+  const describeError = useGatewayErrorMessage();
   const client = useQueryClient();
   const [draft, setDraft] = useState<AccessBinding | null>(null);
   const [issued, setIssued] = useState<string | null>(null);
@@ -75,7 +76,6 @@ function ExternalKeyManager() {
     onSuccess: () =>
       client.invalidateQueries({ queryKey: ["access-bindings"] }),
   });
-
   const openCreate = () => {
     setDraft(freshBinding(keys.length === 0 ? "PHI" : ""));
   };
@@ -98,8 +98,16 @@ function ExternalKeyManager() {
         </Button>
       </div>
 
-      {(bindings.error || usage.error) && (
-        <Notice tone="danger" title={String(bindings.error ?? usage.error)} />
+      {/* 启用/禁用失败不能静默：开关弹回时用户要知道原因。 */}
+      {(bindings.error || usage.error || enabled.error) && (
+        <Notice
+          tone="danger"
+          title={
+            enabled.error
+              ? describeError(enabled.error)
+              : String(bindings.error ?? usage.error)
+          }
+        />
       )}
 
       <p className="m-0 text-caption text-fg-3">{t("access.boundary")}</p>

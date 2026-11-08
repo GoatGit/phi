@@ -68,7 +68,8 @@ beforeEach(() => {
   i18n.addResourceBundle(
     i18n.language,
     "translation",
-    { access: zh.access, ledger: zh.ledger },
+    // gateway.errors 也注册：签发失败的信息走 useGatewayErrorMessage 映射。
+    { access: zh.access, ledger: zh.ledger, gateway: zh.gateway },
     true,
     true,
   );
@@ -195,7 +196,8 @@ describe("third-party app access", () => {
     });
     await waitFor(() => expect(submit).toBeEnabled());
     fireEvent.click(submit);
-    await within(dialog).findByText("Error: write failed");
+    // 失败信息走 useGatewayErrorMessage 的通用映射：文案带原始 detail。
+    await within(dialog).findByText(/write failed/);
     expect(within(dialog).getByLabelText(zh.access.keyName)).toHaveValue(
       " Cline ",
     );

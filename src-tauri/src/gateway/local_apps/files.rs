@@ -11,6 +11,18 @@ use crate::config::atomic_write;
 use crate::error::AppError;
 use crate::jsonc_document::JsoncDocument;
 
+/// 串行化所有配置文件的读改写：单个文件的写入是原子的，但「读快照 → 改 →
+/// 写回」的周期不是。启动 resync 与用户操作并发 apply 时，没有这把锁会互相
+/// 覆盖（后写者基于过期快照，丢掉先写者的改动）。
+static APPLY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+fn apply_guard() -> std::sync::MutexGuard<'static, ()> {
+    // 锁只保护短小的内存 + 文件操作，持有期间 panic 的概率可忽略；
+    // 中毒时恢复而不是让所有后续接入永久失败。
+    APPLY_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Json,
@@ -101,6 +113,7 @@ pub fn apply(path: &Path, format: Format, ops: &[Op]) -> Result<(), AppError> {
 }
 
 fn apply_json(path: &Path, ops: &[Op]) -> Result<(), AppError> {
+    let _guard = apply_guard();
     ensure_private_parent(path)?;
     let source = if path.exists() {
         std::fs::read_to_string(path).map_err(|e| AppError::io(path, e))?
@@ -126,16 +139,13 @@ fn apply_json(path: &Path, ops: &[Op]) -> Result<(), AppError> {
 
 fn apply_json_op(root: &mut Value, op: &Op) -> Result<(), AppError> {
     match op {
-        Op::Set { path, value } => {
-            set_path(root, path, value.clone());
-            Ok(())
-        }
+        Op::Set { path, value } => set_path(root, path, value.clone()),
         Op::Delete { path } => {
             delete_path(root, path);
             Ok(())
         }
         Op::UpsertArrayItem { path, field, value } => {
-            let items = array_at(root, path);
+            let items = array_at(root, path)?;
             let key = value.get(field.as_str()).cloned();
             if let Some(key) = key {
                 if let Some(slot) = items
@@ -150,7 +160,7 @@ fn apply_json_op(root: &mut Value, op: &Op) -> Result<(), AppError> {
             Ok(())
         }
         Op::RemoveArrayItems { path, field_prefix } => {
-            let items = array_at(root, path);
+            let items = array_at(root, path)?;
             items.retain(|item| {
                 !item
                     .get("id")
@@ -188,31 +198,36 @@ fn lookup<'a>(value: &'a Value, path: &[String]) -> Option<&'a Value> {
     Some(current)
 }
 
-fn set_path(root: &mut Value, path: &[String], value: Value) {
+fn set_path(root: &mut Value, path: &[String], value: Value) -> Result<(), AppError> {
     let Some((last, parents)) = path.split_last() else {
         *root = value;
-        return;
+        return Ok(());
     };
     let mut current = root;
     for key in parents {
-        if !current.is_object() {
-            *current = Value::Object(Map::new());
-        }
-        let object = current.as_object_mut().expect("object just ensured");
+        let Some(object) = current.as_object_mut() else {
+            return Err(AppError::Config(format!(
+                "配置键 {key} 的父级不是对象，拒绝写入以免破坏已有配置"
+            )));
+        };
         current = object
             .entry(key.clone())
             .or_insert_with(|| Value::Object(Map::new()));
         if !current.is_object() {
-            *current = Value::Object(Map::new());
+            // 静默把已有标量/数组替换成对象会毁掉用户配置，且 stash 只记录
+            // 叶子键、无法回滚；直接报错让接入流程走回滚。
+            return Err(AppError::Config(format!(
+                "配置里 {key} 已有非对象值，拒绝覆盖以免破坏用户配置"
+            )));
         }
     }
-    if !current.is_object() {
-        *current = Value::Object(Map::new());
-    }
-    current
-        .as_object_mut()
-        .expect("object just ensured")
-        .insert(last.clone(), value);
+    let Some(object) = current.as_object_mut() else {
+        return Err(AppError::Config(format!(
+            "配置键 {last} 的父级不是对象，拒绝写入以免破坏已有配置"
+        )));
+    };
+    object.insert(last.clone(), value);
+    Ok(())
 }
 
 fn delete_path(root: &mut Value, path: &[String]) {
@@ -231,40 +246,49 @@ fn delete_path(root: &mut Value, path: &[String]) {
     }
 }
 
-fn array_at<'a>(root: &'a mut Value, path: &[String]) -> &'a mut Vec<Value> {
+fn array_at<'a>(root: &'a mut Value, path: &[String]) -> Result<&'a mut Vec<Value>, AppError> {
     let Some((last, parents)) = path.split_last() else {
         if !root.is_array() {
-            *root = Value::Array(Vec::new());
+            return Err(AppError::Config(
+                "配置根已有非数组值，拒绝覆盖以免破坏用户配置".to_string(),
+            ));
         }
-        return root.as_array_mut().expect("array just ensured");
+        return Ok(root.as_array_mut().expect("array just checked"));
     };
     let mut current = root;
     for key in parents {
-        if !current.is_object() {
-            *current = Value::Object(Map::new());
-        }
-        let object = current.as_object_mut().expect("object just ensured");
+        let Some(object) = current.as_object_mut() else {
+            return Err(AppError::Config(format!(
+                "配置键 {key} 的父级不是对象，拒绝写入以免破坏已有配置"
+            )));
+        };
         current = object
             .entry(key.clone())
-            .or_insert_with(|| Value::Array(Vec::new()));
-        if !current.is_array() {
-            *current = Value::Array(Vec::new());
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !current.is_object() {
+            return Err(AppError::Config(format!(
+                "配置里 {key} 已有非对象值，拒绝覆盖以免破坏用户配置"
+            )));
         }
     }
-    if !current.is_object() {
-        *current = Value::Object(Map::new());
-    }
-    let object = current.as_object_mut().expect("object just ensured");
+    let Some(object) = current.as_object_mut() else {
+        return Err(AppError::Config(format!(
+            "配置键 {last} 的父级不是对象，拒绝写入以免破坏已有配置"
+        )));
+    };
     let entry = object
         .entry(last.clone())
         .or_insert_with(|| Value::Array(Vec::new()));
     if !entry.is_array() {
-        *entry = Value::Array(Vec::new());
+        return Err(AppError::Config(format!(
+            "配置里 {last} 已有非数组值，拒绝覆盖以免破坏用户配置"
+        )));
     }
-    entry.as_array_mut().expect("array just ensured")
+    Ok(entry.as_array_mut().expect("array just checked"))
 }
 
 fn apply_toml(path: &Path, ops: &[Op]) -> Result<(), AppError> {
+    let _guard = apply_guard();
     ensure_private_parent(path)?;
     let source = if path.exists() {
         std::fs::read_to_string(path).map_err(|e| AppError::io(path, e))?
@@ -295,7 +319,7 @@ fn apply_toml_op(document: &mut DocumentMut, op: &Op) -> Result<(), AppError> {
             Ok(())
         }
         Op::SetTable { table, entries } => {
-            let item = table_mut(document, table);
+            let item = table_mut(document, table)?;
             let target = item
                 .as_table_mut()
                 .ok_or_else(|| AppError::Config(format!("{} 不是一张表", table.join("."))))?;
@@ -329,22 +353,24 @@ fn apply_toml_op(document: &mut DocumentMut, op: &Op) -> Result<(), AppError> {
     }
 }
 
-fn table_mut<'a>(document: &'a mut DocumentMut, table: &[String]) -> &'a mut Item {
+fn table_mut<'a>(
+    document: &'a mut DocumentMut,
+    table: &[String],
+) -> Result<&'a mut Item, AppError> {
     let mut item: &mut Item = document.as_item_mut();
     for key in table {
         if !item.is_table() {
-            *item = Item::Table(Table::new());
+            return Err(AppError::Config(format!(
+                "配置里 {key} 不是表，拒绝覆盖以免破坏已有配置"
+            )));
         }
-        let target = item.as_table_mut().expect("table just ensured");
+        let target = item.as_table_mut().expect("table just checked");
         if !target.contains_key(key) {
             target.insert(key, Item::Table(Table::new()));
         }
         item = target.get_mut(key).expect("entry just inserted");
-        if !item.is_table() {
-            *item = Item::Table(Table::new());
-        }
     }
-    item
+    Ok(item)
 }
 
 fn set_toml_value(
@@ -355,7 +381,7 @@ fn set_toml_value(
     let Some((last, parents)) = path.split_last() else {
         return Err(AppError::Config("TOML 键路径为空".to_string()));
     };
-    let item = table_mut(document, parents);
+    let item = table_mut(document, parents)?;
     let target = item
         .as_table_mut()
         .ok_or_else(|| AppError::Config(format!("{} 不是一张表", parents.join("."))))?;
@@ -366,8 +392,8 @@ fn set_toml_value(
 /// 替换一张表里的键，保留这个键原有的前导注释与排版。
 fn insert_item(table: &mut Table, key: &str, item: Item) {
     match table.key(key).cloned() {
-        Some(mut existing) => {
-            table.insert_formatted(&mut existing, item);
+        Some(existing) => {
+            table.insert_formatted(&existing, item);
         }
         None => {
             table.insert(key, item);

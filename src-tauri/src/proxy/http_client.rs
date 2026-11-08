@@ -21,8 +21,12 @@ static PHI_PROXY_PORT: OnceCell<RwLock<u16>> = OnceCell::new();
 
 /// 设置 PHI 代理服务器的监听端口
 ///
-/// 应在代理服务器启动时调用，以便系统代理检测能正确识别自己的端口
-/// 当前本地代理监听端口（用于转发前检测「上游指向自己」的自环配置）。
+/// 应在代理服务器启动时调用，以便系统代理检测能正确识别自己的端口。
+/// 自环检测直接在 `proxy_points_to_loopback` 里比较端口，下面的读取器还没有
+/// 生产调用方（保留给需要判断「上游是不是自己」的新入口）。
+///
+/// 当前本地代理监听端口。
+#[allow(dead_code)]
 pub fn active_proxy_port() -> Option<u16> {
     let port = get_proxy_port();
     (port != 0).then_some(port)

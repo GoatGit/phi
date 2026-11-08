@@ -898,43 +898,40 @@ describe("routing overview", () => {
 });
 
 describe("gateway resource to request workflow", () => {
-  it.each(["group"])(
-    "blocks a stale %s draft after the catalog changes",
-    async () => {
-      const client = new QueryClient({
-        defaultOptions: { queries: { retry: false } },
-      });
-      const catalog = {
-        ...sharedCatalog,
-        policies: [sharedCatalog.policies[0]],
-        groups: [routeGroup],
-      };
-      const editor = (next: GatewayCatalog) => (
-        <QueryClientProvider client={client}>
-          <GroupSection catalog={next} onOpenTraces={vi.fn()} />
-        </QueryClientProvider>
-      );
-      const result = render(editor(catalog));
-      const user = userEvent.setup();
-      await user.click(
-        screen.getByRole("button", { name: "gateway.policy.edit" }),
-      );
-      const dialog = screen.getByRole("dialog");
-      const name = within(dialog).getByLabelText("gateway.pool.name", {
-        selector: "input",
-      });
-      fireEvent.change(name, { target: { value: "Unsaved change" } });
-      result.rerender(editor({ ...catalog, revision: catalog.revision + 1 }));
-      expect(
-        within(dialog).getByText("gateway.policy.staleEditor"),
-      ).toBeInTheDocument();
-      const save = within(dialog).getByRole("button", { name: "gateway.save" });
-      expect(save).toBeDisabled();
-      await user.click(save);
-      expect(gatewayApi.saveCatalog).not.toHaveBeenCalled();
-      expect(name).toHaveValue("Unsaved change");
-    },
-  );
+  it("blocks a stale group draft after the catalog changes", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const catalog = {
+      ...sharedCatalog,
+      policies: [sharedCatalog.policies[0]],
+      groups: [routeGroup],
+    };
+    const editor = (next: GatewayCatalog) => (
+      <QueryClientProvider client={client}>
+        <GroupSection catalog={next} onOpenTraces={vi.fn()} />
+      </QueryClientProvider>
+    );
+    const result = render(editor(catalog));
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "gateway.policy.edit" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    const name = within(dialog).getByLabelText("gateway.pool.name", {
+      selector: "input",
+    });
+    fireEvent.change(name, { target: { value: "Unsaved change" } });
+    result.rerender(editor({ ...catalog, revision: catalog.revision + 1 }));
+    expect(
+      within(dialog).getByText("gateway.policy.staleEditor"),
+    ).toBeInTheDocument();
+    const save = within(dialog).getByRole("button", { name: "gateway.save" });
+    expect(save).toBeDisabled();
+    await user.click(save);
+    expect(gatewayApi.saveCatalog).not.toHaveBeenCalled();
+    expect(name).toHaveValue("Unsaved change");
+  });
 
   it.each(["supplier", "group"])(
     "keeps the %s editor locked until a pending save fails and then preserves edits",

@@ -27,12 +27,19 @@ pub enum Attachment {
 pub struct RoutingApp {
     pub app: AppType,
     pub id: &'static str,
+    /// 展示名。目录页目前用 `app_display_name` 取名，这里给单测与后续迁移留一个
+    /// 单一来源。
+    #[allow(dead_code)]
     pub label: &'static str,
     /// 本地网关的路径前缀（不含结尾 `/v1`）。
     pub ingress: &'static str,
     /// 应用原生消费、可直接直连的协议。`None` 表示只能走本地路由。
+    ///
+    /// 目前只有单测读它：转发路径按供应商的 `api_format` 决定，不看这里。
+    #[allow(dead_code)]
     pub direct_protocol: Option<&'static str>,
     /// 路由入口使用的协议。
+    #[allow(dead_code)]
     pub route_protocol: &'static str,
     pub attachment: Attachment,
 }
@@ -151,6 +158,7 @@ pub fn spec_by_id(id: &str) -> Option<&'static RoutingApp> {
 }
 
 /// 该应用能否进入统一路由（供应商直连或路由组）。
+#[cfg(test)]
 pub fn routable(app: &AppType) -> bool {
     spec(app).is_some()
 }

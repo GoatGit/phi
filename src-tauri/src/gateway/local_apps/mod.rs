@@ -25,6 +25,9 @@ pub struct LocalApp {
     /// 本地网关的路径前缀（不含结尾 `/v1`）。
     pub ingress: &'static str,
     /// 应用原生直接消费的协议。这些应用都讲 OpenAI Chat。
+    ///
+    /// 目前只有单测读它：接入时协议固定按 Chat 写入，不看这里。
+    #[allow(dead_code)]
     pub direct_protocol: &'static str,
 }
 
@@ -79,6 +82,8 @@ pub fn spec(id: &str) -> Option<&'static LocalApp> {
     LOCAL_APPS.iter().find(|spec| spec.id == id)
 }
 
+/// 已注册的路由专用应用 id。生产路径直接按常量表匹配，这里给单测做同步校验。
+#[cfg(test)]
 pub fn ids() -> impl Iterator<Item = &'static str> {
     LOCAL_APPS.iter().map(|spec| spec.id)
 }
@@ -88,6 +93,7 @@ pub fn provider_id(id: &str) -> String {
 }
 
 /// 应用接入产生的供应商行 id（与托管应用的 `apps::provider_id` 同形）。
+#[allow(dead_code)]
 pub fn is_gateway_provider_id(id: &str) -> bool {
     id.starts_with("phi-route-")
 }
@@ -134,7 +140,7 @@ fn config_root(home: &Path) -> PathBuf {
     }
     #[cfg(target_os = "macos")]
     {
-        return home.join("Library").join("Application Support");
+        home.join("Library").join("Application Support")
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -150,6 +156,7 @@ fn data_root(home: &Path) -> PathBuf {
 }
 
 /// 计划里出现的所有文件（用于界面展示与测试）。
+#[allow(dead_code)]
 pub fn plan_files(plan: &LocalPlan) -> Vec<&Path> {
     plan.provider
         .iter()

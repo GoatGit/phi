@@ -733,6 +733,9 @@ impl Database {
     ) -> Result<(), AppError> {
         self.ledger_settle_observed(id, no, state, reason, usage, committed, true)
     }
+    /// 结算一次尝试。参数多是因为它要同时表达「终态、失败原因、用量是否完整、响应是否
+    /// 已提交给客户端」四件事，拆成结构体反而会让调用方在每次结算时多拼一个对象。
+    #[allow(clippy::too_many_arguments)]
     pub fn ledger_settle_observed(
         &self,
         id: &str,

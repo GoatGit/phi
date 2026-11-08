@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { accessApi, type AccessBinding } from "@/lib/api/access";
-import { useGatewayCatalog } from "./useGatewayCatalog";
+import { useGatewayCatalog, useGatewayErrorMessage } from "./useGatewayCatalog";
 import { copyText } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -114,6 +114,7 @@ function AccessKeyDialogPanel({
   onDeleteRequest?: (binding: AccessBinding) => void;
 }) {
   const { t } = useTranslation();
+  const describeError = useGatewayErrorMessage();
   const editOnly = variant === "edit" && Boolean(draft.id);
   const client = useQueryClient();
   const catalog = useGatewayCatalog();
@@ -235,7 +236,7 @@ function AccessKeyDialogPanel({
                 {(issue.error || catalog.error) && (
                   <Notice
                     tone="danger"
-                    title={String(issue.error ?? catalog.error)}
+                    title={describeError(issue.error ?? catalog.error)}
                   >
                     {catalog.isError && (
                       <Button
