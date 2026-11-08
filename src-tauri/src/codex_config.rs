@@ -2993,16 +2993,20 @@ pub fn codex_config_routes_official_to_proxy(
 }
 
 fn table_matches_codex_unified_official_provider(table: &toml_edit::Table) -> bool {
+    // `supports_websockets` 两种取值都算注入产物：本地网关现在支持 Responses WebSocket，
+    // 新写入的表会带 true，升级前留下的表还是 false，关闭开关后两种都要能剥干净。
     table.len() == 4
         && table.get("name").and_then(|item| item.as_str()) == Some("OpenAI")
         && table
             .get("requires_openai_auth")
             .and_then(|item| item.as_bool())
             == Some(true)
-        && table
-            .get("supports_websockets")
-            .and_then(|item| item.as_bool())
-            == Some(true)
+        && matches!(
+            table
+                .get("supports_websockets")
+                .and_then(|item| item.as_bool()),
+            Some(true | false)
+        )
         && table.get("wire_api").and_then(|item| item.as_str()) == Some("responses")
 }
 

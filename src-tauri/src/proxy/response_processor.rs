@@ -67,6 +67,11 @@ pub(crate) fn strip_hop_by_hop_response_headers(headers: &mut HeaderMap) {
     }
 }
 
+/// 入站请求侧的同名清单（两边头字段名一致，只是方向不同）。
+pub(crate) fn strip_hop_by_hop_request_headers(headers: &mut HeaderMap) {
+    strip_hop_by_hop_response_headers(headers);
+}
+
 /// 移除在重建响应体后会失真的实体头。
 pub(crate) fn strip_entity_headers_for_rebuilt_body(headers: &mut HeaderMap) {
     headers.remove(axum::http::header::CONTENT_ENCODING);

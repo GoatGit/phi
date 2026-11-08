@@ -475,6 +475,13 @@ impl RouteWrite {
     }
 }
 
+/// 本地网关现在接得住 Responses WebSocket（见 `proxy::responses_websocket`），
+/// 所以指回本进程的表可以声明 `supports_websockets = true`：Codex 走 WS，
+/// 上游仍是 HTTP/SSE，只有客户端这一段换了传输。
+fn websocket_supported() -> bool {
+    true
+}
+
 /// 官方镜像表：`name = "OpenAI"`、认证走官方登录。统一会话历史和代理的官方路由用。
 pub fn official_mirror_table(base_url: Option<&str>, supports_websockets: bool) -> Table {
     let mut table = Table::new();
@@ -795,7 +802,7 @@ impl CodexConfigPatch {
                 put_table(
                     providers,
                     ROUTE_ID,
-                    official_mirror_table(Some(base_url), false),
+                    official_mirror_table(Some(base_url), websocket_supported()),
                     container_inline,
                 );
             }
@@ -812,9 +819,10 @@ impl CodexConfigPatch {
         match &self.route {
             RouteWrite::Custom(table) => Some((ROUTE_ID, table.clone())),
             RouteWrite::OfficialMirror => Some((ROUTE_ID, official_mirror_table(None, true))),
-            RouteWrite::OfficialProxy { base_url } => {
-                Some((ROUTE_ID, official_mirror_table(Some(base_url), false)))
-            }
+            RouteWrite::OfficialProxy { base_url } => Some((
+                ROUTE_ID,
+                official_mirror_table(Some(base_url), websocket_supported()),
+            )),
             RouteWrite::BuiltIn {
                 id,
                 table: Some(table),
@@ -1115,7 +1123,8 @@ mod tests {
             assert_eq!(mirror["name"].as_str(), Some("OpenAI"));
             assert_eq!(mirror["base_url"].as_str(), Some(PROXY));
             assert_eq!(mirror["requires_openai_auth"].as_bool(), Some(true));
-            assert_eq!(mirror["supports_websockets"].as_bool(), Some(false));
+            // 本地网关接得住 Responses WebSocket，指回本进程的表可以声明支持。
+            assert_eq!(mirror["supports_websockets"].as_bool(), Some(true));
             assert_eq!(mirror["http_headers"]["x-phi-token"].as_str(), Some(crate::proxy::ingress::token("codex")));
             assert!(mirror.get("experimental_bearer_token").is_none());
             assert!(!doc.to_string().contains("sk-relay"));

@@ -3577,7 +3577,7 @@ pub(crate) mod mode_tests {
             let local_token = mirror["http_headers"]["x-phi-token"].as_str().unwrap();
             assert_eq!(local_token, crate::proxy::ingress::token("codex"));
             assert_eq!(mirror["requires_openai_auth"].as_bool(), Some(true));
-            assert_eq!(mirror["supports_websockets"].as_bool(), Some(false));
+            assert_eq!(mirror["supports_websockets"].as_bool(), Some(true));
             assert!(mirror.get("experimental_bearer_token").is_none());
             assert!(
                 mirror["base_url"].as_str().unwrap().ends_with("/v1"),

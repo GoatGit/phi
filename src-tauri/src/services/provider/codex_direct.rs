@@ -837,7 +837,7 @@ fn contract_of(
         RouteWrite::Custom(table) => (ROUTE_ID, table_text(table)),
         RouteWrite::OfficialProxy { base_url } => (
             ROUTE_ID,
-            table_text(&official_mirror_table(Some(base_url), false)),
+            table_text(&official_mirror_table(Some(base_url), true)),
         ),
         _ => ("", String::new()),
     };

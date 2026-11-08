@@ -16,6 +16,7 @@ use super::{
         CODEX_PARSER_CONFIG, GEMINI_PARSER_CONFIG, OPENAI_PARSER_CONFIG,
     },
     handler_context::RequestContext,
+    hyper_client::MAX_RESPONSE_BODY_BYTES,
     providers::{
         codex_chat_common::extract_reasoning_field_text,
         codex_chat_history::record_responses_sse_stream,
@@ -1141,10 +1142,27 @@ pub async fn handle_typesafe_systemone(
             Ok(response) => {
                 let status = response.status();
                 let content_type = response.headers().get(http::header::CONTENT_TYPE).cloned();
-                let body = response
-                    .bytes()
-                    .await
-                    .map_err(|error| ProxyError::ForwardFailed(error.to_string()))?;
+                // 与其他上游一致：响应体按上限逐块累积，防止异常或恶意供应商
+                // 把桌面应用的内存耗尽。
+                let mut stream = response.bytes_stream();
+                let mut buffer = bytes::BytesMut::new();
+                loop {
+                    match stream.next().await {
+                        Some(Ok(chunk)) => {
+                            if buffer.len() + chunk.len() > MAX_RESPONSE_BODY_BYTES {
+                                return Err(ProxyError::ResponseBodyTooLarge(
+                                    buffer.len() + chunk.len(),
+                                ));
+                            }
+                            buffer.extend_from_slice(&chunk);
+                        }
+                        Some(Err(error)) => {
+                            return Err(ProxyError::ForwardFailed(error.to_string()));
+                        }
+                        None => break,
+                    }
+                }
+                let body = buffer.freeze();
                 if status.is_success() {
                     typesafe_trace_settle(
                         &trace,
@@ -1420,27 +1438,18 @@ async fn handle_chat_completions_for_app(
     .await
 }
 
-/// Responses 的 WebSocket 握手（GET 升级请求）：本地代理只讲 HTTP/SSE，回 426。Codex 内置
-/// 的 openai 默认先连 WebSocket，握手拿到 426 就在本会话里改走 HTTP，其它失败要把重试
-/// 用完才回退。
-pub async fn handle_responses_websocket() -> (StatusCode, Json<Value>) {
-    (
-        StatusCode::UPGRADE_REQUIRED,
-        Json(json!({
-            "error": {
-                "type": "invalid_request_error",
-                "code": "websocket_not_supported",
-                "message": "PHI local routing does not support Responses over WebSocket; use HTTP",
-            }
-        })),
-    )
-}
-
+/// Responses 的 WebSocket 升级由 [`super::responses_websocket`] 接手（`server.rs` 的路由层
+/// 直接做升级），所以 HTTP 处理函数只处理 POST。
 /// 处理 /v1/responses 请求（OpenAI Responses API - Codex CLI 透传）
 pub async fn handle_responses(
     State(state): State<ProxyState>,
     request: axum::extract::Request,
 ) -> Result<axum::response::Response, ProxyError> {
+    // GET 升级失败（缺 `Connection: upgrade`、版本不对等）时 axum 会把整个请求交回来。
+    // 回 426 而不是 400：Codex 只认这是「服务端不支持 WS」的确定信号，会当场改走 HTTP。
+    if request.method() != axum::http::Method::POST {
+        return Ok(super::responses_websocket::upgrade_required().into_response());
+    }
     handle_responses_for_app(state, request, AppType::Codex, "Codex", "codex").await
 }
 
@@ -1468,13 +1477,45 @@ async fn handle_responses_for_app(
     let (parts, req_body) = request.into_parts();
     let method = parts.method.clone();
     let uri = parts.uri;
-    let mut headers = parts.headers;
+    let headers = parts.headers;
     let extensions = parts.extensions;
     let body_bytes = req_body
         .collect()
         .await
         .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
         .to_bytes();
+    responses_http_response(
+        state,
+        method,
+        uri,
+        headers,
+        extensions,
+        body_bytes,
+        app_type,
+        tag,
+        app_type_str,
+    )
+    .await
+}
+
+/// Responses 协议的 HTTP/SSE 语义全流程：解码请求体、解析路由栈、转发、按上游格式改写、
+/// 记账并返回 HTTP 响应。
+///
+/// WebSocket 入站（见 [`super::responses_websocket`]）复用同一个函数，把一轮
+/// `response.create` 聚合成这里要的请求字节，再把返回的 HTTP/SSE 响应拆成帧推回，
+/// 这样两种传输不会各演化出一套协议实现。
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn responses_http_response(
+    state: ProxyState,
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+    mut headers: axum::http::HeaderMap,
+    extensions: axum::http::Extensions,
+    body_bytes: axum::body::Bytes,
+    app_type: AppType,
+    tag: &'static str,
+    app_type_str: &'static str,
+) -> Result<axum::response::Response, ProxyError> {
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
