@@ -1,5 +1,74 @@
 [
   {
+    "version": "1.0.4",
+    "date": "2026-10-24",
+    "items": {
+      "zh": [
+        "用量页显示三方应用自己的名字，不再借用 OpenCode 等内置应用。",
+        "修复 Chat 接 Anthropic 上游时可选参数导致反复重试。",
+        "上游安全拦截时返回原因，不再显示空回复。"
+      ],
+      "en": [
+        "Usage pages show third-party app names instead of the built-in app they borrow.",
+        "Fixed Chat-protocol requests failing on optional fields when routed to Anthropic upstreams.",
+        "Safety refusals now pass through their reason instead of an empty reply."
+      ],
+      "ja": [
+        "使用状況ページで、サードパーティアプリ自身の名前が表示されるようになりました。",
+        "Chat プロトコルから Anthropic 上流への接続で、任意パラメータにより失敗する問題を修正しました。",
+        "上流の安全ポリシーによる拒否時、理由が表示されるようになりました。"
+      ]
+    }
+  },
+  {
+    "version": "1.0.3",
+    "date": "2026-10-21",
+    "items": {
+      "zh": [
+        "Windows 安装包现在包含订阅功能，装好即可直接登录。",
+        "macOS 通用包补上订阅组件，Intel 与 Apple 芯片都可用。"
+      ],
+      "en": [
+        "The Windows installer now ships the subscription engine.",
+        "The universal macOS build now includes subscriptions on both chips."
+      ],
+      "ja": [
+        "Windows 版インストーラーにサブスク機能が含まれるようになりました。",
+        "macOS のユニバーサル版でもサブスクが使えるようになりました。"
+      ]
+    }
+  },
+  {
+    "version": "1.0.2",
+    "date": "2026-10-21",
+    "items": {
+      "zh": [
+        "新增订阅引擎：登录订阅账号后，模型直接进入资源池参与路由。",
+        "新增三方应用接入：Command Code、Crush、Droid、Kimi Code、AtomCode、OmO 以令牌接入网关，应用节点可重新签发令牌或删除应用。",
+        "新增 System One 决策协议入口，按组路由决策请求。",
+        "路由图的应用列默认最多显示五个，其余收进「展开」。",
+        "用量记录按三方应用区分来源，不再混成一个笼统类型。",
+        "订阅登录回调显示 PHI 自己的页面，不再是别的品牌。"
+      ],
+      "en": [
+        "New subscription engine: sign in once and the account's models join the resource pool for routing.",
+        "New third-party app access: Command Code, Crush, Droid, Kimi Code, AtomCode and OmO connect with a token; app nodes can reissue or delete it.",
+        "New System One decision-protocol entry, routed by group.",
+        "The routing app column now shows at most five apps by default.",
+        "Usage records now separate traffic by third-party app.",
+        "Subscription sign-in returns to a PHI page instead of another brand."
+      ],
+      "ja": [
+        "サブスクエンジンを追加。サインインするとアカウントのモデルがリソースプールに入り、ルーティングに参加します。",
+        "サードパーティアプリ接続を追加。Command Code・Crush・Droid・Kimi Code・AtomCode・OmO がトークンで接続でき、ノードからトークン再発行と削除ができます。",
+        "System One 判定プロトコルのエントリを追加し、グループごとにルーティングします。",
+        "ルーティング画面のアプリ欄は既定で最大 5 件まで表示します。",
+        "利用状況はサードパーティアプリごとに集計されます。",
+        "サブスクのサインイン後は PHI のページに戻ります。"
+      ]
+    }
+  },
+  {
     "version": "1.0.1",
     "date": "2026-10-19",
     "items": {

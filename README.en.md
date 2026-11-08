@@ -66,7 +66,7 @@ See the [getting started guide](docs/getting-started.en.md). To use other models
 
 ## Run from source
 
-You need Node.js (see `.node-version`), pnpm (see `package.json`), Rust (see `rust-toolchain.toml`), and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). macOS also needs Python 3.12+ and Xcode Command Line Tools.
+You need Node.js (see `.node-version`), pnpm (see `package.json`), Rust (see `rust-toolchain.toml`), Go 1.26+ (the subscription engine is a Go sidecar that `pnpm dev` compiles automatically), and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). macOS also needs Python 3.12+ and Xcode Command Line Tools.
 
 ```sh
 git clone https://github.com/GoatGit/phi.git

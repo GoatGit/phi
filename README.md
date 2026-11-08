@@ -66,7 +66,7 @@ Windows 安装包目前没有 Authenticode 签名，SmartScreen 可能提示「�
 
 ## 从源码运行
 
-需要 Node.js（版本见 `.node-version`）、pnpm（版本见 `package.json`）、Rust（见 `rust-toolchain.toml`）及 [Tauri 2 平台依赖](https://v2.tauri.app/start/prerequisites/)。macOS 还需要 Python 3.12+ 和 Xcode Command Line Tools。
+需要 Node.js（版本见 `.node-version`）、pnpm（版本见 `package.json`）、Rust（见 `rust-toolchain.toml`）、Go 1.26+（订阅引擎是 Go 侧车，`pnpm dev` 会自动编译它）及 [Tauri 2 平台依赖](https://v2.tauri.app/start/prerequisites/)。macOS 还需要 Python 3.12+ 和 Xcode Command Line Tools。
 
 ```sh
 git clone https://github.com/GoatGit/phi.git

@@ -23,6 +23,7 @@ There are many ways to contribute:
 - **Node.js** 20.19+ or 22.12+ (`.node-version` at the repository root is 22.12.0)
 - **pnpm** 10: the version is pinned by the `packageManager` field in `package.json`; run `corepack enable` once and that version is used automatically. To upgrade pnpm, edit this field directly (Dependabot no longer does it)
 - **Rust** 1.95: pinned by `rust-toolchain.toml`; rustup installs it automatically on the first build
+- **Go** 1.26+: the subscription engine (`subscriptions/bridge`) is a Go sidecar; `pnpm dev` and `pnpm build` compile it automatically, but the toolchain must be installed. If you only run `cargo` commands directly, build it first with `pnpm build:subscriptions` — the Tauri build script fails on a missing `src-tauri/binaries/phi-subscriptions-*`
 - Platform-specific [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/): Windows needs the Microsoft C++ Build Tools and WebView2 (usually preinstalled on Windows 10/11); macOS needs the Xcode Command Line Tools; on Debian / Ubuntu you can use the install command from CI:
 
   ```bash
@@ -73,6 +74,8 @@ cargo test some_test_name     # Run tests matching a name
 ```
 
 > On a fresh clone where the frontend has never been built, first run `mkdir -p dist` (or `pnpm build:renderer`) at the repository root. Otherwise, cargo commands under `src-tauri` fail to compile because the frontend output directory is missing.
+
+> Bare `cargo check` / `cargo test` also require the subscription sidecar to exist: run `pnpm build:subscriptions` (Go 1.26+) once, or use `pnpm dev` / `pnpm build`, which build it automatically.
 
 ### Local Build
 
@@ -282,6 +285,7 @@ The PHI UI supports four languages: Simplified Chinese, Traditional Chinese, Eng
 - **Node.js** 20.19+ 或 22.12+（仓库根目录的 `.node-version` 为 22.12.0）
 - **pnpm** 10：版本由 `package.json` 的 `packageManager` 字段固定，执行一次 `corepack enable` 后会自动使用该版本；升级 pnpm 时直接修改这个字段（不再由 Dependabot 代劳）
 - **Rust** 1.95：由 `rust-toolchain.toml` 固定，rustup 会在首次构建时自动安装
+- **Go** 1.26+：订阅引擎（`subscriptions/bridge`）是 Go 侧车，`pnpm dev` 与 `pnpm build` 会自动编译它，但需要本机装有 Go 工具链。只跑 `cargo` 命令时请先执行一次 `pnpm build:subscriptions`，否则 Tauri 构建脚本会因缺少 `src-tauri/binaries/phi-subscriptions-*` 报错
 - 各平台的 [Tauri 2 前置依赖](https://v2.tauri.app/zh-cn/start/prerequisites/)：Windows 需要 Microsoft C++ 生成工具和 WebView2（Windows 10/11 通常已预装 WebView2）；macOS 需要 Xcode Command Line Tools；Debian / Ubuntu 可以参考 CI 使用的安装命令：
 
   ```bash
@@ -331,6 +335,8 @@ cargo test some_test_name     # 按名称运行部分测试
 ```
 
 > 刚 clone 下来、还没构建过前端时，请先在仓库根目录执行 `mkdir -p dist`（或 `pnpm build:renderer`）。否则 `src-tauri` 下的 cargo 命令会因为找不到前端产物目录而编译失败。
+>
+> 直接跑 `cargo check` / `cargo test` 还要求订阅引擎侧车已存在：先执行一次 `pnpm build:subscriptions`（需要 Go 1.26+），或者直接用 `pnpm dev` / `pnpm build`——它们会自动构建侧车。
 
 ### 本地打包
 
