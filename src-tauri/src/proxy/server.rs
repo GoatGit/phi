@@ -49,6 +49,8 @@ pub struct ProxyState {
     pub app_handle: Option<tauri::AppHandle>,
     /// 故障转移切换管理器
     pub failover_manager: Arc<FailoverSwitchManager>,
+    /// 插件运行时（脚本插件 + 内置隐私脱敏阶段），负责出站请求体改写。
+    pub plugin_runtime: Arc<crate::plugin::PluginRuntime>,
 }
 
 /// 代理HTTP服务器
@@ -173,6 +175,7 @@ impl ProxyServer {
             codex_chat_history: Arc::new(CodexChatHistoryStore::default()),
             app_handle,
             failover_manager,
+            plugin_runtime: Arc::new(crate::plugin::PluginRuntime::from_config_dir()),
         };
 
         Self {

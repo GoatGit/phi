@@ -386,6 +386,7 @@ impl RequestContext {
             max_retries,
         )
         .stack_request(self.is_stack)
+        .plugin_runtime(Some(state.plugin_runtime.clone()))
         .gateway_route(
             self.gateway_route.clone(),
             self.gateway_trace.clone(),

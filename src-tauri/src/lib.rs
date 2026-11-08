@@ -35,6 +35,7 @@ mod openclaw_config;
 mod opencode_config;
 mod panic_hook;
 mod pi_config;
+pub mod plugin;
 mod process_output;
 mod prompt;
 mod prompt_files;
@@ -1574,6 +1575,10 @@ pub fn run() {
             commands::toggle_mcp_app,
             commands::import_mcp_from_apps,
             commands::resync_mcp_to_apps,
+            // Plugin system: request-body stages discovered from <config>/plugins
+            commands::list_plugins,
+            commands::set_plugin_enabled,
+            commands::preview_plugin_request,
             // Prompt management
             commands::get_prompts,
             commands::upsert_prompt,
