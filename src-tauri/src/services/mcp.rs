@@ -160,12 +160,18 @@ impl McpService {
     }
 
     /// 将 MCP 服务器同步到所有启用的应用
-    fn sync_server_to_apps(_state: &AppState, server: &McpServer) -> Result<(), AppError> {
+    fn sync_server_to_apps(state: &AppState, server: &McpServer) -> Result<(), AppError> {
+        let shadowed = Self::shadowed_ids(state);
         for app in server.apps.enabled_apps() {
             if matches!(app, AppType::Mcode | AppType::Pi) {
                 continue; // Already written before saving the managed state.
             }
-            Self::sync_server_to_app_no_config(server, &app)?;
+            if Self::route_allows(&app, &server.id, &shadowed) {
+                Self::sync_server_to_app_no_config(server, &app)?;
+            } else {
+                // 路由隐藏：live 配置里必须一并移除，否则「隐藏」只是 UI 假象。
+                Self::remove_server_from_app(state, &server.id, &app)?;
+            }
         }
 
         Ok(())
@@ -173,41 +179,80 @@ impl McpService {
 
     /// 将 MCP 服务器同步到指定应用
     fn sync_server_to_app(
-        _state: &AppState,
+        state: &AppState,
         server: &McpServer,
         app: &AppType,
     ) -> Result<(), AppError> {
-        Self::sync_server_to_app_no_config(server, app)
+        if Self::route_allows(app, &server.id, &Self::shadowed_ids(state)) {
+            Self::sync_server_to_app_no_config(server, app)
+        } else {
+            Self::remove_server_from_app(state, &server.id, app)
+        }
+    }
+
+    /// 被别名撞名遮挡的服务器 id（路由中心的胜出规则）。
+    fn shadowed_ids(state: &AppState) -> std::collections::HashSet<String> {
+        match state.db.get_all_mcp_servers() {
+            Ok(servers) => crate::mcp_router::shadowed_server_ids(
+                servers.values(),
+                &crate::mcp_router::active_config(),
+            ),
+            Err(err) => {
+                log::warn!("读取 MCP 服务器失败，路由遮挡按空集处理: {err}");
+                std::collections::HashSet::new()
+            }
+        }
+    }
+
+    /// 路由中心是否放行「这个服务器出现在这个客户端」。
+    ///
+    /// MCode / Pi 的托管文件由 phi 自己写（名字必须保持 canonical），
+    /// OpenClaw / Claude Desktop / ZCode 不支持注入，都不参与路由。
+    fn route_allows(
+        app: &AppType,
+        server_id: &str,
+        shadowed: &std::collections::HashSet<String>,
+    ) -> bool {
+        if !supports_mcp_routing(app) {
+            return true;
+        }
+        !shadowed.contains(server_id)
+            && crate::mcp_router::exposure_for_app(server_id, app.as_str()).allowed
     }
 
     fn sync_server_to_app_no_config(server: &McpServer, app: &AppType) -> Result<(), AppError> {
+        let id = effective_mcp_server_id(app, &server.id);
+        if id != server.id {
+            log::debug!(
+                "[McpRouter] 服务器 '{}' 以 '{}' 投影到 {}",
+                server.id,
+                id,
+                app.as_str()
+            );
+        }
+        Self::sync_id_to_app(app, &id, &server.server)
+    }
+
+    fn sync_id_to_app(app: &AppType, id: &str, spec: &serde_json::Value) -> Result<(), AppError> {
         match app {
             AppType::Claude => {
-                mcp::sync_single_server_to_claude(&Default::default(), &server.id, &server.server)?;
+                mcp::sync_single_server_to_claude(&Default::default(), id, spec)?;
             }
             AppType::ClaudeDesktop => {
                 log::debug!("Claude Desktop 3P profiles do not use PHI MCP sync, skipping");
             }
             AppType::Codex => {
                 // Codex uses TOML format, must use the correct function
-                mcp::sync_single_server_to_codex(&Default::default(), &server.id, &server.server)?;
+                mcp::sync_single_server_to_codex(&Default::default(), id, spec)?;
             }
             AppType::Gemini => {
-                mcp::sync_single_server_to_gemini(&Default::default(), &server.id, &server.server)?;
+                mcp::sync_single_server_to_gemini(&Default::default(), id, spec)?;
             }
             AppType::GrokBuild => {
-                mcp::sync_single_server_to_grokbuild(
-                    &Default::default(),
-                    &server.id,
-                    &server.server,
-                )?;
+                mcp::sync_single_server_to_grokbuild(&Default::default(), id, spec)?;
             }
             AppType::OpenCode => {
-                mcp::sync_single_server_to_opencode(
-                    &Default::default(),
-                    &server.id,
-                    &server.server,
-                )?;
+                mcp::sync_single_server_to_opencode(&Default::default(), id, spec)?;
             }
             AppType::OpenClaw => {
                 // OpenClaw MCP support is still in development (Issue #4834)
@@ -215,10 +260,10 @@ impl McpService {
                 log::debug!("OpenClaw MCP support is still in development, skipping sync");
             }
             AppType::Hermes => {
-                mcp::sync_single_server_to_hermes(&Default::default(), &server.id, &server.server)?;
+                mcp::sync_single_server_to_hermes(&Default::default(), id, spec)?;
             }
-            AppType::Mcode => mcp::mcode::sync(&server.id, Some(&server.server))?,
-            AppType::Pi => mcp::pi::sync(&server.id, Some(&server.server))?,
+            AppType::Mcode => mcp::mcode::sync(id, Some(spec))?,
+            AppType::Pi => mcp::pi::sync(id, Some(spec))?,
             AppType::Zcode => {
                 // ZCode 暂不支持 PHI 的 MCP 注入
                 log::debug!("ZCode MCP sync is not supported yet, skipping");
@@ -244,6 +289,18 @@ impl McpService {
     }
 
     fn remove_server_from_app(_state: &AppState, id: &str, app: &AppType) -> Result<(), AppError> {
+        // 路由可能把服务器投影成别名：两个名字都清一遍，避免改过别名后留下幽灵条目。
+        // 用 `configured_exposed_id`（不看当前开关）才能清掉刚被关掉的旧别名。
+        Self::remove_id_from_app(app, id)?;
+        if supports_mcp_routing(app) {
+            if let Some(exposed) = crate::mcp_router::active_config().configured_exposed_id(id) {
+                Self::remove_id_from_app(app, &exposed)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_id_from_app(app: &AppType, id: &str) -> Result<(), AppError> {
         match app {
             AppType::Claude => mcp::remove_server_from_claude(id)?,
             AppType::ClaudeDesktop => {
@@ -370,9 +427,12 @@ impl McpService {
         // 它后面的服务器全都停在旧状态。全部跑完后聚合上报，调用方照旧能看到
         // 失败。错误相同的条目归并成一项：live 文件本身损坏时每一条都报同一句。
         let mut failures: IndexMap<String, Vec<&str>> = IndexMap::new();
+        // 路由遮挡只算一次：别名撞名的胜出方由整库决定，单条服务器判断不了。
+        let shadowed = Self::shadowed_ids(state);
         for server in servers.values() {
-            let result = if server.apps.is_enabled_for(app) {
-                Self::sync_server_to_app(state, server, app)
+            let routed_in = Self::route_allows(app, &server.id, &shadowed);
+            let result = if server.apps.is_enabled_for(app) && routed_in {
+                Self::sync_server_to_app_no_config(server, app)
             } else if !matches!(app, AppType::Mcode | AppType::Pi) {
                 Self::remove_server_from_app(state, &server.id, app)
             } else {
@@ -705,5 +765,27 @@ impl McpService {
                 failures.join("; ")
             )))
         }
+    }
+}
+
+/// 路由中心只在「客户端配置文件」上生效的应用。
+///
+/// MCode / Pi 的托管文件由 phi 自己读写（名字必须保持 canonical），
+/// OpenClaw / Claude Desktop / ZCode 不支持注入，都不参与路由。
+fn supports_mcp_routing(app: &AppType) -> bool {
+    !matches!(
+        app,
+        AppType::Mcode | AppType::Pi | AppType::OpenClaw | AppType::ClaudeDesktop | AppType::Zcode
+    )
+}
+
+/// 这个应用里该服务器实际使用的名字（路由别名 / 命名空间）。
+fn effective_mcp_server_id(app: &AppType, server_id: &str) -> String {
+    if supports_mcp_routing(app) {
+        crate::mcp_router::active_config()
+            .exposure(server_id)
+            .exposed_id
+    } else {
+        server_id.to_string()
     }
 }

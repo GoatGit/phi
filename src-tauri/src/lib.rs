@@ -29,6 +29,7 @@ mod linux_fix;
 pub mod live;
 mod mcode_config;
 mod mcp;
+pub mod mcp_router;
 pub mod mode;
 mod model_capabilities;
 mod openclaw_config;
@@ -1584,6 +1585,10 @@ pub fn run() {
             commands::get_privacy_config,
             commands::save_privacy_config,
             commands::preview_privacy_redaction,
+            // MCP routing center: exposed names, per-client allowlists, conflicts
+            commands::get_mcp_router_config,
+            commands::save_mcp_router_config,
+            commands::preview_mcp_router_catalog,
             // Prompt management
             commands::get_prompts,
             commands::upsert_prompt,
