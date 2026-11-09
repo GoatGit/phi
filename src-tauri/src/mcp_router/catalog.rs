@@ -83,11 +83,13 @@ where
             .then(left.server_id.cmp(&right.server_id))
     });
 
-    // 只在「两条都是显式路由」时判遮挡：直通服务器的 id 天然唯一，
-    // 不因为别名撞上它们就改变现有同步行为。
+    // 任何两个「真的会写进客户端」的条目撞同一个暴露名都是真冲突——包括别名和
+    // 另一个服务器的 canonical id 撞名：同步时它们会写同一个 key，不判遮挡就是按
+    // 遍历顺序静默覆盖。被路由关闭的条目不会写入，不参与分组，否则一条禁用的路由
+    // 可能凭 priority 把启用项遮蔽掉。
     let mut grouped: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (index, entry) in entries.iter().enumerate() {
-        if entry.route_configured {
+        if entry.enabled {
             grouped
                 .entry(entry.exposed_id.clone())
                 .or_default()
@@ -103,12 +105,20 @@ where
         let winner_index = *indexes
             .iter()
             .max_by(|left, right| {
-                let left_priority = config.priority_of(&entries[**left].server_id);
-                let right_priority = config.priority_of(&entries[**right].server_id);
+                let left_entry = &entries[**left];
+                let right_entry = &entries[**right];
+                let left_priority = config.priority_of(&left_entry.server_id);
+                let right_priority = config.priority_of(&right_entry.server_id);
                 left_priority
                     .cmp(&right_priority)
-                    // 同权重时 id 字典序小的赢，保证跨机器可复现。
-                    .then(entries[**right].server_id.cmp(&entries[**left].server_id))
+                    // 同权重时显式路由优先于直通：配过别名说明是用户有意的。
+                    .then(
+                        left_entry
+                            .route_configured
+                            .cmp(&right_entry.route_configured),
+                    )
+                    // 再相同就按 id 字典序小的赢，保证跨机器可复现。
+                    .then(right_entry.server_id.cmp(&left_entry.server_id))
             })
             .expect("non-empty group");
         let winner = entries[winner_index].server_id.clone();
@@ -268,14 +278,56 @@ mod tests {
     }
 
     #[test]
-    fn passthrough_does_not_collide_with_aliases() {
+    fn alias_colliding_with_a_canonical_id_is_reported() {
+        // `a` 的别名是 `b`，而另一个服务器本来就叫 `b`：两者会写同一个 key。
+        // 不判冲突就是按遍历顺序静默覆盖，所以这里必须报出来，并明确谁生效。
         let mut config = McpRouterConfig::default();
         let mut aliased = route("a");
         aliased.alias = Some("b".to_string());
         config.routes = vec![aliased];
         let servers = vec![server("a"), server("b")];
         let catalog = build_catalog(&servers, &config);
+        assert_eq!(catalog.conflicts.len(), 1);
+        let conflict = &catalog.conflicts[0];
+        assert_eq!(conflict.exposed_id, "b");
+        // 同权重时显式路由赢（用户配了别名就是有意的）。
+        assert_eq!(conflict.winner, "a");
+        assert_eq!(conflict.server_ids, ["a", "b"]);
+        let loser = catalog
+            .entries
+            .iter()
+            .find(|entry| entry.server_id == conflict.server_ids[1])
+            .unwrap();
+        assert_eq!(loser.shadowed_by.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn disabled_route_does_not_win_or_hide_an_enabled_one() {
+        let mut config = McpRouterConfig::default();
+        let mut disabled = route("old");
+        disabled.alias = Some("shared".to_string());
+        disabled.enabled = false;
+        disabled.priority = 100;
+        let mut enabled = route("live");
+        enabled.alias = Some("shared".to_string());
+        config.routes = vec![disabled, enabled];
+        let servers = vec![server("old"), server("live")];
+        let catalog = build_catalog(&servers, &config);
+        // 禁用的那条不参与分组：它不会写客户端，也就不该遮蔽别人。
         assert!(catalog.conflicts.is_empty());
+        let live = catalog
+            .entries
+            .iter()
+            .find(|entry| entry.server_id == "live")
+            .unwrap();
+        assert_eq!(live.shadowed_by, None);
+        assert!(live.enabled);
+        let old = catalog
+            .entries
+            .iter()
+            .find(|entry| entry.server_id == "old")
+            .unwrap();
+        assert!(!old.enabled);
     }
 
     #[test]

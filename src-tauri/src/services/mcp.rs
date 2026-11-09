@@ -161,19 +161,14 @@ impl McpService {
 
     /// 将 MCP 服务器同步到所有启用的应用
     fn sync_server_to_apps(state: &AppState, server: &McpServer) -> Result<(), AppError> {
-        let shadowed = Self::shadowed_ids(state);
+        let mut projection = RouterProjection::begin(state);
         for app in server.apps.enabled_apps() {
             if matches!(app, AppType::Mcode | AppType::Pi) {
                 continue; // Already written before saving the managed state.
             }
-            if Self::route_allows(&app, &server.id, &shadowed) {
-                Self::sync_server_to_app_no_config(server, &app)?;
-            } else {
-                // 路由隐藏：live 配置里必须一并移除，否则「隐藏」只是 UI 假象。
-                Self::remove_server_from_app(state, &server.id, &app)?;
-            }
+            projection.sync(server, &app)?;
         }
-
+        projection.commit();
         Ok(())
     }
 
@@ -183,54 +178,10 @@ impl McpService {
         server: &McpServer,
         app: &AppType,
     ) -> Result<(), AppError> {
-        if Self::route_allows(app, &server.id, &Self::shadowed_ids(state)) {
-            Self::sync_server_to_app_no_config(server, app)
-        } else {
-            Self::remove_server_from_app(state, &server.id, app)
-        }
-    }
-
-    /// 被别名撞名遮挡的服务器 id（路由中心的胜出规则）。
-    fn shadowed_ids(state: &AppState) -> std::collections::HashSet<String> {
-        match state.db.get_all_mcp_servers() {
-            Ok(servers) => crate::mcp_router::shadowed_server_ids(
-                servers.values(),
-                &crate::mcp_router::active_config(),
-            ),
-            Err(err) => {
-                log::warn!("读取 MCP 服务器失败，路由遮挡按空集处理: {err}");
-                std::collections::HashSet::new()
-            }
-        }
-    }
-
-    /// 路由中心是否放行「这个服务器出现在这个客户端」。
-    ///
-    /// MCode / Pi 的托管文件由 phi 自己写（名字必须保持 canonical），
-    /// OpenClaw / Claude Desktop / ZCode 不支持注入，都不参与路由。
-    fn route_allows(
-        app: &AppType,
-        server_id: &str,
-        shadowed: &std::collections::HashSet<String>,
-    ) -> bool {
-        if !supports_mcp_routing(app) {
-            return true;
-        }
-        !shadowed.contains(server_id)
-            && crate::mcp_router::exposure_for_app(server_id, app.as_str()).allowed
-    }
-
-    fn sync_server_to_app_no_config(server: &McpServer, app: &AppType) -> Result<(), AppError> {
-        let id = effective_mcp_server_id(app, &server.id);
-        if id != server.id {
-            log::debug!(
-                "[McpRouter] 服务器 '{}' 以 '{}' 投影到 {}",
-                server.id,
-                id,
-                app.as_str()
-            );
-        }
-        Self::sync_id_to_app(app, &id, &server.server)
+        let mut projection = RouterProjection::begin(state);
+        projection.sync(server, app)?;
+        projection.commit();
+        Ok(())
     }
 
     fn sync_id_to_app(app: &AppType, id: &str, spec: &serde_json::Value) -> Result<(), AppError> {
@@ -278,25 +229,24 @@ impl McpService {
         id: &str,
         server: &McpServer,
     ) -> Result<(), AppError> {
+        let mut projection = RouterProjection::begin(state);
         // 从所有曾启用的应用中移除
         for app in server.apps.enabled_apps() {
             if matches!(app, AppType::Mcode | AppType::Pi) {
                 continue; // Already removed before deleting the managed record.
             }
-            Self::remove_server_from_app(state, id, &app)?;
+            projection.remove(id, &app, true)?;
         }
+        // 服务器没了，账本里也不该再有它。
+        projection.forget_server(id);
+        projection.commit();
         Ok(())
     }
 
-    fn remove_server_from_app(_state: &AppState, id: &str, app: &AppType) -> Result<(), AppError> {
-        // 路由可能把服务器投影成别名：两个名字都清一遍，避免改过别名后留下幽灵条目。
-        // 用 `configured_exposed_id`（不看当前开关）才能清掉刚被关掉的旧别名。
-        Self::remove_id_from_app(app, id)?;
-        if supports_mcp_routing(app) {
-            if let Some(exposed) = crate::mcp_router::active_config().configured_exposed_id(id) {
-                Self::remove_id_from_app(app, &exposed)?;
-            }
-        }
+    fn remove_server_from_app(state: &AppState, id: &str, app: &AppType) -> Result<(), AppError> {
+        let mut projection = RouterProjection::begin(state);
+        projection.remove(id, app, true)?;
+        projection.commit();
         Ok(())
     }
 
@@ -327,6 +277,15 @@ impl McpService {
             }
         }
         Ok(())
+    }
+
+    /// 路由配置保存后立刻重投影到所有受管客户端。
+    ///
+    /// 少了这一步，用户改完别名要等下一次无关的 MCP 同步才看到效果；
+    /// 单条失败已经由 `sync_all_enabled` 聚合成错误，调用方按「保存成功、
+    /// 应用失败」分别上报。
+    pub fn apply_router_config(state: &AppState) -> Result<(), AppError> {
+        Self::sync_all_enabled(state)
     }
 
     /// 手动同步所有启用的 MCP 服务器到对应的应用。
@@ -426,21 +385,29 @@ impl McpService {
         // 逐条容错：一条写不进去（规范不是对象、这个应用不认的类型）不该让排在
         // 它后面的服务器全都停在旧状态。全部跑完后聚合上报，调用方照旧能看到
         // 失败。错误相同的条目归并成一项：live 文件本身损坏时每一条都报同一句。
+        //
+        // 顺序是契约：先清掉所有不该出现的条目（禁用、路由隐藏、撞名落败），再写
+        // 该出现的。反过来会让「先写入的胜出者」被后面失败方的清理删掉。
         let mut failures: IndexMap<String, Vec<&str>> = IndexMap::new();
-        // 路由遮挡只算一次：别名撞名的胜出方由整库决定，单条服务器判断不了。
-        let shadowed = Self::shadowed_ids(state);
+        let mut projection = RouterProjection::begin(state);
+        let mut to_sync: Vec<&McpServer> = Vec::new();
         for server in servers.values() {
-            let routed_in = Self::route_allows(app, &server.id, &shadowed);
-            let result = if server.apps.is_enabled_for(app) && routed_in {
-                Self::sync_server_to_app_no_config(server, app)
-            } else if !matches!(app, AppType::Mcode | AppType::Pi) {
-                Self::remove_server_from_app(state, &server.id, app)
-            } else {
+            let enabled_here = server.apps.is_enabled_for(app);
+            if enabled_here && projection.allows(app, &server.id) {
+                to_sync.push(server);
+            } else if matches!(app, AppType::Mcode | AppType::Pi) {
                 // MCode / Pi's false flag also covers pre-existing, unmanaged servers.
                 // Only explicit disable/delete operations may remove those entries.
-                Ok(())
-            };
-            if let Err(err) = result {
+            } else if let Err(err) = projection.remove(&server.id, app, !enabled_here) {
+                log::warn!("清理 MCP 服务器 '{}' 于 {app:?} 失败: {err}", server.id);
+                failures
+                    .entry(err.to_string())
+                    .or_default()
+                    .push(&server.id);
+            }
+        }
+        for server in to_sync {
+            if let Err(err) = projection.sync(server, app) {
                 log::warn!("同步 MCP 服务器 '{}' 到 {app:?} 失败: {err}", server.id);
                 failures
                     .entry(err.to_string())
@@ -448,6 +415,7 @@ impl McpService {
                     .push(&server.id);
             }
         }
+        projection.commit();
 
         if failures.is_empty() {
             return Ok(());
@@ -787,5 +755,151 @@ fn effective_mcp_server_id(app: &AppType, server_id: &str) -> String {
             .exposed_id
     } else {
         server_id.to_string()
+    }
+}
+
+/// 一次投影会话：旧名字清理、新名字写入、名字账本更新收在一处。
+///
+/// 为什么要账本：同步时用的名字由「当前路由配置」推导，用户把别名从
+/// `work-github` 改成 `gh`、或者删掉整条路由之后，旧名字已经推不出来了，
+/// 但它还留在客户端 live 文件里。账本记录上一轮写入的名字，下一轮先清再写。
+struct RouterProjection {
+    applied: crate::mcp_router::AppliedExposures,
+    state_path: std::path::PathBuf,
+    /// 撞名落败的服务器：不写入，且不能凭自己的别名去删胜出者的条目。
+    shadowed: std::collections::HashSet<String>,
+    /// 当前真正占着某个暴露名的服务器（用于判断删除时会不会误删别人的条目）。
+    claimed: std::collections::HashMap<String, String>,
+    dirty: bool,
+}
+
+impl RouterProjection {
+    fn begin(state: &AppState) -> Self {
+        let state_path = crate::mcp_router::applied_state_path();
+        let (shadowed, claimed) = match state.db.get_all_mcp_servers() {
+            Ok(servers) => {
+                let catalog = crate::mcp_router::build_catalog(
+                    servers.values(),
+                    &crate::mcp_router::active_config(),
+                );
+                let shadowed = catalog
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.shadowed_by.is_some())
+                    .map(|entry| entry.server_id.clone())
+                    .collect();
+                let claimed = catalog
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.enabled && entry.shadowed_by.is_none())
+                    .map(|entry| (entry.exposed_id.clone(), entry.server_id.clone()))
+                    .collect();
+                (shadowed, claimed)
+            }
+            Err(err) => {
+                log::warn!("读取 MCP 服务器失败，路由遮挡按空集处理: {err}");
+                Default::default()
+            }
+        };
+        Self {
+            applied: crate::mcp_router::AppliedExposures::load(&state_path),
+            state_path,
+            shadowed,
+            claimed,
+            dirty: false,
+        }
+    }
+
+    fn commit(self) {
+        if !self.dirty {
+            return;
+        }
+        if let Err(err) = self.applied.save(&self.state_path) {
+            log::warn!("MCP 路由名字账本写入失败（下次同步会重试清理）: {err}");
+        }
+    }
+
+    fn forget_server(&mut self, server_id: &str) {
+        self.applied.forget_server(server_id);
+        self.dirty = true;
+    }
+
+    /// 这个服务器在这个客户端上是否应该出现。
+    fn allows(&self, app: &AppType, server_id: &str) -> bool {
+        if !supports_mcp_routing(app) {
+            return true;
+        }
+        !self.shadowed.contains(server_id)
+            && crate::mcp_router::exposure_for_app(server_id, app.as_str()).allowed
+    }
+
+    /// 投影一个服务器：清掉上一轮的名字 + canonical 残留，再写当前暴露名。
+    fn sync(&mut self, server: &McpServer, app: &AppType) -> Result<(), AppError> {
+        if !self.allows(app, &server.id) {
+            return self.remove(&server.id, app, false);
+        }
+        let exposed = effective_mcp_server_id(app, &server.id);
+        if supports_mcp_routing(app) {
+            let previous = self
+                .applied
+                .previous(app.as_str(), &server.id)
+                .map(str::to_string);
+            if let Some(previous) = previous {
+                if previous != exposed && self.claimed_name_by_other(&previous, &server.id) {
+                    McpService::remove_id_from_app(app, &previous)?;
+                    self.dirty = true;
+                }
+            }
+            // 账本缺失的历史（老版本写入、手工改过配置）里 canonical 可能还在；
+            // 有别名时先清掉它，否则客户端会同时出现 `github` 和 `work-github`。
+            if exposed != server.id && self.claimed_name_by_other(&server.id, &server.id) {
+                McpService::remove_id_from_app(app, &server.id)?;
+            }
+        }
+        McpService::sync_id_to_app(app, &exposed, &server.server)?;
+        if supports_mcp_routing(app)
+            && self.applied.previous(app.as_str(), &server.id) != Some(exposed.as_str())
+        {
+            self.applied.record(app.as_str(), &server.id, &exposed);
+            self.dirty = true;
+        }
+        Ok(())
+    }
+
+    /// 从客户端移除一个服务器：canonical、账本里的旧名字、配置过的别名各清一遍。
+    fn remove(
+        &mut self,
+        id: &str,
+        app: &AppType,
+        remove_configured_alias: bool,
+    ) -> Result<(), AppError> {
+        McpService::remove_id_from_app(app, id)?;
+        if !supports_mcp_routing(app) {
+            return Ok(());
+        }
+        let previous = self.applied.previous(app.as_str(), id).map(str::to_string);
+        if let Some(previous) = previous {
+            if previous != id && self.claimed_name_by_other(&previous, id) {
+                McpService::remove_id_from_app(app, &previous)?;
+            }
+            self.applied.forget(app.as_str(), id);
+            self.dirty = true;
+        }
+        if remove_configured_alias {
+            if let Some(configured) = crate::mcp_router::active_config().configured_exposed_id(id) {
+                if configured != id && self.claimed_name_by_other(&configured, id) {
+                    McpService::remove_id_from_app(app, &configured)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// 这个名字是不是没被别的服务器占着（防止清理时删掉胜出者的条目）。
+    fn claimed_name_by_other(&self, name: &str, server_id: &str) -> bool {
+        match self.claimed.get(name) {
+            None => true,
+            Some(owner) => owner == server_id,
+        }
     }
 }

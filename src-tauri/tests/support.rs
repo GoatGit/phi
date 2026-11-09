@@ -63,6 +63,10 @@ pub fn reset_test_fs() {
 
     // 重置内存中的设置缓存，确保测试环境不受上一次调用影响
     let _ = update_settings(AppSettings::default());
+    // 路由与隐私配置都有短 TTL 缓存：测试直接改的是磁盘，不清缓存就会读到上一个
+    // 用例留下的配置（同一进程顺序执行时最明显）。
+    phi_lib::mcp_router::invalidate_cache();
+    phi_lib::privacy::invalidate_cache();
 }
 
 #[allow(dead_code)]
