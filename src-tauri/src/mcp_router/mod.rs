@@ -12,6 +12,7 @@
 
 pub mod catalog;
 pub mod config;
+pub mod state;
 
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, RwLock};
@@ -22,6 +23,7 @@ pub use catalog::{
     RouterCatalog,
 };
 pub use config::{Exposure, McpRoute, McpRouterConfig, CONFIG_FILE};
+pub use state::{AppliedExposures, STATE_FILE as APPLIED_STATE_FILE};
 
 /// 配置缓存复用时间。
 pub const CONFIG_CACHE_TTL: Duration = Duration::from_secs(2);
@@ -41,6 +43,11 @@ static CACHE: LazyLock<RwLock<CachedConfig>> = LazyLock::new(|| {
 /// 配置文件路径：`<config>/mcp-router.json`。
 pub fn config_path() -> PathBuf {
     crate::config::get_app_config_dir().join(CONFIG_FILE)
+}
+
+/// 已应用名字账本的路径：`<config>/mcp-router-state.json`。
+pub fn applied_state_path() -> PathBuf {
+    crate::config::get_app_config_dir().join(APPLIED_STATE_FILE)
 }
 
 /// 读取配置（不走缓存；命令与保存流程用）。
