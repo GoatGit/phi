@@ -378,6 +378,8 @@ pub struct RequestForwarder {
     gateway: Option<crate::gateway::ResolvedRoute>,
     gateway_trace: Option<Arc<std::sync::Mutex<crate::gateway::RequestTrace>>>,
     gateway_db: Option<Arc<crate::database::Database>>,
+    /// 插件运行时：`None` 时不跑任何插件阶段（测试默认值）。
+    plugin_runtime: Option<Arc<crate::plugin::PluginRuntime>>,
 }
 
 impl RequestForwarder {
@@ -496,6 +498,7 @@ impl RequestForwarder {
             gateway_trace: None,
             gateway_db: None,
             stack_request: false,
+            plugin_runtime: None,
         }
     }
 
@@ -515,6 +518,50 @@ impl RequestForwarder {
     pub fn stack_request(mut self, stack_request: bool) -> Self {
         self.stack_request = stack_request;
         self
+    }
+
+    /// 挂上插件运行时；不调用则不跑任何插件阶段。
+    pub fn plugin_runtime(mut self, runtime: Option<Arc<crate::plugin::PluginRuntime>>) -> Self {
+        self.plugin_runtime = runtime;
+        self
+    }
+
+    /// 在请求体上跑一遍插件管线（脚本插件 + 内置脱敏）。
+    ///
+    /// 插件是增强：管线任务失败、脚本抛错或超时都只记一条告警，请求照原样发出。
+    async fn apply_plugin_stages(&self, app_type: &AppType, endpoint: &str, body: Value) -> Value {
+        let Some(runtime) = &self.plugin_runtime else {
+            return body;
+        };
+        if runtime.stages().is_empty() {
+            return body;
+        }
+        let app = app_type.as_str().to_string();
+        // 端点里的 query 可能带密钥（Gemini 的 ?key=），插件只该看到路径。
+        let endpoint = endpoint.split('?').next().unwrap_or(endpoint).to_string();
+        let fallback = body.clone();
+        let runtime = runtime.clone();
+        let task = tokio::task::spawn_blocking(move || {
+            let mut body = body;
+            let outcomes = runtime.apply_request_stages(&app, &endpoint, &mut body);
+            (body, outcomes)
+        });
+        match task.await {
+            Ok((body, outcomes)) => {
+                for outcome in outcomes {
+                    match outcome.result {
+                        Ok(0) => {}
+                        Ok(hits) => log::debug!("[Plugin] {} 命中 {hits} 处", outcome.id),
+                        Err(err) => log::warn!("[Plugin] {} 本次跳过: {err}", outcome.id),
+                    }
+                }
+                body
+            }
+            Err(err) => {
+                log::warn!("[Plugin] 管线任务失败，按原请求发送: {err}");
+                fallback
+            }
+        }
     }
 
     /// 这个请求读写路由状态吗：熔断器（许可、结果、健康度）、「正在使用」、代理统计
@@ -759,6 +806,9 @@ impl RequestForwarder {
         extensions: Extensions,
         providers: Vec<Provider>,
     ) -> Result<ForwardResult, ForwardError> {
+        // 插件在「客户端请求」这个维度跑一次：重试与故障转移沿用同一份出站请求体，
+        // 避免非幂等的脚本改写在上游之间产生不同 provider 看到不同内容。
+        let body = self.apply_plugin_stages(app_type, endpoint, body).await;
         if !self.routing_state_enabled() {
             let started = std::time::Instant::now();
             let result = self
@@ -4945,6 +4995,7 @@ mod tests {
             gateway: None,
             gateway_trace: None,
             gateway_db: None,
+            plugin_runtime: None,
             app_handle: None,
             current_provider_id_at_start: String::new(),
             session_id: String::new(),

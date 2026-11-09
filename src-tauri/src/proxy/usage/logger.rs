@@ -334,7 +334,9 @@ impl<'a> UsageLogger<'a> {
             latency_ms,
             first_token_ms: None,
             status_code,
-            error_message: Some(error_message),
+            // 上游报错原文可能回显请求内容（含凭据）：落库前统一脱敏。
+            // 这条路径只写本地诊断材料，脱敏不影响任何功能。
+            error_message: Some(crate::privacy::redact_error_message(&error_message)),
             session_id,
             provider_type,
             is_streaming,

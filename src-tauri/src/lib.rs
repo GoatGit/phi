@@ -29,12 +29,15 @@ mod linux_fix;
 pub mod live;
 mod mcode_config;
 mod mcp;
+pub mod mcp_router;
 pub mod mode;
 mod model_capabilities;
 mod openclaw_config;
 mod opencode_config;
 mod panic_hook;
 mod pi_config;
+pub mod plugin;
+pub mod privacy;
 mod process_output;
 mod prompt;
 mod prompt_files;
@@ -1574,6 +1577,18 @@ pub fn run() {
             commands::toggle_mcp_app,
             commands::import_mcp_from_apps,
             commands::resync_mcp_to_apps,
+            // Plugin system: request-body stages discovered from <config>/plugins
+            commands::list_plugins,
+            commands::set_plugin_enabled,
+            commands::preview_plugin_request,
+            // Privacy redaction: request-body stage + error-log scrubbing
+            commands::get_privacy_config,
+            commands::save_privacy_config,
+            commands::preview_privacy_redaction,
+            // MCP routing center: exposed names, per-client allowlists, conflicts
+            commands::get_mcp_router_config,
+            commands::save_mcp_router_config,
+            commands::preview_mcp_router_catalog,
             // Prompt management
             commands::get_prompts,
             commands::upsert_prompt,
