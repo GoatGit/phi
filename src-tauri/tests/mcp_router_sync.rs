@@ -248,10 +248,14 @@ fn alias_colliding_with_another_server_is_reported_and_not_silently_overwritten(
     let entry = live
         .get("gh")
         .unwrap_or_else(|| panic!("missing gh: {live:?}"));
-    assert_eq!(
-        entry["args"][1], "github-server",
+    // 不要断言 args 的下标：Windows 上 command 会被归一化成 `cmd /c npx ...`，
+    // 服务器名在 args 里的位置和 unix 不同。这里只断言「写进去的是胜出者的 spec」。
+    let rendered = entry.to_string();
+    assert!(
+        rendered.contains("github-server"),
         "撞名后写入的是被遮挡方: {entry:?}"
     );
+    assert!(!rendered.contains("gh-server"), "{entry:?}");
     assert!(!live.contains_key("github"), "{live:?}");
 }
 
