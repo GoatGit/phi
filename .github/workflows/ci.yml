@@ -150,13 +150,11 @@ jobs:
         with:
           node-version-file: ".node-version"
 
+      # 用 pnpm/action-setup 而不是 corepack：Node 22.12 自带的 corepack 校验不了
+      # 轮换后的 npm 签名密钥（"Cannot find matching keyid"），setup 前就失败了。
+      # 版本仍以 package.json 的 packageManager 为唯一来源。
       - name: Setup pnpm
-        env:
-          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
-        run: |
-          corepack enable
-          corepack install
-          pnpm --version
+        uses: pnpm/action-setup@v4
 
       - name: Get pnpm store directory
         id: pnpm-store
