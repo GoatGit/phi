@@ -28,7 +28,7 @@ fn registered(state: &AppState, root: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn open(state: &AppState, root: &str) -> Result<document::Workspace, String> {
+pub(crate) fn open(state: &AppState, root: &str) -> Result<document::Workspace, String> {
     document::open(&registered(state, root)?)
 }
 

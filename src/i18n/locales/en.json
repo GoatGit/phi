@@ -5734,6 +5734,44 @@
     }
   },
   "tasks": {
+    "relay": {
+      "title": "Relay",
+      "gate2": "Gate 2 · implementation holds",
+      "gate3": "Gate 3 · review holds",
+      "notRun": "Not run",
+      "runGate2": "Run gate 2",
+      "runGate3": "Run gate 3",
+      "runGate2Hint": "Run the card's acceptance commands and check the diff stays in bounds",
+      "runGate3Hint": "Check the review's evidence anchors against the source",
+      "noAccept": "The card has no phi.accept, so gate 2 has nothing to run",
+      "noContract": "This card has no phi contract: add a phi block (accept / touched / role) so gates 2 and 3 have something to judge.",
+      "verdictAt": "Last verdict",
+      "role": "Relay role",
+      "touched": "Allowed",
+      "forbidden": "Forbidden",
+      "changed": "Changed now",
+      "changedCount": "{{value}} files",
+      "claims": "Evidence anchors",
+      "claimCount": "{{value}} entries",
+      "budget": "Budget",
+      "tokens": "{{value}} tokens",
+      "minutes": "{{value}} min",
+      "accept": "Accept",
+      "timeout": "Timed out",
+      "exitCode": "exit {{code}} (expected {{expect}})",
+      "latest": "Latest gate {{gate}}, took {{ms}}ms",
+      "emptyHistory": "No gate has run yet.",
+      "gateDone": "Gate {{gate}}: {{status}}",
+      "rule": {
+        "forbidden": "forbidden",
+        "out-of-scope": "out of scope"
+      },
+      "status": {
+        "pass": "Passed",
+        "fail": "Failed",
+        "invalid": "Evidence does not hold"
+      }
+    },
     "title": "Tasks",
     "workspace": "Repository",
     "newTask": "New task",

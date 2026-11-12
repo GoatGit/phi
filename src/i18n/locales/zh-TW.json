@@ -5734,6 +5734,44 @@
     }
   },
   "tasks": {
+    "relay": {
+      "title": "編排接力",
+      "gate2": "門 2 · 實作成立",
+      "gate3": "門 3 · 複查成立",
+      "notRun": "未跑",
+      "runGate2": "跑門 2",
+      "runGate3": "跑門 3",
+      "runGate2Hint": "執行卡片裡的驗收指令，並核對改動有沒有越界",
+      "runGate3Hint": "核對複查意見裡的證據錨點能不能對上原始碼",
+      "noAccept": "卡片沒有 phi.accept，門 2 沒有可執行的驗收指令",
+      "noContract": "這張卡沒有 phi 契約：補上 phi 區塊（accept / touched / role）之後，門 2 與門 3 才有可判定的東西。",
+      "verdictAt": "最近判定",
+      "role": "接力角色",
+      "touched": "允許改動",
+      "forbidden": "禁止改動",
+      "changed": "目前改動",
+      "changedCount": "{{value}} 個檔案",
+      "claims": "證據錨點",
+      "claimCount": "{{value}} 條",
+      "budget": "預算",
+      "tokens": "{{value}} tokens",
+      "minutes": "{{value}} 分鐘",
+      "accept": "驗收",
+      "timeout": "逾時",
+      "exitCode": "結束碼 {{code}}（期望 {{expect}}）",
+      "latest": "最近一次判定：門 {{gate}}，耗時 {{ms}}ms",
+      "emptyHistory": "還沒跑過門判定。",
+      "gateDone": "門 {{gate}} 判定：{{status}}",
+      "rule": {
+        "forbidden": "禁止改動",
+        "out-of-scope": "越界"
+      },
+      "status": {
+        "pass": "通過",
+        "fail": "未通過",
+        "invalid": "證據不成立"
+      }
+    },
     "title": "任務",
     "workspace": "倉庫",
     "newTask": "新增任務",
