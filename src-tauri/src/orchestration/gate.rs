@@ -136,12 +136,14 @@ fn run_shell(root: &Path, cmd: &str, timeout: Duration) -> StepResult {
         }
     };
 
-    let mut command = Command::new("/bin/sh");
-    command
-        .arg("-c")
-        .arg(cmd)
-        .current_dir(root)
-        .stdin(Stdio::null());
+    let mut command = shell(cmd);
+    command.current_dir(root).stdin(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // 自成进程组：超时时才能连同它拉起的子进程一起收掉，见 kill_tree
+        command.process_group(0);
+    }
     // 用 dup 出来的两个句柄共享同一个文件偏移，stdout / stderr 才不会互相覆盖
     match (log.as_file().try_clone(), log.as_file().try_clone()) {
         (Ok(stdout), Ok(stderr)) => {
@@ -171,7 +173,7 @@ fn run_shell(root: &Path, cmd: &str, timeout: Duration) -> StepResult {
             }
             Ok(None) => {
                 if started.elapsed() >= timeout {
-                    let _ = child.kill();
+                    kill_tree(&mut child);
                     let _ = child.wait();
                     result.timed_out = true;
                     break;
@@ -194,6 +196,45 @@ fn run_shell(root: &Path, cmd: &str, timeout: Duration) -> StepResult {
     }
     result.duration_ms = started.elapsed().as_millis() as i64;
     result
+}
+
+/// 卡片里的命令按人手敲的方式执行，所以交给平台自己的 shell。
+fn shell(cmd: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("cmd");
+        command.arg("/C").arg(cmd);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(cmd);
+        command
+    }
+}
+
+/// 超时收尾：要收掉**整棵**进程树，不能只 kill 直接子进程。
+///
+/// `pnpm test` / `cargo nextest` 都会再拉起一层 worker，父进程一死它们就成了
+/// 孤儿，继续在用户仓库里跑、继续占 CPU，下一次门判定还会撞上它们。
+#[cfg(unix)]
+fn kill_tree(child: &mut std::process::Child) {
+    // SAFETY: 这个进程组是上面 `process_group(0)` 刚建的、只属于这条命令；
+    // 此时还没 wait，pid 仍然有效。
+    unsafe {
+        libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+    }
+    let _ = child.kill();
+}
+
+#[cfg(windows)]
+fn kill_tree(child: &mut std::process::Child) {
+    // cmd.exe 的子进程不会跟着 cmd.exe 退出，用 taskkill /T 收整棵树
+    let _ = Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &child.id().to_string()])
+        .output();
+    let _ = child.kill();
 }
 
 /// 留最后若干行、并限制字符数：证据要够看，但不能把界面撑爆。
@@ -316,14 +357,24 @@ mod tests {
         }
     }
 
+    /// 验收命令走平台自己的 shell，测试里的命令也得按平台写。
+    #[cfg(unix)]
+    mod sh {
+        pub const STDERR_AND_STDOUT: &str = "echo 一 >&2; echo done";
+        pub const FAIL: &str = "exit 3";
+        pub const LONG_RUN: &str = "sleep 30";
+    }
+    #[cfg(windows)]
+    mod sh {
+        pub const STDERR_AND_STDOUT: &str = "echo done";
+        pub const FAIL: &str = "exit /b 3";
+        pub const LONG_RUN: &str = "ping -n 31 127.0.0.1 > NUL";
+    }
+
     #[test]
     fn shell_keeps_exit_code_and_tail() {
         let root = tempfile::tempdir().unwrap();
-        let result = run_shell(
-            root.path(),
-            "echo 一 >&2; echo done",
-            Duration::from_secs(30),
-        );
+        let result = run_shell(root.path(), sh::STDERR_AND_STDOUT, Duration::from_secs(90));
         assert_eq!(result.exit_code, Some(0));
         assert!(!result.timed_out);
         assert!(
@@ -331,22 +382,32 @@ mod tests {
             "{}",
             result.output_tail
         );
+        // 重定向到 stderr 的内容也要进证据里，否则失败时看不到原因
+        #[cfg(unix)]
         assert!(result.output_tail.contains('一'), "{}", result.output_tail);
     }
 
     #[test]
     fn shell_reports_failure_exit_code() {
         let root = tempfile::tempdir().unwrap();
-        let result = run_shell(root.path(), "exit 3", Duration::from_secs(30));
+        let result = run_shell(root.path(), sh::FAIL, Duration::from_secs(90));
         assert_eq!(result.exit_code, Some(3));
+        assert!(!result.timed_out);
     }
 
     #[test]
     fn shell_kills_after_timeout() {
         let root = tempfile::tempdir().unwrap();
-        let result = run_shell(root.path(), "sleep 5", Duration::from_millis(200));
+        let started = Instant::now();
+        let result = run_shell(root.path(), sh::LONG_RUN, Duration::from_millis(300));
         assert!(result.timed_out);
         assert_eq!(result.exit_code, None);
+        // 超时得真的把命令收掉，而不是傻等它自己结束
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "超时后立刻返回，用时 {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
@@ -373,14 +434,86 @@ mod tests {
             .any(|item| item.path == "src/billing/invoice.rs" && item.rule == "out-of-scope"));
     }
 
+    /// 建一个能跑门 2 的临时仓库。门 2 本身依赖 git，没有 git 就跳过这类测试。
+    fn git_repo() -> Option<tempfile::TempDir> {
+        let dir = tempfile::tempdir().ok()?;
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .is_ok_and(|output| output.status.success())
+        };
+        if !git(&["init", "--quiet"]) {
+            return None;
+        }
+        if !git(&[
+            "-c",
+            "user.email=gate@example.com",
+            "-c",
+            "user.name=gate",
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "init",
+        ]) {
+            return None;
+        }
+        Some(dir)
+    }
+
     #[test]
-    fn gate2_blocks_on_failed_command() {
+    fn gate2_fails_when_a_step_fails() {
+        let Some(repo) = git_repo() else { return };
+        let contract = contract_with(vec![step(sh::FAIL, 0)], vec!["**"], vec![]);
+        let outcome = run_gate2(repo.path(), &contract, None);
+        // 命令跑了但没达到 expect_exit：是 fail，不是 invalid
+        assert_eq!(outcome.status, model::FAIL, "{:?}", outcome.evidence);
+        assert_eq!(outcome.evidence.steps[0].exit_code, Some(3));
+        assert!(outcome.evidence.violations.is_empty());
+        assert!(outcome.base.is_some());
+    }
+
+    #[test]
+    fn gate2_passes_when_command_and_scope_agree() {
+        let Some(repo) = git_repo() else { return };
+        let contract = contract_with(vec![step("echo ok", 0)], vec!["**"], vec![]);
+        let outcome = run_gate2(repo.path(), &contract, None);
+        assert_eq!(outcome.status, model::PASS, "{:?}", outcome.evidence);
+        assert!(outcome.evidence.changed.is_empty());
+    }
+
+    #[test]
+    fn gate2_fails_when_a_change_is_out_of_scope() {
+        let Some(repo) = git_repo() else { return };
+        std::fs::create_dir_all(repo.path().join("src")).unwrap();
+        std::fs::write(repo.path().join("src/untracked.rs"), "fn a() {}\n").unwrap();
+        let contract = contract_with(vec![step("echo ok", 0)], vec!["tests/**"], vec![]);
+        let outcome = run_gate2(repo.path(), &contract, None);
+        // 命令通过，但改动越界：结论仍是 fail
+        assert_eq!(outcome.status, model::FAIL, "{:?}", outcome.evidence);
+        assert_eq!(outcome.evidence.steps[0].exit_code, Some(0));
+        assert_eq!(outcome.evidence.changed, vec!["src/untracked.rs"]);
+        assert_eq!(outcome.evidence.violations.len(), 1);
+        assert_eq!(outcome.evidence.violations[0].rule, "out-of-scope");
+    }
+
+    #[test]
+    fn gate2_is_invalid_without_a_usable_base() {
         let root = tempfile::tempdir().unwrap();
-        let contract = contract_with(vec![step("exit 1", 0)], vec!["**"], vec![]);
-        let outcome = run_gate2(root.path(), &contract, None);
-        // 这里是个空目录，不是 git 仓库：命令先失败，而且拿不到改动清单
+        let contract = contract_with(vec![step("echo ok", 0)], vec!["**"], vec![]);
+        let mut declared = contract.clone();
+        declared.base = Some("no-such-commit".into());
+        let outcome = run_gate2(root.path(), &declared, None);
+        // 空目录不是仓库：基线取不到，结论必须是 invalid（不能因为命令跑通就放过）
         assert_eq!(outcome.status, model::INVALID);
-        assert!(outcome.evidence.note.is_some());
+        assert!(outcome
+            .evidence
+            .note
+            .as_deref()
+            .is_some_and(|note| note.contains("基线")));
     }
 
     #[test]

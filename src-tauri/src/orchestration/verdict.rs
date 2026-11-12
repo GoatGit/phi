@@ -138,6 +138,22 @@ pub(crate) fn read(doc: &Document) -> Verdict {
     }
 }
 
+/// 卡片自己没写 `phi.base` 时，门 2 沿用的基线。
+///
+/// 只看门 2 的记录：门 3 不记基线，按「最近一条记录」继承会让基线跟着最新的
+/// 提交一路往前溜，门 2 就变成对着干净的 HEAD 判，改动全看不见——那是假绿。
+pub(crate) fn inherited_base(current: &Verdict, runs: &[GateRun]) -> Option<String> {
+    current
+        .base
+        .clone()
+        .or_else(|| {
+            runs.iter()
+                .find(|run| run.gate == 2)
+                .and_then(|run| run.base_commit.clone())
+        })
+        .filter(|base| !base.trim().is_empty())
+}
+
 /// 把这次结论写回卡片。只重写 `phi_verdict` 块，其它字段和正文原样保留。
 pub(crate) fn write_back(
     workspace: &Workspace,
@@ -266,6 +282,48 @@ mod tests {
         );
         assert_eq!(second.matches(VERDICT_KEY).count(), 1, "{second}");
         assert!(second.contains("gate2: pass"));
+    }
+
+    fn gate_run(id: &str, gate: u8, base: Option<&str>, created_at: i64) -> GateRun {
+        GateRun {
+            id: id.to_string(),
+            gate,
+            status: "pass".to_string(),
+            base_commit: base.map(|base| base.to_string()),
+            created_at,
+            duration_ms: 1,
+            evidence: GateEvidence::default(),
+        }
+    }
+
+    #[test]
+    fn inherited_base_ignores_newer_gate3_runs() {
+        // 新的在前：门 3 在前、门 2 在后
+        let runs = vec![
+            gate_run("g3", 3, None, 3),
+            gate_run("g2", 2, Some("10466fa"), 2),
+            gate_run("g2-old", 2, Some("bbbbbbb"), 1),
+        ];
+        assert_eq!(
+            inherited_base(&Verdict::default(), &runs).as_deref(),
+            Some("10466fa")
+        );
+        // 没有门 2 的记录时宁可不给基线（回到 HEAD），也不要凭空编一个
+        assert_eq!(inherited_base(&Verdict::default(), &[]), None);
+    }
+
+    #[test]
+    fn inherited_base_prefers_the_verdict_written_on_the_card() {
+        let runs = vec![gate_run("g2", 2, Some("10466fa"), 2)];
+        let verdict = Verdict {
+            base: Some("aaaaaaa".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            inherited_base(&verdict, &runs).as_deref(),
+            Some("aaaaaaa"),
+            "卡片上的基线是唯一事实源，比历史记录优先"
+        );
     }
 
     #[test]
