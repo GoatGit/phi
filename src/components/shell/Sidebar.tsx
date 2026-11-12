@@ -13,7 +13,6 @@ import {
   BookOpen,
   ChartColumn,
   ChevronDown,
-  Database,
   History,
   Layers,
   MoreHorizontal,
@@ -423,13 +422,6 @@ function MainDirectory({
   return (
     <>
       <div className="flex shrink-0 flex-col pb-3">
-        <NavItem
-          collapsed={collapsed}
-          selected={view === "providerCatalog"}
-          icon={Database}
-          label={t("gateway.providers")}
-          onClick={() => onSelectPage("providerCatalog")}
-        />
         <NavItem
           collapsed={collapsed}
           selected={view === "routingOverview"}
