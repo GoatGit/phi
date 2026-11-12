@@ -17,6 +17,7 @@ export type GlobalPage =
   | "providerCatalog"
   | "routingOverview"
   | "tasks"
+  | "plugins"
   | "usage"
   | "mcp"
   | "skills"
@@ -68,6 +69,7 @@ const GLOBAL_PAGES: GlobalPage[] = [
   "providerCatalog",
   "routingOverview",
   "tasks",
+  "plugins",
   "usage",
   "mcp",
   "skills",

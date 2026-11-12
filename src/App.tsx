@@ -159,6 +159,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
 import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
+import { PluginCenterPage } from "@/components/plugins/PluginCenterPage";
 import {
   useDisableCurrentOmo,
   useDisableCurrentOmoSlim,
@@ -1847,6 +1848,10 @@ function App() {
             routeAppRequest={routeAppRequest}
             onRouteAppRequestHandled={() => setRouteAppRequest(null)}
           />
+        );
+      case "plugins":
+        return (
+          <PluginCenterPage onBack={drillInReturn ? exitDrillIn : undefined} />
         );
       case "usage":
         return (

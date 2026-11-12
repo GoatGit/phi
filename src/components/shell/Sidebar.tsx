@@ -9,6 +9,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import {
+  Blocks,
   BookOpen,
   ChartColumn,
   ChevronDown,
@@ -442,6 +443,13 @@ function MainDirectory({
           icon={SquareKanban}
           label={t("tasks.title")}
           onClick={() => onSelectPage("tasks")}
+        />
+        <NavItem
+          collapsed={collapsed}
+          selected={view === "plugins"}
+          icon={Blocks}
+          label={t("pluginCenter.title")}
+          onClick={() => onSelectPage("plugins")}
         />
         <ToolboxNavItem
           collapsed={collapsed}
