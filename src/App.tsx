@@ -158,6 +158,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
+import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
 import {
   useDisableCurrentOmo,
   useDisableCurrentOmoSlim,
@@ -1852,6 +1853,20 @@ function App() {
           <UsagePage
             initialAppType={usageAppFilter}
             onBack={drillInReturn ? exitDrillIn : undefined}
+          />
+        );
+      case "tasks":
+        return (
+          <TaskBoardPage
+            terminalApps={terminals.supportedApps}
+            onStartSession={async (root, appId) => {
+              const session = await terminals.launchSession(
+                appId as AppId,
+                root,
+              );
+              selectApp(appId as AppId);
+              return session.id;
+            }}
           />
         );
       case "mcp":

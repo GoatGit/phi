@@ -24,6 +24,7 @@ impl Database {
     pub(crate) fn create_tables_on_conn(conn: &Connection) -> Result<(), AppError> {
         crate::gateway::create_tables(conn)?;
         crate::access::create_tables(conn)?;
+        crate::tasks::create_tables(conn)?;
         // 1. Providers 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS providers (
@@ -598,6 +599,11 @@ impl Database {
                         log::info!("迁移数据库从 v21 到 v22（用量日志记录外部密钥归属）");
                         Self::migrate_v21_to_v22(conn)?;
                         Self::set_user_version(conn, 22)?;
+                    }
+                    22 => {
+                        log::info!("迁移数据库从 v22 到 v23（任务看板的工作区与会话关联表）");
+                        Self::migrate_v22_to_v23(conn)?;
+                        Self::set_user_version(conn, 23)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1711,6 +1717,14 @@ impl Database {
              DROP TABLE usage_daily_rollups_v21;",
         )
         .map_err(|e| AppError::Database(format!("v21 -> v22 重建 usage_daily_rollups 失败: {e}")))
+    }
+
+    /// v22 -> v23: 任务看板的两张表（工作区登记 + 任务与会话关联）。
+    ///
+    /// 新库在 `create_tables` 里已经建好；旧库升级到这里补上，随后由
+    /// `create_tables` 的 `IF NOT EXISTS` 保证幂等。
+    fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
+        crate::tasks::create_tables(conn)
     }
 
     /// 插入默认模型定价数据
@@ -3997,6 +4011,43 @@ mod tests {
             "proxy_request_logs",
             "binding_name"
         )?);
+        Ok(())
+    }
+
+    /// v22 -> v23：只为任务看板补两张表，已有数据必须原样保留。
+    #[test]
+    fn migrate_v22_to_v23_creates_task_tables_and_keeps_existing_rows() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE providers (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+             INSERT INTO providers (id, name) VALUES ('p-1', 'kept');",
+        )?;
+        Database::set_user_version(&conn, 22)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let kept: String =
+            conn.query_row("SELECT name FROM providers WHERE id = 'p-1'", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(kept, "kept");
+        // 两张表不只存在，还要能按关联表的主键写入与回读。
+        conn.execute(
+            "INSERT INTO task_workspaces (root, added_at) VALUES ('/repo', 1)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO task_session_links (root, task_id, session_id, app_id, created_at)
+             VALUES ('/repo', 'TASK-1', 's-1', 'claude', 2)",
+            [],
+        )?;
+        let links: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM task_session_links WHERE root = '/repo' AND task_id = 'TASK-1'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(links, 1);
         Ok(())
     }
 

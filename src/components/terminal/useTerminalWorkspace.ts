@@ -143,6 +143,22 @@ export function useTerminalWorkspace(
     };
     if (!canLeave(proceed)) proceed();
   };
+  /**
+   * 在指定应用、指定目录开一个会话并切到它（任务看板用）。
+   * 与 `newTerminal` 的区别：不走启动弹窗，不依赖当前侧栏应用。
+   */
+  const launchSession = async (targetApp: AppId, cwd: string) => {
+    if (!supportedApps.includes(targetApp)) {
+      throw new Error("terminal-unsupported");
+    }
+    const session = await terminalApi.create(targetApp, cwd, "", {
+      theme: terminalTheme,
+      dark: document.documentElement.classList.contains("dark"),
+    });
+    upsert(session);
+    setSelected((previous) => ({ ...previous, [targetApp]: session.id }));
+    return session;
+  };
   const cancelLaunch = () => {
     if (!launching.current) setLaunchDraft(null);
   };
@@ -494,11 +510,13 @@ export function useTerminalWorkspace(
       : (currentTreeSessions[0]?.id ?? null);
   return {
     supported: supportedApps.includes(app),
+    supportedApps,
     sessions,
     current,
     select,
     showConfig,
     newTerminal,
+    launchSession,
     requestClose,
     close,
     restart,

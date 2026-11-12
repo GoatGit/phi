@@ -20,6 +20,7 @@ import {
   Route,
   Server,
   Settings,
+  SquareKanban,
   ToolCase,
   X,
 } from "lucide-react";
@@ -434,6 +435,13 @@ function MainDirectory({
           icon={Route}
           label={t("gateway.routing")}
           onClick={() => onSelectPage("routingOverview")}
+        />
+        <NavItem
+          collapsed={collapsed}
+          selected={view === "tasks"}
+          icon={SquareKanban}
+          label={t("tasks.title")}
+          onClick={() => onSelectPage("tasks")}
         />
         <ToolboxNavItem
           collapsed={collapsed}
