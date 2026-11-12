@@ -5699,7 +5699,7 @@
       }
     },
     "stages": {
-      "intro": "Plugins rewrite the request body before it leaves for the upstream. They run from the lowest priority to the highest, and a failing plugin only skips itself.",
+      "intro": "Request plugins rewrite the request body before it leaves for the upstream. They run from the lowest priority to the highest, and a failing plugin only skips itself. Feature plugins run no code; they only add a built-in panel to the sidebar.",
       "dir": "Plugin directory",
       "kindRules": "Rules",
       "kindFeature": "Feature",
