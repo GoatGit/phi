@@ -175,7 +175,7 @@ async fn golden_generic_chat_three_outbounds_text_tools_stream_usage_and_auth() 
                     body["tools"] = json!([{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}]);
                 }
                 // No stream_options.include_usage: ledger must still capture final usage.
-                let response = reqwest::Client::new()
+                let response = loopback_test_client()
                     .post(format!(
                         "http://127.0.0.1:{}/v1/chat/completions",
                         info.port
@@ -443,7 +443,7 @@ async fn golden_external_token_serves_every_protocol_entry() {
     );
     let info = proxy.start().await.unwrap();
     let base = format!("http://127.0.0.1:{}", info.port);
-    let client = reqwest::Client::new();
+    let client = loopback_test_client();
     let prompt = "Synthetic prompt.";
     let request = |path: &str| format!("{base}{path}");
 

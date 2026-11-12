@@ -925,7 +925,7 @@ mod tests {
         const LIMIT: usize = 64 * 1024;
         let (port, written) = spawn_fixed_body_server(BODY_LEN).await;
 
-        let response = reqwest::Client::new()
+        let response = crate::proxy::loopback_test_client()
             .get(format!("http://127.0.0.1:{port}/"))
             .send()
             .await

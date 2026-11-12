@@ -651,6 +651,7 @@ mod tests {
 
     use super::*;
     use crate::provider::{Provider, ProviderMeta};
+    use crate::proxy::loopback_test_client;
     use crate::AppError;
     use axum::http::{header, HeaderMap, StatusCode};
     use serde_json::{json, Value};
@@ -1067,7 +1068,7 @@ mod tests {
             None,
         );
         let proxy_info = proxy.start().await.expect("start test proxy");
-        let client = reqwest::Client::new();
+        let client = loopback_test_client();
 
         let cases = [
             (
@@ -1247,7 +1248,7 @@ mod tests {
             None,
         );
         let proxy_info = proxy.start().await.expect("start test proxy");
-        let client = reqwest::Client::new();
+        let client = loopback_test_client();
         let aliases = [
             "/images/generations",
             "/v1/images/generations",
@@ -1464,7 +1465,7 @@ mod tests {
             None,
         );
         let proxy_info = proxy.start().await.expect("start test proxy");
-        let client = reqwest::Client::new();
+        let client = loopback_test_client();
         let aliases = [
             "/images/edits",
             "/v1/images/edits",
@@ -1696,7 +1697,7 @@ mod tests {
             None,
         );
         let proxy_info = proxy.start().await.expect("start test proxy");
-        let client = reqwest::Client::new();
+        let client = loopback_test_client();
         let aliases = [
             "/alpha/search",
             "/v1/alpha/search",
@@ -1894,7 +1895,7 @@ mod tests {
             None,
         );
         let info = proxy.start().await.unwrap();
-        let response = reqwest::Client::new()
+        let response = loopback_test_client()
             .post(format!("http://127.0.0.1:{}/v1/responses", info.port))
             .bearer_auth(super::super::ingress::token("codex"))
             .json(&json!({"model":"client-alias","input":"hello","stream":false}))
@@ -1958,7 +1959,7 @@ mod tests {
         })
         .unwrap();
         drop(seen);
-        let response = reqwest::Client::new()
+        let response = loopback_test_client()
             .post(format!("http://127.0.0.1:{}/v1/responses", info.port))
             .bearer_auth(super::super::ingress::token("codex"))
             .json(&json!({"model":"client-alias","input":"must not reach upstream","stream":false}))
@@ -2084,7 +2085,7 @@ mod tests {
             None,
         );
         let info = proxy.start().await.unwrap();
-        let client = reqwest::Client::new();
+        let client = loopback_test_client();
         let token = super::super::ingress::token("opencode");
 
         let response = client
@@ -2189,7 +2190,7 @@ mod tests {
         let (proxy, port, db) =
             seed_single_supplier_route("commandcode", "openai_chat", base_url, "OPENAI_API_KEY")
                 .await;
-        let client = reqwest::Client::new();
+        let client = loopback_test_client();
         let token = super::super::ingress::token("commandcode");
 
         let response = client
@@ -2391,7 +2392,7 @@ mod tests {
         let (proxy, port, db) =
             seed_single_supplier_route("pi", "openai_responses", base_url, "OPENAI_API_KEY").await;
 
-        let response = reqwest::Client::new()
+        let response = loopback_test_client()
             .post(format!("http://127.0.0.1:{port}/pi/v1/chat/completions"))
             .bearer_auth(super::super::ingress::token("pi"))
             .json(&json!({
@@ -2470,7 +2471,7 @@ mod tests {
             seed_single_supplier_route("openclaw", "anthropic", base_url, "ANTHROPIC_AUTH_TOKEN")
                 .await;
 
-        let response = reqwest::Client::new()
+        let response = loopback_test_client()
             .post(format!(
                 "http://127.0.0.1:{port}/openclaw/v1/chat/completions"
             ))
@@ -2532,7 +2533,7 @@ mod tests {
             seed_single_supplier_route("openclaw", "anthropic", base_url, "ANTHROPIC_AUTH_TOKEN")
                 .await;
 
-        let response = reqwest::Client::new()
+        let response = loopback_test_client()
             .post(format!(
                 "http://127.0.0.1:{port}/openclaw/v1/chat/completions"
             ))
@@ -2584,7 +2585,7 @@ mod tests {
             seed_single_supplier_route("mcode", "openai_responses", base_url, "OPENAI_API_KEY")
                 .await;
 
-        let response = reqwest::Client::new()
+        let response = loopback_test_client()
             .post(format!("http://127.0.0.1:{port}/mcode/v1/chat/completions"))
             .bearer_auth(super::super::ingress::token("mcode"))
             .json(&json!({
@@ -2659,7 +2660,7 @@ mod tests {
             seed_single_supplier_route("opencode", "openai_responses", base_url, "OPENAI_API_KEY")
                 .await;
 
-        let response = reqwest::Client::new()
+        let response = loopback_test_client()
             .post(format!(
                 "http://127.0.0.1:{port}/opencode/v1/chat/completions"
             ))
@@ -2773,7 +2774,7 @@ mod tests {
             None,
         );
         let info = proxy.start().await.unwrap();
-        let response = reqwest::Client::new()
+        let response = loopback_test_client()
             .post(format!("http://127.0.0.1:{}/v1/responses", info.port))
             .bearer_auth(super::super::ingress::token("codex"))
             .json(&json!({"model":"group/production","input":"hello","stream":false}))

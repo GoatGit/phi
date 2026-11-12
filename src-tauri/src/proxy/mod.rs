@@ -67,3 +67,17 @@ pub(crate) mod chat_upstream;
 
 #[cfg(test)]
 mod golden;
+
+/// 测试专用：直连 loopback 的 HTTP 客户端。
+///
+/// 本机开着系统代理（Clash 等）时，`reqwest::Client::new()` 会继承代理，把发往
+/// 127.0.0.1 的请求交给代理软件；代理对 loopback 的处置各不相同，常见表现是
+/// 502 空响应体——看起来像被测代码坏了，而且只在部分机器上复现。测试一律用
+/// 这个客户端发请求，结果只取决于被测代码。
+#[cfg(test)]
+pub(crate) fn loopback_test_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("build loopback test client")
+}
