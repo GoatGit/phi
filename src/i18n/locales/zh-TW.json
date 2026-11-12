@@ -1,4 +1,25 @@
 {
+  "sessionBaton": {
+    "hooks": {
+      "request": "請求改寫",
+      "sessionExit": "會話退出"
+    },
+    "pluginCenter": {
+      "hint": "會話異常退出時由這個外掛決定接不接；重啟本身由 phi 託管完成，外掛不碰行程。"
+    },
+    "preview": {
+      "title": "試跑 {{name}}",
+      "hint": "改一段「會話剛掛了」的事件，看這個外掛會怎麼判。只跑決策，不會真的重啟會話。",
+      "input": "退出事件",
+      "output": "決策結果",
+      "actionResume": "接棒",
+      "actionRecord": "只記錄",
+      "modeFresh": "開新會話並交接",
+      "modeSame": "續原會話",
+      "abstained": "外掛棄權：這類退出交給內建策略處理。",
+      "invalidJson": "事件不是合法 JSON"
+    }
+  },
   "gateway": {
     "providers": "供應商",
     "routing": "路由",
@@ -5635,7 +5656,47 @@
     "tabs": {
       "stages": "請求外掛",
       "privacy": "隱私脫敏",
-      "router": "MCP 路由"
+      "router": "MCP 路由",
+      "lessons": "教訓库"
+    },
+    "lessons": {
+      "intro": "把失敗會話沉澱成倉庫級的禁區清單：哪一步炸過、動哪個檔案前要小心，都在這一頁。",
+      "sourceHint": "來源是本機代管的會話紀錄——工具呼叫報錯、結束碼非 0。全程不呼叫模型，依固定範本產生。",
+      "noWorkspaceTitle": "還沒有可用的倉庫",
+      "noWorkspaceBody": "教訓貼著倉庫長。先到「任務」頁登記一個倉庫，它的禁區清單就會出現在這裡。",
+      "repo": "倉庫",
+      "repoPlaceholder": "選一個倉庫",
+      "scan": "掃描會話",
+      "scanning": "掃描中…",
+      "loadFailed": "教訓库讀取失敗",
+      "scannedAt": "上次掃描 {{time}}",
+      "neverScanned": "還沒掃描過",
+      "scanSummary": "掃過 {{sessions}} 個會話，{{failures}} 處失敗",
+      "pending": "還有 {{count}} 個會話待掃",
+      "injectionTitle": "寫進 AGENTS.md",
+      "injectionHint": "開啟後，phi 會把禁區清單寫進倉庫的 {{file}}，只維護自己那兩塊註解標記之間的內容，其他位置一字不動。",
+      "injectionMeta": "{{used}}/{{budget}} 字 · lessons v{{version}}",
+      "injectionStale": "檔案裡的區塊與目前教訓不一致，再掃描一次即可對齊",
+      "preview": "看要寫什麼",
+      "empty": "還沒有教訓。跑幾個任務、真的失敗過，才會長出第一條。",
+      "hits": "命中 {{count}} 次",
+      "dismiss": "刪掉這條",
+      "dismissedTitle": "已刪掉的教訓",
+      "dismissReason": "刪掉理由：{{reason}}",
+      "restore": "恢復",
+      "previewTitle": "將要寫進 {{file}}",
+      "previewHint": "共 {{count}} 條，佔 {{used}}/{{budget}} 字。只在會話開頭讀一次，不每輪追加。",
+      "previewEmpty": "還沒有可寫的教訓",
+      "dismissTitle": "刪掉這條教訓",
+      "dismissHint": "刪掉後它不再被注入，但原文與證據留在下面；理由寫清楚，下次重算才不會又長回來。",
+      "dismissPlaceholder": "例如：這次失敗是環境問題，不是做法問題",
+      "cancel": "取消",
+      "errors": {
+        "invalidDirectory": "倉庫路徑無效",
+        "notRegistered": "這個倉庫還沒在任務頁登記",
+        "reasonRequired": "刪除理由不能為空",
+        "notFound": "這條教訓已經不在了"
+      }
     },
     "stages": {
       "intro": "外掛在請求發往上游之前改寫請求體。依優先級從小到大依序執行，某個外掛出錯只跳過它自己。",

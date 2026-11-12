@@ -23,6 +23,7 @@ pub mod hermes_config;
 mod init_status;
 mod jsonc_document;
 mod ledger;
+mod lessons;
 mod lightweight;
 #[cfg(target_os = "linux")]
 mod linux_fix;
@@ -1462,6 +1463,13 @@ pub fn run() {
             tasks::commands::task_unlink_session,
             orchestration::commands::task_relay,
             orchestration::commands::task_gate_run,
+            lessons::commands::lesson_state,
+            lessons::commands::lesson_refresh,
+            lessons::commands::lesson_matches,
+            lessons::commands::lesson_dismiss,
+            lessons::commands::lesson_restore,
+            lessons::commands::lesson_injection_preview,
+            lessons::commands::lesson_set_injection,
             commands::get_gateway_catalog,
             commands::gateway_subscription_action,
             commands::connect_gateway_subscription,

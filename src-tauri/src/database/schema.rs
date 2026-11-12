@@ -26,6 +26,7 @@ impl Database {
         crate::access::create_tables(conn)?;
         crate::tasks::create_tables(conn)?;
         crate::orchestration::create_tables(conn)?;
+        crate::lessons::create_tables(conn)?;
         // 1. Providers 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS providers (
@@ -610,6 +611,11 @@ impl Database {
                         log::info!("迁移数据库从 v23 到 v24（编排接力的门判定记录表）");
                         Self::migrate_v23_to_v24(conn)?;
                         Self::set_user_version(conn, 24)?;
+                    }
+                    24 => {
+                        log::info!("迁移数据库从 v24 到 v25（教训库的禁区清单与扫描水位）");
+                        Self::migrate_v24_to_v25(conn)?;
+                        Self::set_user_version(conn, 25)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1739,6 +1745,14 @@ impl Database {
     /// `phi_verdict` 结论都在 git 里，不进数据库。
     fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
         crate::orchestration::create_tables(conn)
+    }
+
+    /// v24 -> v25: 教训库的三张表（教训、按会话计数的命中记录、工作区设置）。
+    ///
+    /// 都是新建表，`IF NOT EXISTS` 即可幂等；历史会话由首次「刷新」补扫。
+    fn migrate_v24_to_v25(conn: &Connection) -> Result<(), AppError> {
+        crate::lessons::create_tables(conn)
+    }
     }
 
     /// 插入默认模型定价数据

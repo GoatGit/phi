@@ -1,4 +1,25 @@
 {
+  "sessionBaton": {
+    "hooks": {
+      "request": "请求改写",
+      "sessionExit": "会话退出"
+    },
+    "pluginCenter": {
+      "hint": "会话异常退出时由这个插件决定接不接；重启本身由 phi 托管完成，插件不碰进程。"
+    },
+    "preview": {
+      "title": "试跑 {{name}}",
+      "hint": "改一段「会话刚挂了」的事件，看这个插件会怎么判。只跑决策，不会真的重启会话。",
+      "input": "退出事件",
+      "output": "决策结果",
+      "actionResume": "接棒",
+      "actionRecord": "只记录",
+      "modeFresh": "开新会话并交接",
+      "modeSame": "续原会话",
+      "abstained": "插件弃权：这类退出交给内置策略处理。",
+      "invalidJson": "事件不是合法 JSON"
+    }
+  },
   "gateway": {
     "providers": "供应商",
     "routing": "路由",
@@ -5635,7 +5656,47 @@
     "tabs": {
       "stages": "请求插件",
       "privacy": "隐私脱敏",
-      "router": "MCP 路由"
+      "router": "MCP 路由",
+      "lessons": "教训库"
+    },
+    "lessons": {
+      "intro": "把失败会话沉淀成仓库级的禁区清单：哪一步炸过、动哪个文件之前要小心，都在这一页。",
+      "sourceHint": "来源是本机托管的会话记录——工具调用报错、退出码非 0。全程不调模型，按固定模板生成。",
+      "noWorkspaceTitle": "还没有可用的仓库",
+      "noWorkspaceBody": "教训贴着仓库长。先到「任务」页登记一个仓库，它的禁区清单就会出现在这里。",
+      "repo": "仓库",
+      "repoPlaceholder": "选一个仓库",
+      "scan": "扫描会话",
+      "scanning": "扫描中…",
+      "loadFailed": "教训库读取失败",
+      "scannedAt": "上次扫描 {{time}}",
+      "neverScanned": "还没扫描过",
+      "scanSummary": "扫过 {{sessions}} 个会话，{{failures}} 处失败",
+      "pending": "还有 {{count}} 个会话待扫",
+      "injectionTitle": "写进 AGENTS.md",
+      "injectionHint": "打开后，phi 会把禁区清单写进仓库的 {{file}}，只维护自己那两块注释标记之间的内容，别的地方一个字不动。",
+      "injectionMeta": "{{used}}/{{budget}} 字 · lessons v{{version}}",
+      "injectionStale": "文件里的块与当前教训不一致，再扫描一次即可对齐",
+      "preview": "看要写什么",
+      "empty": "还没有教训。跑几个任务、真失败过，才会长出第一条。",
+      "hits": "命中 {{count}} 次",
+      "dismiss": "删掉这条",
+      "dismissedTitle": "已删掉的教训",
+      "dismissReason": "删掉理由：{{reason}}",
+      "restore": "恢复",
+      "previewTitle": "将要写进 {{file}}",
+      "previewHint": "共 {{count}} 条，占 {{used}}/{{budget}} 字。只在会话开头读一次，不每轮追加。",
+      "previewEmpty": "还没有可写的教训",
+      "dismissTitle": "删掉这条教训",
+      "dismissHint": "删掉后它不再被注入，但原文和证据留在下面；理由写清楚，下次重算才不会又长回来。",
+      "dismissPlaceholder": "例如：这次失败是环境问题，不是做法问题",
+      "cancel": "取消",
+      "errors": {
+        "invalidDirectory": "仓库路径无效",
+        "notRegistered": "这个仓库还没在任务页登记",
+        "reasonRequired": "删除理由不能为空",
+        "notFound": "这条教训已经不在了"
+      }
     },
     "stages": {
       "intro": "插件在请求发往上游之前改写请求体。按优先级从小到大依次执行，某个插件出错只跳过它自己。",
