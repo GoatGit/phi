@@ -4,9 +4,7 @@
 //! 再加上模型归因（一个任务中途换模型时必须记清是谁写的）。
 //! 这里不执行任何命令、不读仓库，所以产出的只是「可靠性」，不是「质量」。
 
-use crate::session_manager::model::{
-    EventKind, SessionBlock, SessionMessage, ToolKind, ToolStatus,
-};
+use crate::session_manager::model::{SessionBlock, SessionMessage, ToolKind, ToolStatus};
 use std::collections::HashMap;
 
 /// 空闲超过 30 分钟切一刀，视为两个任务（调研报告的判定口径）。
@@ -70,20 +68,24 @@ pub fn extract_facts(messages: &[SessionMessage], fallback: (i64, i64)) -> Vec<T
     let mut last_ts = fallback.0;
     let mut pending: Vec<PendingCall> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
-    let mut aborts: Vec<(i64, String)> = Vec::new();
     let mut spends: Vec<Spend> = Vec::new();
     let mut timeline: Vec<i64> = Vec::new();
+    // 只有源记录自带时间戳时才按空闲切任务；全都没有时间戳时只能信会话自己的起止
+    let mut saw_timestamp = false;
 
     for message in messages {
         // 时间戳缺失时沿用上一个时刻：会话是顺序写的，这比丢弃事件更接近事实
         if let Some(ts) = message.ts.filter(|ts| *ts > 0) {
             last_ts = ts;
+            saw_timestamp = true;
             timeline.push(ts);
         }
         if let Some(meta) = &message.meta {
             if let Some(name) = meta.model.as_deref().filter(|name| !name.is_empty()) {
                 model = name.to_string();
             }
+            // 派生出来的时刻也要进时间线，否则它们可能落在第一段窗口之前被丢掉
+            timeline.push(last_ts);
             let spend = Spend {
                 ts: last_ts,
                 model: model.clone(),
@@ -112,6 +114,7 @@ pub fn extract_facts(messages: &[SessionMessage], fallback: (i64, i64)) -> Vec<T
                     let weight = diff
                         .as_ref()
                         .map_or(1, |diff| i64::from(diff.added + diff.removed).max(1));
+                    timeline.push(last_ts);
                     index.insert(id.clone(), pending.len());
                     pending.push(PendingCall {
                         ts: last_ts,
@@ -136,28 +139,20 @@ pub fn extract_facts(messages: &[SessionMessage], fallback: (i64, i64)) -> Vec<T
                         });
                     }
                 }
-                SessionBlock::Event {
-                    kind: EventKind::Aborted,
-                    ..
-                } => {
-                    aborts.push((last_ts, model.clone()));
-                }
                 _ => {}
             }
         }
     }
 
-    let windows = split_windows(&mut timeline, fallback);
+    let windows = if saw_timestamp {
+        split_windows(&mut timeline, fallback)
+    } else {
+        vec![(fallback.0, fallback.1.max(fallback.0))]
+    };
     let mut calls: Vec<Vec<&PendingCall>> = vec![Vec::new(); windows.len()];
     for call in &pending {
         if let Some(position) = window_index(&windows, call.ts) {
             calls[position].push(call);
-        }
-    }
-    let mut abort_counts = vec![0u64; windows.len()];
-    for (ts, _) in &aborts {
-        if let Some(position) = window_index(&windows, *ts) {
-            abort_counts[position] += 1;
         }
     }
     let mut spends_by_window: Vec<Vec<&Spend>> = vec![Vec::new(); windows.len()];
@@ -175,7 +170,6 @@ pub fn extract_facts(messages: &[SessionMessage], fallback: (i64, i64)) -> Vec<T
                 *started_at,
                 *ended_at,
                 &calls[position],
-                abort_counts[position],
                 &spends_by_window[position],
             )
         })
@@ -186,14 +180,16 @@ fn build_task(
     started_at: i64,
     ended_at: i64,
     calls: &[&PendingCall],
-    aborts: u64,
     spends: &[&Spend],
 ) -> TaskFact {
     let mut weigher: HashMap<&str, i64> = HashMap::new();
     let mut models: Vec<&str> = Vec::new();
     let mut tool_calls = 0u64;
     let mut tool_failures = 0u64;
-    let mut interruptions = aborts;
+    // 中断只认「工具结果被标成中断」：同一个中断往往同时留下 Aborted 事件和
+    // Interrupted 结果，两边相加会把一次中断算两次，中断率甚至能超过 100%。
+    // 没有在途调用的 Aborted 事件（用户在两轮之间停手）本来也没打断谁。
+    let mut interruptions = 0u64;
     let mut write_attempts = 0u64;
     let mut write_successes = 0u64;
     let mut timed_calls = 0u64;
@@ -318,7 +314,7 @@ fn window_index(windows: &[(i64, i64)], ts: i64) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session_manager::model::{DiffSummary, MessageMeta};
+    use crate::session_manager::model::{DiffSummary, EventKind, MessageMeta};
 
     fn call(id: &str, kind: ToolKind, ts: i64) -> SessionMessage {
         SessionMessage::from_blocks(
@@ -371,6 +367,43 @@ mod tests {
             ..MessageMeta::default()
         });
         message
+    }
+
+    #[test]
+    fn an_aborted_turn_is_counted_once_not_twice() {
+        let ts = 1_700_000_000_000;
+        // codex 这类源会同时留下「Interrupted 结果」和「Aborted 事件」；两边相加会把
+        // 一次中断算成两次，中断率就能超过 100%
+        let aborted = SessionMessage::from_blocks(
+            "system",
+            Some(ts + 2),
+            vec![SessionBlock::event(EventKind::Aborted, None, None)],
+        );
+        let messages = vec![
+            call("a", ToolKind::Shell, ts),
+            result("a", ToolStatus::Interrupted, ts + 1, None),
+            aborted,
+        ];
+
+        let task = &extract_facts(&messages, (ts, ts))[0];
+        assert_eq!(task.tool_calls, 1);
+        assert_eq!(task.interruptions, 1);
+        assert_eq!(task.tool_failures, 0);
+    }
+
+    #[test]
+    fn events_before_the_first_timestamp_stay_in_some_task() {
+        let start = 1_700_000_000_000;
+        // 首条消息没有时间戳（沿用 fallback 起点），后面的消息才有：
+        // 早于第一个时间戳的调用不能因为窗口从后面才开始就被丢掉
+        let mut early = call("early", ToolKind::Shell, 0);
+        early.ts = None;
+        let later = call("later", ToolKind::Read, start + IDLE_GAP_MS * 2);
+
+        let tasks = extract_facts(&[early, later], (start, start + 10));
+        assert_eq!(tasks.iter().map(|task| task.tool_calls).sum::<u64>(), 2);
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].started_at, start);
     }
 
     #[test]
