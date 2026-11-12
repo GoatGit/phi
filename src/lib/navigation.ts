@@ -5,7 +5,8 @@ import type { AppId } from "@/lib/api";
  * 设置是侧栏一级入口，分区是页内标签，高级分区由「专家模式」唤出。
  *
  * - 应用页：首页（home）、供应商页；OpenClaw 还有工作区页，Hermes 有记忆页。
- * - 全局页：供应商目录、路由总览、用量统计、MCP、Skills、提示词、会话。
+ * - 全局页：路由（供应商与路由总览是它的两个页签）、用量统计、MCP、
+ *   Skills、提示词、会话。
  * - 设置：侧栏里的一个一级入口，分区（通用/应用/网关/数据/关于）
  *   是设置页内的标签，不再单独跳转。
  *   授权中心已取消：订阅型账号统一在「供应商 → 订阅」里登录与管理。
@@ -14,7 +15,6 @@ import type { AppId } from "@/lib/api";
 export type AppPage = "home" | "providers" | "workspace" | "hermesMemory";
 
 export type GlobalPage =
-  | "providerCatalog"
   | "routingOverview"
   | "tasks"
   | "plugins"
@@ -66,7 +66,6 @@ export function visibleSettingsSections(
 const APP_PAGES: AppPage[] = ["home", "providers", "workspace", "hermesMemory"];
 
 const GLOBAL_PAGES: GlobalPage[] = [
-  "providerCatalog",
   "routingOverview",
   "tasks",
   "plugins",
@@ -81,10 +80,14 @@ const GLOBAL_PAGES: GlobalPage[] = [
 export const VIEW_STORAGE_KEY = "phi-last-view";
 export const APP_STORAGE_KEY = "phi-last-app";
 
-/** 旧版视图名 → 新视图（OpenClaw 的三个配置页合成了一个；配置改为弹窗）。 */
+/**
+ * 旧版视图名 → 新视图（OpenClaw 的三个配置页合成了一个；配置改为弹窗）。
+ * 供应商页并进了路由页的「供应商」页签，旧视图名回落到路由页。
+ */
 const LEGACY_VIEWS: Record<string, View> = {
   auth: "settings",
   apps: "settings",
+  providerCatalog: "routingOverview",
   openclawEnv: "workspace",
   openclawTools: "workspace",
   openclawAgents: "workspace",

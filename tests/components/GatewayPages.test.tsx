@@ -34,10 +34,8 @@ import { gatewayApi, providersApi } from "@/lib/api";
 import { proxyApi } from "@/lib/api/proxy";
 import { piApi } from "@/lib/api/pi";
 import { ROUTABLE_APP_IDS, getAppLabel } from "@/config/appConfig";
-import {
-  ProviderCatalogPage,
-  RoutingOverviewPage,
-} from "@/components/gateway/GatewayPages";
+import { GatewayPage } from "@/components/gateway/GatewayPages";
+import type { GatewayPageProps } from "@/components/gateway/GatewayPages";
 import {
   isAppPage,
   isGlobalPage,
@@ -111,6 +109,17 @@ afterAll(() => {
     );
   else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
 });
+
+/**
+ * 供应商页与路由页已合并成「路由」页的两个页签。下面两个辅助组件分别从对应页签
+ * 进入同一个页面，用例仍按功能分组，不重复写 initialTab。
+ */
+const ProviderCatalogPage = (props: Omit<GatewayPageProps, "initialTab">) => (
+  <GatewayPage initialTab="suppliers" {...props} />
+);
+const RoutingOverviewPage = (props: Omit<GatewayPageProps, "initialTab">) => (
+  <GatewayPage initialTab="routing" {...props} />
+);
 
 function mount(element: ReactElement) {
   const client = new QueryClient({
@@ -242,13 +251,13 @@ beforeEach(() => {
 
 describe("gateway navigation", () => {
   it("persists global views without changing legacy app navigation", () => {
-    for (const view of ["providerCatalog", "routingOverview"] as const) {
-      expect(parseView(view)).toBe(view);
-      expect(isGlobalPage(view)).toBe(true);
-      expect(isAppPage(view)).toBe(false);
-      storeView(view);
-      expect(readStoredView()).toBe(view);
-    }
+    expect(parseView("routingOverview")).toBe("routingOverview");
+    expect(isGlobalPage("routingOverview")).toBe(true);
+    expect(isAppPage("routingOverview")).toBe(false);
+    storeView("routingOverview");
+    expect(readStoredView()).toBe("routingOverview");
+    // 供应商页已并入路由页的「供应商」页签：旧视图名回落到路由页
+    expect(parseView("providerCatalog")).toBe("routingOverview");
     expect(parseView("providers")).toBe("providers");
     // 旧 OpenClaw 环境页已并入工作区（见 navigation.ts LEGACY_VIEWS）
     expect(parseView("openclawEnv")).toBe("workspace");
@@ -271,6 +280,27 @@ describe("provider catalog", () => {
     expect(
       screen.queryByRole("button", { name: "gateway.manage" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("switches between the route tab and the supplier tab of one page", async () => {
+    vi.mocked(gatewayApi.getCatalog).mockResolvedValue(sharedCatalog);
+    mount(<RoutingOverviewPage />);
+    expect(
+      await screen.findByRole("region", { name: "gateway.flow.title" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "gateway.providers" }));
+    expect(
+      await screen.findByRole("button", { name: "gateway.pool.create" }),
+    ).toBeInTheDocument();
+    // 切页签换的是同一页里的整块内容，不是另一个页面
+    expect(
+      screen.queryByRole("region", { name: "gateway.flow.title" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "gateway.providers" }),
+    ).toHaveAttribute("aria-selected", "true");
+    // 两个页签共用一份网关目录：切页签不重新读
+    expect(gatewayApi.getCatalog).toHaveBeenCalledTimes(1);
   });
 
   it("isolates a failed catalog read and supports retry", async () => {
@@ -390,8 +420,11 @@ describe("routing overview", () => {
     expect(
       await screen.findByRole("region", { name: "gateway.flow.title" }),
     ).toBeInTheDocument();
-    // 路由 / 路由组页签已移除，页面只剩流转图。
-    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    // 供应商页并进了同一个页面：页签只有「路由」与「供应商」两个。
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "gateway.routing",
+      "gateway.providers",
+    ]);
     fireEvent.click(
       await screen.findByRole("button", { name: "gateway.flow.moreApps" }),
     );
@@ -1056,8 +1089,6 @@ describe("gateway resource to request workflow", () => {
         name: "gateway.pool.showReferences",
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Claude · claude" }));
-    expect(open).toHaveBeenCalledWith("claude");
     fireEvent.change(
       screen.getByRole("textbox", { name: "gateway.pool.search" }),
       { target: { value: "absent" } },
@@ -1068,6 +1099,12 @@ describe("gateway resource to request workflow", () => {
       { target: { value: "model-a" } },
     );
     expect(screen.getByText("Shared provider")).toBeInTheDocument();
+    // 点引用会切到路由页签，所以放在最后一步
+    fireEvent.click(screen.getByRole("button", { name: "Claude · claude" }));
+    expect(open).toHaveBeenCalledWith("claude");
+    expect(
+      screen.getByRole("tab", { name: "gateway.routing" }),
+    ).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows historical names, individual failures, usage and a link to the current policy", async () => {
@@ -1196,7 +1233,7 @@ describe("route groups and routing data", () => {
     expect(
       await screen.findByRole("region", { name: "gateway.flow.title" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
     // 筛选收进弹层：默认只露出入口，打开后才能选择路由组。
     await user.click(
       screen.getByRole("button", { name: /gateway.routingStatus.filter/ }),
