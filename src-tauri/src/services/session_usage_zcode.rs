@@ -2,7 +2,9 @@
 //!
 //! 数据源：`~/.zcode/cli/db/db.sqlite`（WAL 模式，运行中持续写入）。
 //! 表结构：`session`(id, parent_id, directory, title, title_source,
-//! time_created, time_updated) + `message`(session_id, data=JSON)。
+//! time_created, time_updated) + `message`(id, session_id, time_created,
+//! time_updated, data=JSON)。`message` 表**没有** role 列，角色只写在 `data`
+//! JSON 里；SQL 里按 `role` 过滤会直接 `no such column`，整条同步静默失效。
 //!
 //! message.data 关键字段（AI SDK 口径，解析自 internal/sessions/zcode.go +
 //! opencode.go 的 magpie 实现）：
@@ -13,8 +15,10 @@
 //!   input 已含缓存读写，output 已含 reasoning——入库前换算为
 //!   fresh input = input − cache.read − cache.write，输出补回 reasoning。
 //!
-//! 注意：assistant 消息的 tokens 会在流式过程中被原地重写，
-//! 因此必须整读数据库，不能按行增量。
+//! 注意：assistant 消息的 tokens 会在流式过程中被原地重写。增量粒度因此是
+//! 「会话」而不是「消息行」：水位线取会话与消息 time_updated 的最大值，会话
+//! 一旦有更新就整段重读它的全部消息，再靠 `zcode_session:` 前缀的 request_id
+//! 去重，不按消息行记录游标。
 
 use std::fs;
 use std::time::SystemTime;
@@ -210,14 +214,15 @@ fn query_sessions(conn: &rusqlite::Connection) -> Result<Vec<(String, i64)>, App
     Ok(sessions)
 }
 
-/// 查询某会话已完成计费的 assistant 消息，并标记是否还有未完成 usage 消息
+/// 查询某会话里已完成计费的 assistant 消息（角色从 `data` JSON 判定）
 fn query_assistant_messages(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> Result<Vec<(String, ZcodeMessageData)>, AppError> {
+    // 不在 SQL 里过滤角色：`message` 表没有 role 列，角色在 data JSON 里
     let sql = "SELECT id, data FROM message \
-               WHERE session_id = ?1 AND role = 'assistant' \
-               ORDER BY time_created";
+               WHERE session_id = ?1 \
+               ORDER BY time_created, id";
     let mut stmt = conn
         .prepare(sql)
         .map_err(|e| AppError::Database(format!("准备消息查询失败: {e}")))?;
@@ -237,6 +242,10 @@ fn query_assistant_messages(
             Ok(v) => v,
             Err(_) => continue,
         };
+
+        if value.get("role").and_then(|v| v.as_str()) != Some("assistant") {
+            continue;
+        }
 
         if value.get("tokens").is_none() {
             continue;
@@ -417,4 +426,137 @@ fn insert_zcode_message(
     )?;
 
     Ok(inserted_rows > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// 真实的 `~/.zcode/cli/db/db.sqlite` 表结构：`message` 没有 role 列。
+    /// 回归靶子：SQL 里一旦出现 role 列，整条同步会因为
+    /// `no such column` 而静默失效。
+    fn zcode_schema_conn() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE session (
+                 id text primary key,
+                 project_id text not null default '',
+                 parent_id text,
+                 directory text not null default '',
+                 title text not null default '',
+                 version text not null default '',
+                 time_created integer not null,
+                 time_updated integer not null
+             );
+             CREATE TABLE message (
+                 id text primary key,
+                 session_id text not null references session(id) on delete cascade,
+                 time_created integer not null,
+                 time_updated integer not null,
+                 data text not null,
+                 sequence integer
+             );",
+        )
+        .expect("create zcode schema");
+        conn.execute(
+            "INSERT INTO session (id, directory, title, time_created, time_updated) \
+             VALUES ('ses_1', '/tmp/project', 'demo', 1000, 4000)",
+            [],
+        )
+        .expect("insert session");
+        conn
+    }
+
+    fn insert_message(
+        conn: &rusqlite::Connection,
+        id: &str,
+        created: i64,
+        data: serde_json::Value,
+    ) {
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data) \
+             VALUES (?1, 'ses_1', ?2, ?2, ?3)",
+            rusqlite::params![id, created, data.to_string()],
+        )
+        .expect("insert message");
+    }
+
+    fn assistant_data(completed: bool, input: u64, output: u64) -> serde_json::Value {
+        let mut time = json!({ "created": 2000 });
+        if completed {
+            time["completed"] = json!(2500);
+        }
+        json!({
+            "role": "assistant",
+            "time": time,
+            "modelId": "GLM-5.3-Flash",
+            "tokens": { "input": input, "output": output, "reasoning": 0 }
+        })
+    }
+
+    #[test]
+    fn query_assistant_messages_filters_role_from_json_not_columns() {
+        let conn = zcode_schema_conn();
+        insert_message(&conn, "msg_a", 2000, assistant_data(true, 1000, 20));
+        // 用户消息没有用量，不该进来
+        insert_message(
+            &conn,
+            "msg_u",
+            2100,
+            json!({"role": "user", "time": {"created": 2100}}),
+        );
+        // 未完成的消息：进行中只有半截 token
+        insert_message(&conn, "msg_b", 2200, assistant_data(false, 10, 1));
+        // 已完成但没有 tokens（工具轮）不该进来
+        insert_message(
+            &conn,
+            "msg_c",
+            2300,
+            json!({"role": "assistant", "time": {"created": 2300, "completed": 2400}}),
+        );
+
+        let messages = query_assistant_messages(&conn, "ses_1").expect("查询不该因 role 列失败");
+        assert_eq!(messages.len(), 1, "只应返回已完成的 assistant 用量消息");
+        assert_eq!(messages[0].0, "msg_a");
+        assert_eq!(messages[0].1.input_tokens, 1000);
+        assert_eq!(messages[0].1.output_tokens, 20);
+        assert_eq!(messages[0].1.model_id, "GLM-5.3-Flash");
+    }
+
+    #[test]
+    fn query_assistant_messages_converts_cached_input_to_fresh_input() {
+        let conn = zcode_schema_conn();
+        let mut data = assistant_data(true, 1000, 20);
+        data["tokens"]["cache"] = json!({ "read": 300, "write": 100 });
+        data["tokens"]["reasoning"] = json!(5);
+        insert_message(&conn, "msg_a", 2000, data);
+
+        let messages = query_assistant_messages(&conn, "ses_1").expect("查询失败");
+        assert_eq!(messages.len(), 1);
+        let msg = &messages[0].1;
+        assert_eq!(
+            msg.input_tokens, 600,
+            "input 已含缓存读写，需换算成 fresh input"
+        );
+        assert_eq!(msg.cache_read_tokens, 300);
+        assert_eq!(msg.cache_write_tokens, 100);
+        assert_eq!(msg.reasoning_tokens, 5);
+    }
+
+    #[test]
+    fn query_sessions_watermark_follows_message_updates() {
+        let conn = zcode_schema_conn();
+        insert_message(&conn, "msg_a", 2000, assistant_data(true, 10, 1));
+        conn.execute(
+            "UPDATE message SET time_updated = 9000 WHERE id = 'msg_a'",
+            [],
+        )
+        .expect("update message");
+
+        let sessions = query_sessions(&conn).expect("会话查询失败");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].0, "ses_1");
+        assert_eq!(sessions[0].1, 9000, "水位线要跟住消息的 time_updated");
+    }
 }
