@@ -200,12 +200,7 @@ impl Database {
     }
 
     /// 删掉一条教训（带理由）：留在库里但不再注入。
-    pub fn dismiss_lesson(
-        &self,
-        root: &str,
-        id: &str,
-        reason: &str,
-    ) -> Result<bool, AppError> {
+    pub fn dismiss_lesson(&self, root: &str, id: &str, reason: &str) -> Result<bool, AppError> {
         let conn = lock_conn!(self.conn);
         let changed = conn
             .execute(
@@ -335,7 +330,8 @@ mod tests {
     #[test]
     fn dismissed_lessons_stay_visible_and_keep_the_reason() {
         let db = Database::memory().expect("memory db");
-        db.insert_lesson("/repo", &lesson("a", &[])).expect("insert");
+        db.insert_lesson("/repo", &lesson("a", &[]))
+            .expect("insert");
 
         assert!(db.dismiss_lesson("/repo", "a", "误报").expect("dismiss"));
         let stored = db.lesson("/repo", "a").expect("get").expect("exists");

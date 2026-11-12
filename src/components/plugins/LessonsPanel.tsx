@@ -94,7 +94,9 @@ export function LessonsPanel() {
         const list = await loadWorkspaces();
         const stored = readStoredRoot();
         const next =
-          list.find((entry) => entry.root === stored)?.root ?? list[0]?.root ?? "";
+          list.find((entry) => entry.root === stored)?.root ??
+          list[0]?.root ??
+          "";
         if (cancelled) return;
         setRoot(next);
         await loadState(next);
@@ -203,7 +205,10 @@ export function LessonsPanel() {
     return (
       <div className="space-y-4 px-6 pb-10">
         <p className="text-body text-fg-2">{t("pluginCenter.lessons.intro")}</p>
-        <Notice tone="neutral" title={t("pluginCenter.lessons.noWorkspaceTitle")}>
+        <Notice
+          tone="neutral"
+          title={t("pluginCenter.lessons.noWorkspaceTitle")}
+        >
           {t("pluginCenter.lessons.noWorkspaceBody")}
         </Notice>
       </div>
@@ -221,8 +226,13 @@ export function LessonsPanel() {
 
       <div className="flex flex-wrap items-center gap-2">
         <Select value={root} onValueChange={(value) => void selectRoot(value)}>
-          <SelectTrigger className="w-[260px]" aria-label={t("pluginCenter.lessons.repo")}>
-            <SelectValue placeholder={t("pluginCenter.lessons.repoPlaceholder")} />
+          <SelectTrigger
+            className="w-[260px]"
+            aria-label={t("pluginCenter.lessons.repo")}
+          >
+            <SelectValue
+              placeholder={t("pluginCenter.lessons.repoPlaceholder")}
+            />
           </SelectTrigger>
           <SelectContent>
             {workspaces.map((workspace) => (
@@ -405,7 +415,12 @@ export function LessonsPanel() {
         </section>
       )}
 
-      {preview && <InjectionPreviewDialog preview={preview} onClose={() => setPreview(null)} />}
+      {preview && (
+        <InjectionPreviewDialog
+          preview={preview}
+          onClose={() => setPreview(null)}
+        />
+      )}
 
       {dismissTarget && (
         <DismissDialog
@@ -413,7 +428,9 @@ export function LessonsPanel() {
           onCancel={() => setDismissTarget(null)}
           onConfirm={async (reason) => {
             try {
-              setState(await lessonsApi.dismiss(root, dismissTarget.id, reason));
+              setState(
+                await lessonsApi.dismiss(root, dismissTarget.id, reason),
+              );
               setDismissTarget(null);
             } catch (err) {
               toast.error(lessonErrorMessage(err, t));
@@ -457,7 +474,10 @@ function InjectionPreviewDialog({
               {preview.block}
             </pre>
           ) : (
-            <Notice tone="neutral" title={t("pluginCenter.lessons.previewEmpty")} />
+            <Notice
+              tone="neutral"
+              title={t("pluginCenter.lessons.previewEmpty")}
+            />
           )}
         </DialogBody>
         <DialogFooter>

@@ -144,7 +144,10 @@ mod tests {
 
         assert!(apply(&file, BLOCK).expect("apply"));
         assert!(!apply(&file, BLOCK).expect("apply again"));
-        assert_eq!(current_block(&read_text(&file).expect("read")).as_deref(), Some(BLOCK));
+        assert_eq!(
+            current_block(&read_text(&file).expect("read")).as_deref(),
+            Some(BLOCK)
+        );
 
         assert!(remove(&file).expect("remove"));
         // 文件里原本只有这一块，删完就该整个消失

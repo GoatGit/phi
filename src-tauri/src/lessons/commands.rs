@@ -68,10 +68,7 @@ fn preview_of(db: &Database, key: &str, workspace: &Path) -> Result<InjectionPre
     Ok(InjectionPreview {
         file: AGENTS_FILE.to_string(),
         used_chars: render::block_chars(&block),
-        lesson_count: block
-            .lines()
-            .filter(|line| line.starts_with("- ["))
-            .count(),
+        lesson_count: block.lines().filter(|line| line.starts_with("- [")).count(),
         budget_chars: render::BUDGET_CHARS,
         block,
         version,
@@ -244,11 +241,7 @@ pub fn lesson_dismiss(
     }
     let path = workspace_path(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
-    if !state
-        .db
-        .dismiss_lesson(&key, &id, reason)
-        .map_err(err)?
-    {
+    if !state.db.dismiss_lesson(&key, &id, reason).map_err(err)? {
         return Err("lesson-not-found".into());
     }
     state_of(&state.db, &key, &path)
