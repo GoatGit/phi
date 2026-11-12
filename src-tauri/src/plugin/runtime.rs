@@ -13,15 +13,29 @@ use serde_json::Value;
 use super::registry::{
     PluginLoadError, PluginOverrides, PluginRegistry, PluginSummary, STATE_FILE,
 };
+use super::session_exit::{run_session_exit_hooks, SessionExitChoice, SessionExitHook};
 use super::stage::{run_request_stages, RequestStage, StageContext, StageOutcome};
 use crate::error::AppError;
 
 /// 快照最长复用时间。
 pub const REFRESH_TTL: Duration = Duration::from_secs(2);
 
+/// 接棒能力的可用状态。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SessionExitState {
+    /// 一个声明了 session-exit 的插件都没装：调用方用内置策略。
+    NoPlugin,
+    /// 装了但都被关掉了：这是用户明确的取舍，不要接。
+    Disabled,
+    /// 有启用的插件。
+    Active,
+}
+
 struct CachedSnapshot {
     registry: Arc<PluginRegistry>,
     stages: Arc<Vec<Arc<dyn RequestStage>>>,
+    session_exit: Arc<Vec<SessionExitHook>>,
     built_at: Instant,
 }
 
@@ -91,6 +105,7 @@ impl PluginRuntime {
             snapshot: RwLock::new(CachedSnapshot {
                 registry: Arc::new(PluginRegistry::default()),
                 stages: Arc::new(Vec::new()),
+                session_exit: Arc::new(Vec::new()),
                 built_at: Instant::now(),
             }),
         };
@@ -172,6 +187,69 @@ impl PluginRuntime {
         })
     }
 
+    /// 接棒能力的当前状态：没装插件 / 被用户关掉 / 可用。
+    ///
+    /// 「装了但关掉」必须在调用方那边变成「不要接」——插件中心那个开关
+    /// 是用户对这个功能的取舍，不能因为回落到内置策略就偷偷又打开。
+    pub fn session_exit_state(&self) -> SessionExitState {
+        let registry = self.registry();
+        if registry.active_session_exit_plugins().next().is_some() {
+            return SessionExitState::Active;
+        }
+        if registry.declared_session_exit_plugins() > 0 {
+            return SessionExitState::Disabled;
+        }
+        SessionExitState::NoPlugin
+    }
+
+    /// 让插件对一次会话异常退出表态。
+    ///
+    /// 返回 `None` 表示没有插件（或全都弃权）：调用方回落到内置策略。
+    /// 沙箱是同步的，这里和请求阶段一样应该在非热路径线程里调用。
+    pub fn decide_session_exit(&self, event: &Value) -> Option<SessionExitChoice> {
+        let hooks = self.session_exit_hooks();
+        if hooks.is_empty() {
+            return None;
+        }
+        let (decision, outcomes) = run_session_exit_hooks(hooks.as_slice(), event);
+        for outcome in outcomes {
+            log::debug!(
+                "[baton] 插件 {} 的决策: {:?}",
+                outcome.id,
+                outcome
+                    .decision
+                    .as_ref()
+                    .map(|decision| (decision.action, decision.mode.clone()))
+            );
+        }
+        decision
+    }
+
+    pub fn session_exit_hooks(&self) -> Arc<Vec<SessionExitHook>> {
+        self.refresh(false);
+        self.read().session_exit.clone()
+    }
+
+    /// 插件中心的试跑：用一段示例事件跑指定插件的接棒钩子（不看启用状态）。
+    ///
+    /// `Ok(None)` 是插件弃权，`Err` 是插件缺失或脚本出错——两者在 UI 上含义不同。
+    pub fn preview_session_exit(
+        &self,
+        plugin_id: &str,
+        event: &Value,
+    ) -> Result<Option<super::session_exit::SessionExitDecision>, String> {
+        let registry = self.registry();
+        let plugin = registry
+            .get(plugin_id)
+            .ok_or_else(|| format!("插件 '{plugin_id}' 不存在"))?;
+        if !plugin.manifest.hooks_session_exit() {
+            return Err(format!("插件 '{plugin_id}' 没有声明 session-exit 钩子"));
+        }
+        let hook = super::registry::session_exit_hook_for_plugin(plugin)
+            .map_err(|error| format!("插件 '{plugin_id}' 不可用: {error}"))?;
+        hook.decide(event)
+    }
+
     fn read(&self) -> std::sync::RwLockReadGuard<'_, CachedSnapshot> {
         self.snapshot
             .read()
@@ -189,6 +267,7 @@ impl PluginRuntime {
         let overrides = PluginOverrides::load(&self.state_path);
         let mut registry = PluginRegistry::discover(&self.root, &overrides);
         let stages = registry.build_request_stages_with((self.builtins)());
+        let session_exit = registry.build_session_exit_hooks();
         let mut snapshot = self
             .snapshot
             .write()
@@ -196,6 +275,7 @@ impl PluginRuntime {
         *snapshot = CachedSnapshot {
             registry: Arc::new(registry),
             stages: Arc::new(stages),
+            session_exit: Arc::new(session_exit),
             built_at: Instant::now(),
         };
     }
@@ -314,5 +394,72 @@ mod tests {
         overrides.save(runtime.state_path()).unwrap();
         runtime.reload();
         assert_eq!(runtime.stages().len(), 0);
+    }
+
+    fn write_session_exit_plugin(root: &Path, dir: &str, enabled_by_default: bool) {
+        write_plugin(
+            root,
+            dir,
+            json!({
+                "id":dir,"name":dir,"hooks":["session-exit"],"kind":"script",
+                "entry":"main.js","enabled_by_default":enabled_by_default
+            }),
+        );
+        fs::write(
+            root.join("plugins").join(dir).join("main.js"),
+            r#"function onSessionExit(event) {
+                 return { action: "resume", mode: "same-session", reason: "可恢复" };
+               }"#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn no_session_exit_plugin_means_the_host_falls_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = runtime(dir.path());
+        assert_eq!(runtime.session_exit_state(), SessionExitState::NoPlugin);
+        assert!(runtime
+            .decide_session_exit(&json!({"failureKind":"quota"}))
+            .is_none());
+    }
+
+    #[test]
+    fn an_enabled_plugin_decides_and_is_named() {
+        let dir = tempfile::tempdir().unwrap();
+        write_session_exit_plugin(dir.path(), "baton", true);
+        let runtime = runtime(dir.path());
+        assert_eq!(runtime.session_exit_state(), SessionExitState::Active);
+        let choice = runtime
+            .decide_session_exit(&json!({"failureKind":"quota"}))
+            .expect("decision");
+        assert_eq!(choice.plugin_id, "baton");
+        assert_eq!(choice.decision.mode.as_deref(), Some("same-session"));
+    }
+
+    #[test]
+    fn a_disabled_plugin_is_an_explicit_opt_out_not_a_fallback() {
+        // 插件中心关掉这个插件 = 用户不要这个功能；不能因为回落到内置策略又打开
+        let dir = tempfile::tempdir().unwrap();
+        write_session_exit_plugin(dir.path(), "baton", false);
+        let runtime = runtime(dir.path());
+        assert_eq!(runtime.session_exit_state(), SessionExitState::Disabled);
+        assert!(runtime
+            .decide_session_exit(&json!({"failureKind":"quota"}))
+            .is_none());
+    }
+
+    #[test]
+    fn previewing_a_session_exit_plugin_works_even_when_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        write_session_exit_plugin(dir.path(), "baton", false);
+        let runtime = runtime(dir.path());
+        let decision = runtime
+            .preview_session_exit("baton", &json!({"failureKind":"quota"}))
+            .expect("preview runs")
+            .expect("decision");
+        assert_eq!(decision.action, crate::plugin::SessionExitAction::Resume);
+        // 声明了别的钩子的插件不能拿来接棒试跑
+        assert!(runtime.preview_session_exit("missing", &json!({})).is_err());
     }
 }

@@ -1,4 +1,25 @@
 {
+  "sessionBaton": {
+    "hooks": {
+      "request": "リクエスト書き換え",
+      "sessionExit": "セッション終了"
+    },
+    "pluginCenter": {
+      "hint": "ホストされたセッションが落ちたとき、引き継ぐかどうかをこのプラグインが決めます。再起動は PHI が行い、プラグインはプロセスに触れません。"
+    },
+    "preview": {
+      "title": "{{name}} を試走",
+      "hint": "「セッションが落ちた」イベントを編集して、このプラグインの判断を確かめます。判断だけで、実際の再起動は行いません。",
+      "input": "終了イベント",
+      "output": "判断結果",
+      "actionResume": "引き継ぐ",
+      "actionRecord": "記録のみ",
+      "modeFresh": "新しいセッションで引き継ぎ",
+      "modeSame": "同じセッションを継続",
+      "abstained": "プラグインは棄権：この種の終了は組み込みポリシーが処理します。",
+      "invalidJson": "イベントが正しい JSON ではありません"
+    }
+  },
   "gateway": {
     "providers": "プロバイダー",
     "routing": "ルーティング",

@@ -52,6 +52,43 @@ fn changed(snapshot: &Snapshot) {
         let _ = app.emit_to("main", "terminal://changed", snapshot);
     }
 }
+
+/// 应用名只能是 `launch::cli` 认识的那几个。
+/// 接棒从 journal 里读应用名，必须在拿它启动进程之前过这一关。
+pub(crate) fn is_cli_app(app_id: &str) -> Result<(), String> {
+    launch::cli(app_id)
+        .map(|_| ())
+        .ok_or_else(|| "unsupported-app".to_string())
+}
+
+/// 把一条恢复命令拆成 argv（与启动时用的是同一套规则）。
+pub(crate) fn parse_arguments(value: &str) -> Result<Vec<String>, String> {
+    launch::parse_arguments(value)
+}
+
+/// 把单个参数安全地拼回命令串，供 `parse_arguments` 再拆一次。
+pub(crate) fn quote_argument(value: &str) -> String {
+    launch::quote(value)
+}
+
+/// 同一个应用下不重名的窗格标题。
+fn unique_title(state: &Registry, app_id: &str, cwd: &str) -> String {
+    let base = std::path::Path::new(cwd)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| app_id.to_string());
+    let mut title = base.clone();
+    let mut number = 2;
+    while state
+        .sessions
+        .iter()
+        .any(|session| session.app_id == app_id && session.title == title)
+    {
+        title = format!("{base} · {number}");
+        number += 1;
+    }
+    title
+}
 #[cfg(target_os = "macos")]
 fn transition(id: &str, generation: u32, phase: &str, error: Option<String>) {
     let updated = {
@@ -136,20 +173,7 @@ pub fn terminal_create(
         launch::validate_directory(&directory)?;
         let arguments = arguments.unwrap_or_default();
         launch::parse_arguments(&arguments)?;
-        let base = std::path::Path::new(&directory)
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| app_id.clone());
-        let mut title = base.clone();
-        let mut number = 2;
-        while state
-            .sessions
-            .iter()
-            .any(|s| s.app_id == app_id && s.title == title)
-        {
-            title = format!("{base} · {number}");
-            number += 1;
-        }
+        let title = unique_title(&state, &app_id, &directory);
         let snapshot = Snapshot {
             id: uuid::Uuid::new_v4().to_string(),
             app_id,
@@ -173,11 +197,17 @@ fn begin_start(window: tauri::WebviewWindow, session: Snapshot) {
     #[cfg(target_os = "macos")]
     tauri::async_runtime::spawn(async move {
         let plan_session = session.clone();
+        let journal = crate::exit_hook::journal_path();
         let result = tauri::async_runtime::spawn_blocking(move || {
-            launch::prepare(
+            // 每个托管会话都记账：接棒的第一手事实是 CLI 自己的退出码。
+            launch::prepare_with(
                 &plan_session.app_id,
                 &plan_session.launch_cwd,
                 &plan_session.launch_args,
+                Some(launch::ExitHookEnv {
+                    terminal_id: &plan_session.id,
+                    journal: &journal,
+                }),
             )
         })
         .await;
@@ -227,6 +257,57 @@ fn begin_start(window: tauri::WebviewWindow, session: Snapshot) {
     #[cfg(not(target_os = "macos"))]
     let _ = (window, session);
 }
+/// 接棒用的入口：不经过前端，直接在后台新开一个托管窗格。
+///
+/// 与 `terminal_create` 的区别：没有 request_id 去重、不改全局主题——
+/// 接棒是后台行为，不应该顺手改掉用户当前的终端主题。
+pub(crate) fn resume_spawn(
+    app: &tauri::AppHandle,
+    app_id: &str,
+    cwd: &str,
+    arguments: &str,
+) -> Result<Snapshot, String> {
+    if !cfg!(target_os = "macos") {
+        return Err("unsupported-platform".into());
+    }
+    is_cli_app(app_id)?;
+    launch::validate_directory(cwd)?;
+    launch::parse_arguments(arguments)?;
+    APP.get_or_init(|| app.clone());
+    let snapshot = {
+        let mut state = registry().lock().unwrap();
+        if state.closing {
+            return Err("application-exiting".into());
+        }
+        if state.sessions.len() >= 32 {
+            log::warn!(
+                "[baton] 终端窗格已达上限，续跑被跳过: sessions={}",
+                state.sessions.len()
+            );
+            return Err("terminal-limit".into());
+        }
+        let snapshot = Snapshot {
+            id: uuid::Uuid::new_v4().to_string(),
+            app_id: app_id.to_string(),
+            title: unique_title(&state, app_id, cwd),
+            launch_cwd: cwd.to_string(),
+            launch_args: arguments.to_string(),
+            phase: "checking".into(),
+            generation: 1,
+            sequence: 1,
+            error_code: None,
+        };
+        state.sessions.push(snapshot.clone());
+        snapshot
+    };
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "missing-main-window".to_string())?;
+    changed(&snapshot);
+    begin_start(window, snapshot.clone());
+    Ok(snapshot)
+}
+
 #[tauri::command]
 pub fn terminal_restart(
     window: tauri::WebviewWindow,

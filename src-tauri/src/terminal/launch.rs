@@ -26,7 +26,6 @@ pub fn cli(app: &str) -> Option<(&'static str, &'static [&'static str])> {
         _ => return None,
     })
 }
-#[cfg(any(target_os = "macos", test))]
 pub fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -70,8 +69,21 @@ pub struct LaunchPlan {
     pub cwd: PathBuf,
     pub environment: BTreeMap<String, String>,
 }
+
+/// 接棒需要的两样东西：哪个终端会话、退出记账往哪写。
+/// 只有托管在 phi 自己的 PTY 里的会话才拿得到 CLI 的退出码。
 #[cfg(target_os = "macos")]
-pub fn prepare(app: &str, cwd: &str, arguments: &str) -> Result<LaunchPlan, String> {
+pub struct ExitHookEnv<'a> {
+    pub terminal_id: &'a str,
+    pub journal: &'a std::path::Path,
+}
+#[cfg(target_os = "macos")]
+pub fn prepare_with(
+    app: &str,
+    cwd: &str,
+    arguments: &str,
+    exit_hook: Option<ExitHookEnv<'_>>,
+) -> Result<LaunchPlan, String> {
     let (tool, args) = cli(app).ok_or("unsupported-app")?;
     let extra_args = parse_arguments(arguments)?;
     validate_directory(cwd)?;
@@ -123,6 +135,19 @@ pub fn prepare(app: &str, cwd: &str, arguments: &str) -> Result<LaunchPlan, Stri
     };
     if let Some((key, value)) = custom {
         environment.insert(key.into(), value.to_string_lossy().into_owned());
+    }
+    if let Some(exit_hook) = exit_hook {
+        // session.sh 只认这三个环境变量：没有它们就完全不记账，
+        // 不走接棒的启动路径行为不变。
+        environment.insert(
+            crate::exit_hook::JOURNAL_ENV.into(),
+            exit_hook.journal.to_string_lossy().into_owned(),
+        );
+        environment.insert(
+            crate::exit_hook::TERMINAL_ENV.into(),
+            exit_hook.terminal_id.into(),
+        );
+        environment.insert(crate::exit_hook::APP_ENV.into(), app.into());
     }
     Ok(LaunchPlan {
         command,

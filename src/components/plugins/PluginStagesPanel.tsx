@@ -18,8 +18,10 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   commandErrorMessage,
   pluginsApi,
+  type PluginHook,
   type PluginSummary,
   type PluginSummaryResponse,
+  type SessionExitDecision,
 } from "@/lib/api/plugins";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -35,6 +37,43 @@ const SAMPLE_PAYLOAD = JSON.stringify(
   null,
   2,
 );
+
+/** 接棒试跑默认样本：一次额度耗尽导致的异常退出。 */
+const SAMPLE_EXIT_EVENT = JSON.stringify(
+  {
+    app: "claude",
+    cwd: "/tmp/demo",
+    exitCode: 1,
+    failureKind: "quota",
+    reason: "命中 quota 标记：usage limit",
+    hasTarget: true,
+    attempts: 0,
+    lastKind: null,
+    maxAttempts: 2,
+    autoResume: true,
+    evidence: ["上游 429：usage limit reached"],
+    successes: 12,
+  },
+  null,
+  2,
+);
+
+/** 钩子标签。未知钩子原样展示，方便插件作者自己扩展时先看到它。 */
+function hookLabel(hook: PluginHook, t: (key: string) => string): string {
+  if (hook === "request") return t("sessionBaton.hooks.request");
+  if (hook === "session-exit") return t("sessionBaton.hooks.sessionExit");
+  return hook;
+}
+
+/**
+ * 这个插件该用哪种试跑：
+ * - 声明了请求钩子 → 请求体改写试跑；
+ * - 只声明会话退出钩子 → 接棒决策试跑。
+ */
+function previewKind(plugin: PluginSummary): "request" | "session-exit" {
+  if (plugin.hooks.includes("request")) return "request";
+  return "session-exit";
+}
 
 /**
  * 请求插件页签：磁盘上的插件清单、启停、干跑。
@@ -166,6 +205,11 @@ export function PluginStagesPanel() {
                       ? t("pluginCenter.stages.kindScript")
                       : t("pluginCenter.stages.kindRules")}
                   </Badge>
+                  {plugin.hooks.map((hook) => (
+                    <Badge key={hook} variant="outline" className="text-fg-3">
+                      {hookLabel(hook, (key) => t(key) as string)}
+                    </Badge>
+                  ))}
                   <span className="text-caption text-fg-3">
                     v{plugin.version}
                   </span>
@@ -189,6 +233,11 @@ export function PluginStagesPanel() {
                     .filter(Boolean)
                     .join(" · ")}
                 </p>
+                {previewKind(plugin) === "session-exit" && (
+                  <p className="text-caption text-fg-3">
+                    {t("sessionBaton.pluginCenter.hint")}
+                  </p>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-2 pt-0.5">
                 <Button
@@ -212,8 +261,15 @@ export function PluginStagesPanel() {
         </ul>
       )}
 
-      {previewTarget && (
+      {previewTarget && previewKind(previewTarget) === "request" && (
         <PluginPreviewDialog
+          plugin={previewTarget}
+          onClose={() => setPreviewTarget(null)}
+        />
+      )}
+
+      {previewTarget && previewKind(previewTarget) === "session-exit" && (
+        <SessionExitPreviewDialog
           plugin={previewTarget}
           onClose={() => setPreviewTarget(null)}
         />
@@ -309,6 +365,122 @@ function PluginPreviewDialog({ plugin, onClose }: PluginPreviewDialogProps) {
               <pre className="max-h-[240px] overflow-auto rounded-panel border border-border bg-subtle p-3 text-caption text-fg-1">
                 {output}
               </pre>
+            </div>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" size="compact" onClick={onClose}>
+            {t("pluginCenter.close")}
+          </Button>
+          <Button size="compact" onClick={() => void run()} disabled={running}>
+            {running
+              ? t("pluginCenter.running")
+              : t("pluginCenter.stages.previewRun")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface SessionExitPreviewDialogProps {
+  plugin: PluginSummary;
+  onClose: () => void;
+}
+
+/**
+ * 接棒钩子的试跑：给它一段「会话刚挂了」的事件，看它到底怎么判。
+ *
+ * 这里只跑决策，不会启动或重启任何终端——真正的接棒在后台的退出记账监听里。
+ */
+function SessionExitPreviewDialog({
+  plugin,
+  onClose,
+}: SessionExitPreviewDialogProps) {
+  const { t } = useTranslation();
+  const [input, setInput] = useState(SAMPLE_EXIT_EVENT);
+  const [decision, setDecision] = useState<SessionExitDecision | null>(null);
+  const [ran, setRan] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+
+  const run = useCallback(async () => {
+    let event: unknown;
+    try {
+      event = JSON.parse(input);
+    } catch {
+      setError(t("sessionBaton.preview.invalidJson"));
+      setDecision(null);
+      setRan(false);
+      return;
+    }
+    setRunning(true);
+    try {
+      const result = await pluginsApi.previewSessionExit(plugin.id, event);
+      setDecision(result.decision);
+      setRan(true);
+      setError(null);
+    } catch (err) {
+      setError(commandErrorMessage(err));
+      setDecision(null);
+      setRan(false);
+    } finally {
+      setRunning(false);
+    }
+  }, [input, plugin.id, t]);
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>
+            {t("sessionBaton.preview.title", { name: plugin.name })}
+          </DialogTitle>
+          <DialogDescription>
+            {t("sessionBaton.preview.hint")}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-3">
+          <label className="block space-y-1.5">
+            <span className="text-caption text-fg-2">
+              {t("sessionBaton.preview.input")}
+            </span>
+            <Textarea
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              className="min-h-[180px] font-mono text-caption"
+              spellCheck={false}
+            />
+          </label>
+
+          {error && <Notice tone="warning" title={error} />}
+
+          {ran && (
+            <div className="space-y-1.5">
+              <span className="text-caption text-fg-2">
+                {t("sessionBaton.preview.output")}
+              </span>
+              {decision ? (
+                <div className="space-y-1 rounded-panel border border-border bg-subtle p-3">
+                  <p className="text-body text-fg-1">
+                    {decision.action === "resume"
+                      ? t("sessionBaton.preview.actionResume")
+                      : t("sessionBaton.preview.actionRecord")}
+                    {decision.mode
+                      ? ` · ${
+                          decision.mode === "fresh-session"
+                            ? t("sessionBaton.preview.modeFresh")
+                            : t("sessionBaton.preview.modeSame")
+                        }`
+                      : null}
+                  </p>
+                  <p className="text-caption text-fg-2">{decision.reason}</p>
+                </div>
+              ) : (
+                <p className="text-body text-fg-2">
+                  {t("sessionBaton.preview.abstained")}
+                </p>
+              )}
             </div>
           )}
         </DialogBody>

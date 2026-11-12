@@ -1,4 +1,25 @@
 {
+  "sessionBaton": {
+    "hooks": {
+      "request": "Request rewrite",
+      "sessionExit": "Session exit"
+    },
+    "pluginCenter": {
+      "hint": "When a hosted session dies, this plugin decides whether to take over. PHI does the restart itself — plugins never touch the process."
+    },
+    "preview": {
+      "title": "Dry run {{name}}",
+      "hint": "Edit the \"the session just died\" event and see how this plugin would rule. Decision only — nothing is restarted.",
+      "input": "Exit event",
+      "output": "Decision",
+      "actionResume": "Take over",
+      "actionRecord": "Record only",
+      "modeFresh": "new session with handoff",
+      "modeSame": "same session",
+      "abstained": "The plugin abstains: the built-in policy handles this kind of exit.",
+      "invalidJson": "The event is not valid JSON"
+    }
+  },
   "gateway": {
     "providers": "Providers",
     "routing": "Routing",

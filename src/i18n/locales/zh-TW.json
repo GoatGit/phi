@@ -1,4 +1,25 @@
 {
+  "sessionBaton": {
+    "hooks": {
+      "request": "請求改寫",
+      "sessionExit": "會話退出"
+    },
+    "pluginCenter": {
+      "hint": "會話異常退出時由這個外掛決定接不接；重啟本身由 phi 託管完成，外掛不碰行程。"
+    },
+    "preview": {
+      "title": "試跑 {{name}}",
+      "hint": "改一段「會話剛掛了」的事件，看這個外掛會怎麼判。只跑決策，不會真的重啟會話。",
+      "input": "退出事件",
+      "output": "決策結果",
+      "actionResume": "接棒",
+      "actionRecord": "只記錄",
+      "modeFresh": "開新會話並交接",
+      "modeSame": "續原會話",
+      "abstained": "外掛棄權：這類退出交給內建策略處理。",
+      "invalidJson": "事件不是合法 JSON"
+    }
+  },
   "gateway": {
     "providers": "供應商",
     "routing": "路由",

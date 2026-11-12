@@ -1,4 +1,25 @@
 {
+  "sessionBaton": {
+    "hooks": {
+      "request": "请求改写",
+      "sessionExit": "会话退出"
+    },
+    "pluginCenter": {
+      "hint": "会话异常退出时由这个插件决定接不接；重启本身由 phi 托管完成，插件不碰进程。"
+    },
+    "preview": {
+      "title": "试跑 {{name}}",
+      "hint": "改一段「会话刚挂了」的事件，看这个插件会怎么判。只跑决策，不会真的重启会话。",
+      "input": "退出事件",
+      "output": "决策结果",
+      "actionResume": "接棒",
+      "actionRecord": "只记录",
+      "modeFresh": "开新会话并交接",
+      "modeSame": "续原会话",
+      "abstained": "插件弃权：这类退出交给内置策略处理。",
+      "invalidJson": "事件不是合法 JSON"
+    }
+  },
   "gateway": {
     "providers": "供应商",
     "routing": "路由",
