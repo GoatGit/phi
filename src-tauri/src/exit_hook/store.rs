@@ -207,11 +207,25 @@ impl Database {
     }
 
     /// 这个终端会话此前接过几次、最后一次因为什么。
+    ///
+    /// 接棒会开一条**新**的终端会话，所以计数必须顺着 `resume_terminal_id`
+    /// 往回串：只看自己那条记录的话，每次重启都从 0 开始，次数上限与
+    /// 无进展保护就永远不生效——挂一次会无限重启。
     pub(crate) fn baton_history(&self, terminal_id: &str) -> Result<History, AppError> {
+        // 链长有界：每条记录最多派生一次接棒，走完就停；UNION 顺带挡住环。
+        const CHAIN: &str = "WITH RECURSIVE chain(tid) AS (
+    SELECT ?1
+    UNION
+    SELECT attempts.terminal_id FROM baton_attempts AS attempts
+    JOIN chain ON attempts.resume_terminal_id = chain.tid
+) ";
         let conn = lock_conn!(self.conn);
         let attempts: u32 = conn
             .query_row(
-                "SELECT COUNT(*) FROM baton_attempts WHERE terminal_id = ?1",
+                &format!(
+                    "{CHAIN}SELECT COUNT(*) FROM baton_attempts \
+                     WHERE terminal_id IN (SELECT tid FROM chain)"
+                ),
                 params![terminal_id],
                 |row| row.get::<_, i64>(0),
             )
@@ -219,8 +233,11 @@ impl Database {
             .clamp(0, u32::MAX as i64) as u32;
         let last_kind: Option<String> = conn
             .query_row(
-                "SELECT failure_kind FROM baton_attempts WHERE terminal_id = ?1 \
-                 ORDER BY created_at DESC LIMIT 1",
+                &format!(
+                    "{CHAIN}SELECT failure_kind FROM baton_attempts \
+                     WHERE terminal_id IN (SELECT tid FROM chain) \
+                     ORDER BY created_at DESC LIMIT 1"
+                ),
                 params![terminal_id],
                 |row| row.get(0),
             )
@@ -323,6 +340,33 @@ mod tests {
         let history = db.baton_history("t1").unwrap();
         assert_eq!(history.attempts, 2);
         assert_eq!(history.last_kind, Some(FailureKind::Quota));
+        assert_eq!(db.baton_history("missing").unwrap().attempts, 0);
+    }
+
+    #[test]
+    fn history_follows_the_resume_chain_instead_of_resetting() {
+        // 接棒每次都会开一个新的终端会话：只数自己那条记录的话，次数上限与
+        // 无进展保护都会失效，所以计数要顺着 resume_terminal_id 往回串。
+        let db = Database::memory().unwrap();
+        let first = db
+            .baton_record(&record("t1", 1_000, FailureKind::Quota))
+            .unwrap();
+        db.baton_mark_resumed(&first, "same-session", "t2").unwrap();
+        let second = db
+            .baton_record(&record("t2", 2_000, FailureKind::Quota))
+            .unwrap();
+        db.baton_mark_resumed(&second, "same-session", "t3")
+            .unwrap();
+
+        let history = db.baton_history("t3").unwrap();
+        assert_eq!(history.attempts, 2, "续跑链上的次数必须累加");
+        assert_eq!(history.last_kind, Some(FailureKind::Quota));
+
+        // 原始终端只算自己那条；与这条链无关的终端不受影响。
+        assert_eq!(db.baton_history("t1").unwrap().attempts, 1);
+        db.baton_record(&record("other", 3_000, FailureKind::Crash))
+            .unwrap();
+        assert_eq!(db.baton_history("other").unwrap().attempts, 1);
         assert_eq!(db.baton_history("missing").unwrap().attempts, 0);
     }
 

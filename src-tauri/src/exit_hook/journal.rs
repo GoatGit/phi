@@ -57,10 +57,15 @@ pub(crate) fn parse_line(line: &str) -> Option<ExitRecord> {
     })
 }
 
-/// 从 `offset` 读到文件尾。返回新行与下一次该用的偏移。
+/// 从 `offset` 读到文件尾，最多返回 `max_lines` 行（空行不计）。返回新行与
+/// 下一次该用的偏移。
+///
+/// 只消费**完整**的行：journal 由另一个进程追加写入，读到的最后一段可能只写了
+/// 一半。把偏移停在这半行之前，下一轮补全后再读，这次退出就不会被丢掉。
+/// 单行非法 UTF-8 也只丢那一行——不能用一行脏数据牵连整批记账。
 ///
 /// 文件被截断/轮转（当前长度小于偏移）时从头读，避免永远停在错误位置。
-pub(crate) fn read_new_lines(path: &Path, offset: u64) -> (Vec<String>, u64) {
+pub(crate) fn read_new_lines(path: &Path, offset: u64, max_lines: usize) -> (Vec<String>, u64) {
     let Ok(mut file) = std::fs::File::open(path) else {
         return (Vec::new(), 0);
     };
@@ -69,14 +74,23 @@ pub(crate) fn read_new_lines(path: &Path, offset: u64) -> (Vec<String>, u64) {
     if file.seek(SeekFrom::Start(start)).is_err() {
         return (Vec::new(), start);
     }
-    let mut buffer = String::new();
-    let mut reader = std::io::BufReader::new(&mut file);
-    if reader.read_to_string(&mut buffer).is_err() {
-        // 有非法 UTF-8 就放弃这批：宁可少几条记账，也不能拿半行去启动进程。
-        return (Vec::new(), len);
+    let mut bytes = Vec::new();
+    if file.read_to_end(&mut bytes).is_err() {
+        return (Vec::new(), start);
     }
-    let lines = buffer.lines().map(str::to_string).collect();
-    (lines, len)
+    let mut consumed = 0usize;
+    let mut lines: Vec<String> = Vec::new();
+    while consumed < bytes.len() && lines.len() < max_lines {
+        let Some(end) = bytes[consumed..].iter().position(|byte| *byte == b'\n') else {
+            break;
+        };
+        let line = &bytes[consumed..consumed + end];
+        consumed += end + 1;
+        if !line.is_empty() {
+            lines.push(String::from_utf8_lossy(line).into_owned());
+        }
+    }
+    (lines, start + consumed as u64)
 }
 
 #[cfg(test)]
@@ -143,7 +157,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("journal.log");
         std::fs::write(&path, format!("{}\n", line("0", "claude", "/tmp"))).unwrap();
-        let (lines, offset) = read_new_lines(&path, 0);
+        let (lines, offset) = read_new_lines(&path, 0, usize::MAX);
         assert_eq!(lines.len(), 1);
         assert_eq!(offset, path.metadata().unwrap().len());
 
@@ -153,9 +167,61 @@ mod tests {
             .unwrap()
             .write_all(format!("{}\n", line("1", "codex", "/tmp")).as_bytes())
             .unwrap();
-        let (lines, offset) = read_new_lines(&path, offset);
+        let (lines, offset) = read_new_lines(&path, offset, usize::MAX);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("\tcodex\t"));
+        assert_eq!(offset, path.metadata().unwrap().len());
+    }
+
+    #[test]
+    fn a_half_written_line_waits_instead_of_being_consumed() {
+        // journal 是另一个进程追加写的，读到的最后一段可能只写了一半。
+        // 这半行一旦被消费掉，那次退出事件就永远丢了。
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.log");
+        let full = line("1", "claude", "/tmp");
+        let (head, tail) = full.split_at(20);
+        std::fs::write(&path, head).unwrap();
+
+        let (lines, offset) = read_new_lines(&path, 0, usize::MAX);
+        assert!(lines.is_empty());
+        assert_eq!(offset, 0, "半行不能被消费");
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(format!("{tail}\n").as_bytes())
+            .unwrap();
+        let (lines, offset) = read_new_lines(&path, offset, usize::MAX);
+        assert_eq!(lines.len(), 1, "补全后必须能读到这一行");
+        assert_eq!(
+            parse_line(&lines[0]).map(|record| record.exit_code),
+            Some(1)
+        );
+        assert_eq!(offset, path.metadata().unwrap().len());
+    }
+
+    #[test]
+    fn a_capped_batch_leaves_the_rest_for_the_next_round() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.log");
+        let mut file = std::fs::File::create(&path).unwrap();
+        for app in ["claude", "codex", "gemini"] {
+            writeln!(file, "{}", line("1", app, "/tmp")).unwrap();
+        }
+        drop(file);
+
+        let (lines, offset) = read_new_lines(&path, 0, 2);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].contains("\tcodex\t"));
+        assert!(offset < path.metadata().unwrap().len());
+
+        let (lines, offset) = read_new_lines(&path, offset, 2);
+        assert_eq!(lines.len(), 1, "上一轮没读的记账不能丢");
+        assert!(lines[0].contains("\tgemini\t"));
         assert_eq!(offset, path.metadata().unwrap().len());
     }
 
@@ -164,24 +230,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("journal.log");
         std::fs::write(&path, format!("{}\n", line("0", "claude", "/tmp"))).unwrap();
-        let (_, offset) = read_new_lines(&path, 0);
+        let (_, offset) = read_new_lines(&path, 0, usize::MAX);
         assert!(offset > 0);
 
         // 文件被清空（我们自己的轮转或用户手动清理）：不能停在旧偏移上装死。
         std::fs::write(&path, "").unwrap();
-        let (lines, reset) = read_new_lines(&path, offset);
+        let (lines, reset) = read_new_lines(&path, offset, usize::MAX);
         assert!(lines.is_empty());
         assert_eq!(reset, 0, "offset 必须回到文件头");
 
         std::fs::write(&path, format!("{}\n", line("2", "claude", "/tmp"))).unwrap();
-        let (lines, new_offset) = read_new_lines(&path, reset);
+        let (lines, new_offset) = read_new_lines(&path, reset, usize::MAX);
         assert_eq!(lines.len(), 1, "重写后的文件必须从开头读");
         assert_eq!(new_offset, path.metadata().unwrap().len());
     }
 
     #[test]
     fn missing_file_is_not_an_error() {
-        let (lines, offset) = read_new_lines(Path::new("/nonexistent/phi/journal.log"), 0);
+        let (lines, offset) =
+            read_new_lines(Path::new("/nonexistent/phi/journal.log"), 0, usize::MAX);
         assert!(lines.is_empty());
         assert_eq!(offset, 0);
     }

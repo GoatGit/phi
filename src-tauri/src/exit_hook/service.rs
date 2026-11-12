@@ -155,7 +155,25 @@ fn plugin_event(
     })
 }
 
-/// 恢复命令 → 启动参数。`terminal` 自己负责程序名，所以这里把命令的第一个词丢掉。
+/// 恢复命令里「程序名」的位置。
+///
+/// 会话扫描给出的命令不一定以程序名开头：mcode 的是
+/// `env MINIMAX_DATA_DIR=… mcode --session <id>`。启动时程序名由 `terminal`
+/// 补上，环境变量也由启动路径按 phi 的配置注入，所以 `env` 与它带的赋值
+/// 要一起跳过，再跳过程序名本身。只跳过程名，不能碰后面的参数。
+fn program_index(argv: &[String]) -> Option<usize> {
+    for (index, part) in argv.iter().enumerate() {
+        let assignment = index > 0 && !part.starts_with('-') && part.contains('=');
+        if part == "env" || assignment {
+            continue;
+        }
+        return Some(index);
+    }
+    None
+}
+
+/// 恢复命令 → 启动参数。程序名由 `terminal` 负责，所以这里把程序名（以及
+/// 它前面的 `env` 前缀）丢掉，只留真正要交给 CLI 的参数。
 fn resume_arguments(plan: &AttemptPlan, prompt: Option<&str>) -> Option<String> {
     let mut parts: Vec<String> = match plan.mode.as_deref() {
         // 新会话：没有可 resume 的旧会话，直接把交接提示当首条消息带进去。
@@ -163,10 +181,11 @@ fn resume_arguments(plan: &AttemptPlan, prompt: Option<&str>) -> Option<String> 
         _ => {
             let command = plan.resume_command.as_deref()?;
             let mut argv = crate::terminal::parse_arguments(command).ok()?;
+            argv.drain(..=program_index(&argv)?);
+            // 只剩程序名：那不是 resume，别开一个空会话糊弄用户。
             if argv.is_empty() {
                 return None;
             }
-            argv.remove(0);
             argv
         }
     };
@@ -466,30 +485,24 @@ fn tick(app: &tauri::AppHandle) {
         .flatten()
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(0);
-    let (lines, new_offset) = super::journal::read_new_lines(&path, offset);
-    if new_offset != offset {
-        if let Err(error) = db.set_setting(OFFSET_KEY, &new_offset.to_string()) {
-            log::warn!("[baton] 游标写入失败: {error}");
-        }
+    // 只读完整的行，且一 tick 有上限：journal 被灌满时不能让线程停在这里。
+    // 游标在处理之后才推进——中途退出最多重放一遍（记录有唯一键去重），
+    // 不会把还没处理的记账跳过去。
+    let (lines, new_offset) = super::journal::read_new_lines(&path, offset, MAX_LINES_PER_TICK);
+    if lines.len() >= MAX_LINES_PER_TICK {
+        log::warn!("[baton] 单次最多处理 {MAX_LINES_PER_TICK} 条退出记账，其余留到下一轮");
     }
-    if lines.is_empty() {
-        return;
-    }
-    let mut processed = 0usize;
     for line in &lines {
-        if processed >= MAX_LINES_PER_TICK {
-            log::warn!(
-                "[baton] 单次最多处理 {} 条退出记账，其余留到下一轮",
-                MAX_LINES_PER_TICK
-            );
-            break;
-        }
         match super::journal::parse_line(line) {
             Some(record) => {
-                processed += 1;
                 handle_record(app, &record);
             }
             None => log::warn!("[baton] 丢弃无法解析的退出记账（长度 {}）", line.len()),
+        }
+    }
+    if new_offset != offset {
+        if let Err(error) = db.set_setting(OFFSET_KEY, &new_offset.to_string()) {
+            log::warn!("[baton] 游标写入失败: {error}");
         }
     }
 }
@@ -582,6 +595,18 @@ mod tests {
     }
 
     #[test]
+    fn env_prefixed_resume_commands_keep_only_the_real_arguments() {
+        // mcode 的恢复命令带 `env VAR=…` 前缀：程序名与环境变量都由启动路径
+        // 负责，剩下的才是要交给 CLI 的参数。整条照搬会把前缀当成参数传进去。
+        let plan = plan_with(
+            Some("same-session"),
+            Some("env MINIMAX_DATA_DIR='/tmp/data dir' mcode --session abc"),
+            None,
+        );
+        assert_eq!(resume_arguments(&plan, None).unwrap(), "--session abc");
+    }
+
+    #[test]
     fn resume_arguments_quote_values_that_contain_spaces() {
         let plan = plan_with(
             Some("same-session"),
@@ -641,6 +666,58 @@ mod tests {
         let db = Database::memory().unwrap();
         db.set_setting(POLICY_KEY, "{not json").unwrap();
         assert_eq!(load_policy(&db), Policy::default());
+    }
+
+    #[test]
+    fn a_resume_chain_stops_instead_of_looping_forever() {
+        // 真实事故的形状：「额度耗尽 → 接棒 → 又耗尽」。次数上限与无进展
+        // 保护必须顺着续跑链生效：每次接棒都开一个新终端会话，只看自己那条
+        // 记录的话计数永远从 0 开始，结果就是无限重启。
+        let db = Database::memory().unwrap();
+        let policy = Policy::default();
+        let verdict = classify::Verdict::Failed {
+            kind: FailureKind::Quota,
+            reason: "命中 quota 标记：usage limit".into(),
+        };
+        let mut terminal = "t0".to_string();
+        let mut resumed = 0u32;
+
+        for round in 0..6 {
+            let decision = plan::decide(
+                &verdict,
+                policy.auto_resume,
+                policy.max_attempts,
+                db.baton_history(&terminal).unwrap(),
+                true,
+            );
+            if let Decision::Stop(_) = decision {
+                break;
+            }
+            let id = db
+                .baton_record(&RecordInput {
+                    terminal_id: terminal.clone(),
+                    app_id: "claude".into(),
+                    cwd: "/tmp/demo".into(),
+                    exit_code: 1,
+                    kind: FailureKind::Quota,
+                    reason: "命中 quota 标记".into(),
+                    resume_mode: Some("same-session"),
+                    resume_command: Some("claude --resume abc".into()),
+                    handoff_path: None,
+                    decided_by: None,
+                    created_at: 1_000 + i64::from(round),
+                })
+                .unwrap();
+            let next = format!("t{}", round + 1);
+            db.baton_mark_resumed(&id, "same-session", &next).unwrap();
+            resumed += 1;
+            terminal = next;
+        }
+
+        assert_eq!(
+            resumed, 1,
+            "同一原因只该接一次：第二次已经没有进展，必须停下"
+        );
     }
 
     #[test]
