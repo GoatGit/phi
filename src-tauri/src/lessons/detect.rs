@@ -61,6 +61,10 @@ pub(crate) fn collect(
     let mut scanned_through = since;
 
     for meta in candidates.into_iter().take(limit) {
+        // 水位按「看过的会话」推进，而不是「读成功了的会话」：没有会话文件、或文件已
+        // 经读不出来的会话如果不动水位，下次刷新会又一次把它们排在最前面，把单次
+        // 上限吃完，新会话就永远轮不到。
+        scanned_through = scanned_through.max(last_active(meta));
         let Some(source_path) = meta.source_path.as_deref() else {
             continue;
         };
@@ -70,7 +74,6 @@ pub(crate) fn collect(
             continue;
         };
         scanned_sessions += 1;
-        scanned_through = scanned_through.max(last_active(meta));
         for detected in failures_in(workspace, &loaded.transcript.messages) {
             events.push(FailureEvent {
                 app: meta.provider_id.clone(),
@@ -111,7 +114,7 @@ pub(crate) fn failures_in(workspace: &Path, messages: &[SessionMessage]) -> Vec<
     let mut calls: HashMap<String, (ToolKind, String, bool)> = HashMap::new();
     let mut edited: Vec<String> = Vec::new();
     let mut out: Vec<Detected> = Vec::new();
-    let mut seen: Vec<(ToolKind, String, Option<i32>)> = Vec::new();
+    let mut seen: Vec<(ToolKind, String)> = Vec::new();
     let mut clock = 0i64;
 
     for message in messages {
@@ -159,7 +162,9 @@ pub(crate) fn failures_in(workspace: &Path, messages: &[SessionMessage]) -> Vec<
                         // 用户自己敲的命令失败，不是 agent 的判断失误
                         continue;
                     }
-                    let key = (*kind, title.clone(), *exit_code);
+                    // 去重口径与教训 id 一致：同一个会话里同一条命令只算一次，退出码
+                    // 变了也还是同一条（换个退出码不该让一次失败变两条）。
+                    let key = (*kind, title.clone());
                     if seen.contains(&key) {
                         continue;
                     }
@@ -194,7 +199,9 @@ fn tags_for(kind: ToolKind, title: &str, workspace: &Path, edited: &[String]) ->
 
 /// 把工具标题里的路径归一成仓库相对路径（认不出就返回 `None`）。
 pub(crate) fn normalize_path(workspace: &Path, raw: &str) -> Option<String> {
-    let text = raw.trim().trim_matches(|c: char| matches!(c, '"' | '\'' | '`'));
+    let text = raw
+        .trim()
+        .trim_matches(|c: char| matches!(c, '"' | '\'' | '`'));
     if text.is_empty() {
         return None;
     }
@@ -225,9 +232,7 @@ fn strip_line_suffix(text: &str) -> &str {
     let Some((head, tail)) = text.rsplit_once(':') else {
         return text;
     };
-    if !head.is_empty()
-        && !tail.is_empty()
-        && tail.chars().all(|c| c.is_ascii_digit() || c == '-')
+    if !head.is_empty() && !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit() || c == '-')
     {
         return head;
     }
@@ -284,6 +289,20 @@ mod tests {
         Path::new("/repo")
     }
 
+    fn meta(id: &str, last_active: i64, source: Option<&str>) -> SessionMeta {
+        SessionMeta {
+            provider_id: "codex".into(),
+            session_id: id.into(),
+            title: None,
+            summary: None,
+            project_dir: Some("/repo".into()),
+            created_at: Some(last_active),
+            last_active_at: Some(last_active),
+            source_path: source.map(|path| path.to_string()),
+            resume_command: None,
+        }
+    }
+
     #[test]
     fn shell_failure_is_tagged_with_the_files_edited_in_the_same_session() {
         let messages = vec![
@@ -326,6 +345,37 @@ mod tests {
         ];
 
         assert_eq!(failures_in(workspace(), &messages).len(), 1);
+    }
+
+    #[test]
+    fn the_same_command_counts_once_even_when_the_exit_code_changes() {
+        // 教训 id 只由「路径 + 命令」决定，会话内去重就该同一个口径
+        let messages = vec![
+            call("1", ToolKind::Shell, "cargo test"),
+            result("1", ToolStatus::Error, Some(1)),
+            call("2", ToolKind::Shell, "cargo test"),
+            result("2", ToolStatus::Error, Some(101)),
+        ];
+
+        assert_eq!(failures_in(workspace(), &messages).len(), 1);
+    }
+
+    #[test]
+    fn sessions_that_cannot_be_read_still_advance_the_watermark() {
+        // 没有会话文件、或文件读不出来的会话如果不动水位，刷新会永远卡在同一批最老的
+        // 会话上，后面的会话一辈子轮不到。
+        let sessions = vec![
+            meta("s1", 100, None),
+            meta("s2", 200, Some("/nonexistent/phi-lessons-test.jsonl")),
+        ];
+
+        let collected = collect(workspace(), &sessions, 0, 10);
+
+        assert_eq!(collected.scanned_through, 200);
+        assert_eq!(collected.pending_sessions, 0);
+        // 读不出来就不算「扫过」，这一点保持不变
+        assert_eq!(collected.scanned_sessions, 0);
+        assert!(collected.events.is_empty());
     }
 
     #[test]

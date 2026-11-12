@@ -4,6 +4,7 @@
 //! prompt cache 的前缀才保得住。
 
 use crate::lessons::detect::FailureEvent;
+use crate::lessons::inject::{BEGIN_MARKER, END_MARKER};
 use crate::lessons::model::Lesson;
 use crate::session_manager::model::ToolKind;
 use chrono::{Local, TimeZone};
@@ -13,6 +14,8 @@ pub(crate) const BUDGET_CHARS: usize = 500;
 /// 单条教训的字符上限：超了截断，省得一条就把预算吃光。
 const LINE_MAX_CHARS: usize = 140;
 const TITLE_MAX_CHARS: usize = 72;
+/// 块的第一句说明，算在预算里。
+const INTRO: &str = "以下是从失败会话里沉淀的禁区，动相关文件前先看这一条。\n\n";
 
 /// 待写入的一条教训（还没进库）。
 #[derive(Clone, Debug, PartialEq)]
@@ -56,7 +59,14 @@ fn trigger_text(kind: ToolKind, title: &str, exit_code: Option<i32>) -> String {
 
 fn looks_like_check(title: &str) -> bool {
     const WORDS: [&str; 8] = [
-        "test", "check", "lint", "clippy", "build", "tsc", "verify", "typecheck",
+        "test",
+        "check",
+        "lint",
+        "clippy",
+        "build",
+        "tsc",
+        "verify",
+        "typecheck",
     ];
     let lowered = title.to_lowercase();
     WORDS.iter().any(|word| lowered.contains(word))
@@ -140,13 +150,27 @@ fn line_for(lesson: &Lesson) -> String {
     if char_len(&line) <= LINE_MAX_CHARS {
         return line;
     }
-    let mut out: String = line.chars().take(LINE_MAX_CHARS.saturating_sub(1)).collect();
+    let mut out: String = line
+        .chars()
+        .take(LINE_MAX_CHARS.saturating_sub(1))
+        .collect();
     out.push('…');
     out
 }
 
 fn header(version: i64) -> String {
     format!("## 禁区清单 · lessons v{version}")
+}
+
+/// 块里与教训无关的固定开销：首尾标记、标题、说明句以及它们之间的换行。
+/// 预算必须把它算进去，否则块本身能轻松超出「500 字」这个对外承诺。
+fn overhead_chars(version: i64) -> usize {
+    char_len(BEGIN_MARKER)
+        + 1
+        + char_len(&header(version))
+        + 2
+        + char_len(INTRO)
+        + char_len(END_MARKER)
 }
 
 /// 按预算挑出要注入的教训：命中次数优先，其次最近性；渲染时仍按首次出现的顺序。
@@ -159,7 +183,7 @@ fn select(lessons: &[Lesson], budget: usize, version: i64) -> Vec<&Lesson> {
     scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
 
     // 头部与标记本身也占预算，先扣掉
-    let mut used = char_len(&header(version)) + 4;
+    let mut used = overhead_chars(version);
     let mut picked: Vec<&Lesson> = Vec::new();
     for (_, _, lesson) in scored {
         if picked.len() >= 10 {
@@ -183,15 +207,16 @@ pub(crate) fn render_block(lessons: &[Lesson], version: i64) -> String {
         return String::new();
     }
     let mut out = String::new();
-    out.push_str("<!-- phi:lessons:begin -->\n");
+    out.push_str(BEGIN_MARKER);
+    out.push('\n');
     out.push_str(&header(version));
     out.push_str("\n\n");
-    out.push_str("以下是从失败会话里沉淀的禁区，动相关文件前先看这一条。\n\n");
+    out.push_str(INTRO);
     for lesson in picked {
         out.push_str(&line_for(lesson));
         out.push('\n');
     }
-    out.push_str("<!-- phi:lessons:end -->");
+    out.push_str(END_MARKER);
     out
 }
 
@@ -249,7 +274,11 @@ mod tests {
 
     #[test]
     fn templates_say_what_broke_and_what_to_do_next() {
-        let candidate = candidate(&event(&["src/billing/invoice.rs"], "cargo test -- billing", Some(1)));
+        let candidate = candidate(&event(
+            &["src/billing/invoice.rs"],
+            "cargo test -- billing",
+            Some(1),
+        ));
         assert_eq!(candidate.trigger, "`cargo test -- billing` 退出码 1");
         assert_eq!(
             candidate.next_step,
@@ -295,6 +324,31 @@ mod tests {
         lessons[0].dismissed = true;
         lessons[0].dismiss_reason = Some("误报".into());
         assert!(render_block(&lessons, 1).is_empty());
+    }
+
+    #[test]
+    fn the_whole_block_including_its_markers_fits_the_budget() {
+        // 预算算的是「写进 AGENTS.md 的那一整块」：标记、标题、说明句都占字数，
+        // 只按正文行记账会让真实块超预算。10 条是条数上限，正好压在最坏情况上。
+        let lessons: Vec<Lesson> = (0..10)
+            .map(|index| {
+                let mut entry = lesson(
+                    &format!("id-{index}"),
+                    &format!("src/billing/invoice{index}.rs"),
+                    10 - index,
+                    1_700_000_000_000 + index,
+                );
+                entry.trigger = "`cargo test -- billing --all-features` 退出码 1".into();
+                entry
+            })
+            .collect();
+
+        let block = render_block(&lessons, 1);
+        let used = block_chars(&block);
+        assert!(
+            used <= BUDGET_CHARS,
+            "block uses {used} chars, budget is {BUDGET_CHARS}"
+        );
     }
 
     #[test]

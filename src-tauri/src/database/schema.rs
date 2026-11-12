@@ -4080,6 +4080,48 @@ mod tests {
     }
 
     #[test]
+    fn migrate_v23_to_v24_creates_lesson_tables_and_keeps_existing_rows() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE providers (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+             INSERT INTO providers (id, name) VALUES ('p-1', 'kept');",
+        )?;
+        Database::set_user_version(&conn, 23)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let kept: String =
+            conn.query_row("SELECT name FROM providers WHERE id = 'p-1'", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(kept, "kept");
+        // 三张表都要真能写：教训、按会话计数的命中记录、工作区设置。
+        conn.execute(
+            "INSERT INTO lessons (root, id, paths, trigger_text, evidence, next_step,
+                                  hits, first_seen, last_seen, apps)
+             VALUES ('/repo', 'l-1', '[]', 'trigger', 'evidence', 'next', 1, 2, 3, '[]')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO lesson_occurrences (root, lesson_id, session_id, seen_at)
+             VALUES ('/repo', 'l-1', 's-1', 4)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO lesson_settings (root, inject) VALUES ('/repo', 1)",
+            [],
+        )?;
+        let injected: i64 = conn.query_row(
+            "SELECT inject FROM lesson_settings WHERE root = '/repo'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(injected, 1);
+        Ok(())
+    }
+
+    #[test]
     fn phi_fresh_database_uses_independent_port() -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         Database::create_tables_on_conn(&conn)?;
