@@ -53,6 +53,28 @@ fn plan_block(active: &[Lesson], current: Option<&str>, version: i64) -> (String
     (render::render_block(active, next_version), next_version)
 }
 
+/// 删掉的教训要立刻从 `AGENTS.md` 里消失，而不是等下一次刷新。
+/// 用户看到的是「我删了它」，文件里却还在，就等于删不掉。
+fn dismiss_lesson(
+    db: &Database,
+    key: &str,
+    workspace: &Path,
+    id: &str,
+    reason: &str,
+) -> Result<(), String> {
+    if !db.dismiss_lesson(key, id, reason).map_err(err)? {
+        return Err("lesson-not-found".into());
+    }
+    sync_injection(db, key, workspace)
+}
+
+fn restore_lesson(db: &Database, key: &str, workspace: &Path, id: &str) -> Result<(), String> {
+    if !db.restore_lesson(key, id).map_err(err)? {
+        return Err("lesson-not-found".into());
+    }
+    sync_injection(db, key, workspace)
+}
+
 fn read_text(file: &Path) -> String {
     std::fs::read_to_string(file).unwrap_or_default()
 }
@@ -241,9 +263,7 @@ pub fn lesson_dismiss(
     }
     let path = workspace_path(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
-    if !state.db.dismiss_lesson(&key, &id, reason).map_err(err)? {
-        return Err("lesson-not-found".into());
-    }
+    dismiss_lesson(&state.db, &key, &path, &id, reason)?;
     state_of(&state.db, &key, &path)
 }
 
@@ -255,9 +275,7 @@ pub fn lesson_restore(
 ) -> Result<LessonState, String> {
     let path = workspace_path(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
-    if !state.db.restore_lesson(&key, &id).map_err(err)? {
-        return Err("lesson-not-found".into());
-    }
+    restore_lesson(&state.db, &key, &path, &id)?;
     state_of(&state.db, &key, &path)
 }
 
@@ -302,4 +320,79 @@ pub fn lesson_set_injection(
     db.save_lesson_settings(&key, settings).map_err(err)?;
 
     preview_of(db, &key, &path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lessons::model::Lesson;
+    use crate::lessons::store::Settings;
+
+    fn lesson(id: &str, path: &str) -> Lesson {
+        Lesson {
+            id: id.into(),
+            paths: vec![path.into()],
+            trigger: "`cargo test` 退出码 1".into(),
+            evidence: "codex 会话 abcdef12（2026-11-12）".into(),
+            next_step: "下次：动手前先跑 `cargo test` 确认基线。".into(),
+            hits: 1,
+            first_seen: 1_700_000_000_000,
+            last_seen: 1_700_000_000_000,
+            apps: vec!["codex".into()],
+            dismissed: false,
+            dismiss_reason: None,
+        }
+    }
+
+    #[test]
+    fn dismissing_and_restoring_syncs_agents_md_while_injection_is_on() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = dir.path();
+        let file = workspace.join(AGENTS_FILE);
+        std::fs::write(&file, "# AGENTS.md\n\n项目规则。\n").expect("seed file");
+
+        let db = Database::memory().expect("memory db");
+        let key = workspace.to_string_lossy().into_owned();
+        db.insert_lesson(&key, &lesson("a", "src/a.rs"))
+            .expect("insert");
+        db.save_lesson_settings(
+            &key,
+            Settings {
+                inject: true,
+                ..Settings::default()
+            },
+        )
+        .expect("settings");
+
+        sync_injection(&db, &key, workspace).expect("sync");
+        assert!(read_text(&file).contains("src/a.rs"));
+
+        // 删掉就等于「从 AGENTS.md 里消失」，不能只改库、把文件留给下次刷新
+        dismiss_lesson(&db, &key, workspace, "a", "误报").expect("dismiss");
+        assert!(!read_text(&file).contains("src/a.rs"));
+
+        restore_lesson(&db, &key, workspace, "a").expect("restore");
+        assert!(read_text(&file).contains("src/a.rs"));
+    }
+
+    #[test]
+    fn dismiss_requires_a_reason_that_the_store_can_keep() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = dir.path();
+        let db = Database::memory().expect("memory db");
+        let key = workspace.to_string_lossy().into_owned();
+        db.insert_lesson(&key, &lesson("a", "src/a.rs"))
+            .expect("insert");
+
+        assert!(dismiss_lesson(&db, &key, workspace, "missing", "误报").is_err());
+        assert!(dismiss_lesson(&db, &key, workspace, "a", "误报").is_ok());
+        assert_eq!(
+            db.lesson(&key, "a")
+                .expect("get")
+                .expect("exists")
+                .dismiss_reason
+                .as_deref(),
+            Some("误报")
+        );
+    }
 }
