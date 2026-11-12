@@ -17,6 +17,7 @@ export type AppPage = "home" | "providers" | "workspace" | "hermesMemory";
 export type GlobalPage =
   | "routingOverview"
   | "tasks"
+  | "reportCard"
   | "plugins"
   | "usage"
   | "mcp"
@@ -68,6 +69,7 @@ const APP_PAGES: AppPage[] = ["home", "providers", "workspace", "hermesMemory"];
 const GLOBAL_PAGES: GlobalPage[] = [
   "routingOverview",
   "tasks",
+  "reportCard",
   "plugins",
   "usage",
   "mcp",

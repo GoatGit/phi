@@ -5654,7 +5654,7 @@
     "saving": "保存中…",
     "close": "閉じる",
     "tabs": {
-      "stages": "リクエスト",
+      "stages": "プラグイン",
       "privacy": "プライバシー",
       "router": "MCP ルーティング",
       "lessons": "教訓庫"
@@ -5702,6 +5702,10 @@
       "intro": "プラグインは上流に送る前のリクエスト本文を書き換えます。優先度の小さい順に実行され、失敗したプラグインはそれだけが実行されないままになります。",
       "dir": "プラグインフォルダ",
       "kindRules": "ルール",
+      "kindFeature": "機能",
+      "builtin": "ホスト内蔵",
+      "panelEntry": "パネル：{{entry}}",
+      "openPanel": "開く",
       "kindScript": "スクリプト",
       "priority": "優先度 {{value}}",
       "ruleCount": "{{count}} 件のルール",
@@ -5792,6 +5796,43 @@
       "applyFailed": "設定は保存しましたが、反映に失敗しました：{{message}}",
       "saveFailed": "保存できませんでした：{{message}}",
       "loadFailed": "MCP ルーティング設定を読めませんでした"
+    }
+  },
+  "reportCard": {
+    "title": "成績表",
+    "windowLabel": "集計期間",
+    "windowDays": "{{days}} 日",
+    "refresh": "再スキャン",
+    "unprovenTitle": "これは信頼性で、品質ではありません",
+    "unprovenBody": "数値はセッション内のツール結果から作っています。phi はあなたの検収コマンドを実行しておらず、変更が取り消されたかもまだ追跡していません。そのため「どちらが失敗しにくいか」だけを比べ、「どちらが仕事を成し遂げるか」は判定しません。",
+    "loadFailed": "成績表を読み込めませんでした",
+    "retry": "再試行",
+    "emptyTitle": "採点できるセッションがまだありません",
+    "emptyBody": "このマシン上でエージェントのセッションを使うと記録が始まります。いくつかクスクを実行してから戻ってきてください。",
+    "footnote": "タスクは 30 分のアイドルで区切ります。サンプルが 5 件未満のときは割合ではなく件数を表示します。データはこのマシンから出ません。",
+    "unlabeledModel": "モデル未記録",
+    "insufficient": "サンプル不足（{{samples}}）",
+    "today": "今日",
+    "daysAgo": "{{days}} 日前",
+    "columns": {
+      "model": "モデル",
+      "tasks": "タスク",
+      "calls": "ツール呼び出し",
+      "failureRate": "失敗率",
+      "interruptRate": "中断率",
+      "emptyDelivery": "空納品率",
+      "stepDuration": "1 ステップの所要時間",
+      "costPerTask": "タスクあたりコスト",
+      "lastSeen": "最終利用"
+    },
+    "summary": {
+      "tasks": "タスク",
+      "models": "モデル",
+      "projects": "プロジェクト",
+      "sources": "セッション",
+      "syncing": "セッションをスキャン中…",
+      "syncedRecently": "たった今同期しました",
+      "synced": "今回 {{count}} 件のセッションを解析"
     }
   },
   "tasks": {

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { GlobalPage } from "@/lib/navigation";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
 import { PageTabs } from "@/components/ui/page-tabs";
@@ -13,6 +14,8 @@ type PluginCenterTab = "stages" | "privacy" | "router" | "lessons";
 interface PluginCenterPageProps {
   /** 从别处下钻进来时的返回入口 */
   onBack?: () => void;
+  /** 功能插件的「打开」：跳到它挂的内置面板 */
+  onOpenPanel?: (page: GlobalPage) => void;
 }
 
 /**
@@ -27,7 +30,10 @@ interface PluginCenterPageProps {
  * 所以这里只做页签与页头，各页签自己的读取、保存、试跑都在面板里，
  * 切页签不共享状态，也不会互相触发请求。
  */
-export function PluginCenterPage({ onBack }: PluginCenterPageProps = {}) {
+export function PluginCenterPage({
+  onBack,
+  onOpenPanel,
+}: PluginCenterPageProps = {}) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<PluginCenterTab>("stages");
 
@@ -64,7 +70,7 @@ export function PluginCenterPage({ onBack }: PluginCenterPageProps = {}) {
           role="tabpanel"
           aria-labelledby={`plugin-center-tab-${tab}`}
         >
-          {tab === "stages" && <PluginStagesPanel />}
+          {tab === "stages" && <PluginStagesPanel onOpenPanel={onOpenPanel} />}
           {tab === "privacy" && <PrivacyPanel />}
           {tab === "router" && <McpRouterPanel />}
           {tab === "lessons" && <LessonsPanel />}

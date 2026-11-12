@@ -5654,7 +5654,7 @@
     "saving": "Saving…",
     "close": "Close",
     "tabs": {
-      "stages": "Request plugins",
+      "stages": "Plugins",
       "privacy": "Privacy",
       "router": "MCP routing",
       "lessons": "Lessons"
@@ -5702,6 +5702,10 @@
       "intro": "Plugins rewrite the request body before it leaves for the upstream. They run from the lowest priority to the highest, and a failing plugin only skips itself.",
       "dir": "Plugin directory",
       "kindRules": "Rules",
+      "kindFeature": "Feature",
+      "builtin": "Built-in",
+      "panelEntry": "Panel: {{entry}}",
+      "openPanel": "Open",
       "kindScript": "Script",
       "priority": "priority {{value}}",
       "ruleCount": "{{count}} rules",
@@ -5792,6 +5796,43 @@
       "applyFailed": "Config saved, but re-applying failed: {{message}}",
       "saveFailed": "Could not save: {{message}}",
       "loadFailed": "Could not read the MCP routing config"
+    }
+  },
+  "reportCard": {
+    "title": "Report card",
+    "windowLabel": "Window",
+    "windowDays": "{{days}}d",
+    "refresh": "Rescan",
+    "unprovenTitle": "This is reliability, not quality",
+    "unprovenBody": "The numbers come from tool results already in your sessions. phi has not run your acceptance commands and does not yet track whether changes were reverted, so this compares who trips less — not who does better work.",
+    "loadFailed": "Could not read the report card",
+    "retry": "Retry",
+    "emptyTitle": "Nothing to score yet",
+    "emptyBody": "phi can only score work it can see on this machine. Run a few tasks with your agents, then come back.",
+    "footnote": "Tasks are split on 30-minute idle gaps. Below five samples phi shows the sample size instead of a percentage. Everything stays on this machine.",
+    "unlabeledModel": "Unlabeled model",
+    "insufficient": "Too few samples ({{samples}})",
+    "today": "Today",
+    "daysAgo": "{{days}}d ago",
+    "columns": {
+      "model": "Model",
+      "tasks": "Tasks",
+      "calls": "Tool calls",
+      "failureRate": "Failure rate",
+      "interruptRate": "Interrupted",
+      "emptyDelivery": "Empty delivery",
+      "stepDuration": "Step time",
+      "costPerTask": "Cost / task",
+      "lastSeen": "Last active"
+    },
+    "summary": {
+      "tasks": "Tasks",
+      "models": "Models",
+      "projects": "Projects",
+      "sources": "Sessions",
+      "syncing": "Scanning sessions…",
+      "syncedRecently": "Synced just now",
+      "synced": "Parsed {{count}} changed sessions this round"
     }
   },
   "tasks": {

@@ -1,4 +1,11 @@
-//! 插件系统：外部请求改写能力的宿主。
+//! 插件系统：外部请求改写与宿主功能面板的宿主。
+//!
+//! 两类插件共用一套定义与启停机制：
+//! - 请求插件（`rules` / `script`）：改写出站请求体，跑在代理热路径上；
+//! - 功能插件（`feature`）：只在界面挂一个内置面板，不参与请求。
+//!
+//! 功能插件不携带前端代码，清单元数据里的 `panel.entry` 只能指向
+//! [`manifest::BUILTIN_PANELS`] 里的内置面板，所以启用它不会扩大攻击面。
 //!
 //! ## 为什么是「阶段」而不是「回调」
 //!
@@ -31,7 +38,8 @@ pub mod session_exit;
 pub mod stage;
 
 pub use manifest::{
-    DeclarativeOp, DeclarativeRule, PluginHook, PluginKind, PluginManifest, PluginValidationError,
+    DeclarativeOp, DeclarativeRule, PanelDeclaration, PluginHook, PluginKind, PluginManifest,
+    PluginValidationError, BUILTIN_PANELS,
 };
 pub use registry::{
     LoadedPlugin, PluginLoadError, PluginOverrides, PluginRegistry, PluginSummary, STATE_FILE,

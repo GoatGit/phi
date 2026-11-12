@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Play, RefreshCw } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, Play, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +24,8 @@ import {
   type PluginSummaryResponse,
   type SessionExitDecision,
 } from "@/lib/api/plugins";
+import type { GlobalPage } from "@/lib/navigation";
+import { panelViewFor, pluginKeys } from "@/hooks/usePluginPanels";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
@@ -68,22 +71,31 @@ function hookLabel(hook: PluginHook, t: (key: string) => string): string {
 /**
  * 这个插件该用哪种试跑：
  * - 声明了请求钩子 → 请求体改写试跑；
- * - 只声明会话退出钩子 → 接棒决策试跑。
+ * - 只声明会话退出钩子 → 接棒决策试跑；
+ * - 功能插件两种都不跑（它只在界面挂面板）。
  */
-function previewKind(plugin: PluginSummary): "request" | "session-exit" {
+function previewKind(
+  plugin: PluginSummary,
+): "request" | "session-exit" | "none" {
+  if (plugin.kind === "feature") return "none";
   if (plugin.hooks.includes("request")) return "request";
   return "session-exit";
 }
 
 /**
- * 请求插件页签：磁盘上的插件清单、启停、干跑。
+ * 插件页签：磁盘插件与宿主自带功能插件的清单、启停、试跑。
  *
- * 这一层不改插件目录结构，只读清单 + 写 `plugins-state.json`；插件本体由用户
- * 自己放在配置目录里，所以这里的主要工作是「让用户看清现在有哪些插件、
- * 各自改了哪一步、出错的是哪一个」。
+ * 请求插件可以干跑一次看它把请求体改成什么；功能插件不跑代码，只有「打开」
+ * 一个动作。两类插件共用一份启用状态（`plugins-state.json`），停用后侧栏入口
+ * 一起消失。
  */
-export function PluginStagesPanel() {
+export function PluginStagesPanel({
+  onOpenPanel,
+}: {
+  onOpenPanel?: (page: GlobalPage) => void;
+} = {}) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [data, setData] = useState<PluginSummaryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,6 +127,8 @@ export function PluginStagesPanel() {
         // 命令回的是重扫后的完整摘要，直接替换本地状态，省一次往返。
         setData(await pluginsApi.setEnabled(plugin.id, enabled));
         setError(null);
+        // 侧栏的功能面板入口读的是同一份摘要，启停后要重新拉一次。
+        void queryClient.invalidateQueries({ queryKey: pluginKeys.list });
       } catch (err) {
         toast.error(
           t("pluginCenter.stages.toggleFailed", {
@@ -125,7 +139,7 @@ export function PluginStagesPanel() {
         setBusyId(null);
       }
     },
-    [t],
+    [t, queryClient],
   );
 
   const plugins = data?.plugins ?? [];
@@ -190,74 +204,102 @@ export function PluginStagesPanel() {
 
       {plugins.length > 0 && (
         <ul className="divide-y divide-border overflow-hidden rounded-panel border border-border">
-          {plugins.map((plugin) => (
-            <li
-              key={plugin.id}
-              className="flex items-start gap-3 bg-surface px-4 py-3"
-            >
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-strong font-medium text-fg-1">
-                    {plugin.name}
-                  </span>
-                  <Badge variant="outline" className="text-fg-2">
-                    {plugin.kind === "script"
-                      ? t("pluginCenter.stages.kindScript")
-                      : t("pluginCenter.stages.kindRules")}
-                  </Badge>
-                  {plugin.hooks.map((hook) => (
-                    <Badge key={hook} variant="outline" className="text-fg-3">
-                      {hookLabel(hook, (key) => t(key) as string)}
+          {plugins.map((plugin) => {
+            const panelView =
+              plugin.kind === "feature" && plugin.panel
+                ? panelViewFor(plugin.panel.entry)
+                : null;
+            return (
+              <li
+                key={plugin.id}
+                className="flex items-start gap-3 bg-surface px-4 py-3"
+              >
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-strong font-medium text-fg-1">
+                      {plugin.name}
+                    </span>
+                    <Badge variant="outline" className="text-fg-2">
+                      {plugin.kind === "feature"
+                        ? t("pluginCenter.stages.kindFeature")
+                        : plugin.kind === "script"
+                          ? t("pluginCenter.stages.kindScript")
+                          : t("pluginCenter.stages.kindRules")}
                     </Badge>
-                  ))}
-                  <span className="text-caption text-fg-3">
-                    v{plugin.version}
-                  </span>
-                </div>
-                {plugin.description && (
-                  <p className="text-body text-fg-2">{plugin.description}</p>
-                )}
-                <p className="text-caption text-fg-3">
-                  {[
-                    plugin.sourceDir,
-                    t("pluginCenter.stages.priority", {
-                      value: plugin.priority,
-                    }),
-                    plugin.kind === "rules"
-                      ? t("pluginCenter.stages.ruleCount", {
-                          count: plugin.ruleCount,
-                        })
-                      : null,
-                    plugin.author,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                {previewKind(plugin) === "session-exit" && (
+                    {plugin.hooks.map((hook) => (
+                      <Badge key={hook} variant="outline" className="text-fg-3">
+                        {hookLabel(hook, (key) => t(key) as string)}
+                      </Badge>
+                    ))}
+                    <span className="text-caption text-fg-3">
+                      v{plugin.version}
+                    </span>
+                  </div>
+                  {plugin.description && (
+                    <p className="text-body text-fg-2">{plugin.description}</p>
+                  )}
                   <p className="text-caption text-fg-3">
-                    {t("sessionBaton.pluginCenter.hint")}
+                    {[
+                      plugin.builtin
+                        ? t("pluginCenter.stages.builtin")
+                        : plugin.sourceDir,
+                      plugin.kind === "feature"
+                        ? t("pluginCenter.stages.panelEntry", {
+                            entry: plugin.panel?.entry ?? "",
+                          })
+                        : t("pluginCenter.stages.priority", {
+                            value: plugin.priority,
+                          }),
+                      plugin.kind === "rules"
+                        ? t("pluginCenter.stages.ruleCount", {
+                            count: plugin.ruleCount,
+                          })
+                        : null,
+                      plugin.author,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  onClick={() => setPreviewTarget(plugin)}
-                >
-                  <Play className="me-1.5 h-3.5 w-3.5" />
-                  {t("pluginCenter.stages.preview")}
-                </Button>
-                <Switch
-                  size="sm"
-                  checked={plugin.enabled}
-                  disabled={busyId === plugin.id}
-                  aria-label={t("pluginCenter.stages.enable")}
-                  onCheckedChange={(next) => void toggle(plugin, next)}
-                />
-              </div>
-            </li>
-          ))}
+                  {previewKind(plugin) === "session-exit" && (
+                    <p className="text-caption text-fg-3">
+                      {t("sessionBaton.pluginCenter.hint")}
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                  {plugin.kind === "feature" ? (
+                    <Button
+                      variant="ghost"
+                      size="compact"
+                      disabled={!plugin.enabled || !panelView}
+                      onClick={() => {
+                        if (panelView) onOpenPanel?.(panelView);
+                      }}
+                    >
+                      <ExternalLink className="me-1.5 h-3.5 w-3.5" />
+                      {t("pluginCenter.stages.openPanel")}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="compact"
+                      onClick={() => setPreviewTarget(plugin)}
+                    >
+                      <Play className="me-1.5 h-3.5 w-3.5" />
+                      {t("pluginCenter.stages.preview")}
+                    </Button>
+                  )}
+                  <Switch
+                    size="sm"
+                    checked={plugin.enabled}
+                    disabled={busyId === plugin.id}
+                    aria-label={t("pluginCenter.stages.enable")}
+                    onCheckedChange={(next) => void toggle(plugin, next)}
+                  />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 

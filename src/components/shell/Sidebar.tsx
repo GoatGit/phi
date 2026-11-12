@@ -13,6 +13,7 @@ import {
   BookOpen,
   ChartColumn,
   ChevronDown,
+  ClipboardList,
   History,
   Layers,
   MoreHorizontal,
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
+import { usePluginPanels } from "@/hooks/usePluginPanels";
 import { useSidebarStatus, type AppNavStatus } from "@/hooks/useSidebarStatus";
 import { useSidebarApps } from "@/hooks/useSidebarApps";
 import {
@@ -365,6 +367,7 @@ function MainDirectory({
 }: DirectoryProps) {
   const { t } = useTranslation();
   const { hasUpdate } = useUpdate();
+  const pluginPanels = usePluginPanels();
   const { appStatus, serviceRunning } = status;
   // 只列用户添加过的应用，按“进行中 → 最近有流量 → 已接入路由组 → 其余”排序。
   const sidebarEntries = useSidebarApps(sidebarApps);
@@ -436,6 +439,22 @@ function MainDirectory({
           label={t("tasks.title")}
           onClick={() => onSelectPage("tasks")}
         />
+        {/* 功能插件自带的面板入口：插件被停用就不再出现 */}
+        {pluginPanels.map((panel) => (
+          <NavItem
+            key={panel.pluginId}
+            collapsed={collapsed}
+            selected={view === panel.view}
+            icon={panel.entry === "report-card" ? ClipboardList : Blocks}
+            label={
+              panel.title ??
+              (panel.entry === "report-card"
+                ? t("reportCard.title")
+                : panel.entry)
+            }
+            onClick={() => onSelectPage(panel.view)}
+          />
+        ))}
         <NavItem
           collapsed={collapsed}
           selected={view === "plugins"}

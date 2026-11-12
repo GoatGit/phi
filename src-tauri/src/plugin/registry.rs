@@ -12,7 +12,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::manifest::{
-    PluginHook, PluginKind, PluginManifest, MANIFEST_FILE, MAX_PLUGINS, MAX_SCRIPT_BYTES,
+    PanelDeclaration, PluginHook, PluginKind, PluginManifest, MANIFEST_FILE, MAX_PLUGINS,
+    MAX_SCRIPT_BYTES,
 };
 use super::rules::CompiledRules;
 use super::sandbox::SandboxLimits;
@@ -104,6 +105,8 @@ pub struct LoadedPlugin {
     /// 脚本原文（仅脚本插件）。
     pub script: Option<String>,
     pub enabled: bool,
+    /// 宿主自带（不来自磁盘目录）：清单只声明面板，停用仍走 `plugins-state.json`。
+    pub builtin: bool,
 }
 
 impl LoadedPlugin {
@@ -182,6 +185,46 @@ impl PluginRegistry {
                 .cmp(&(right.manifest.priority, &right.manifest.id))
         });
         registry
+    }
+
+    /// 把宿主自带的功能插件并入快照。
+    ///
+    /// 与磁盘插件的唯一差别是来源：同 id 时以磁盘清单为准，以后要把内置面板
+    /// 改成可分发包，放一个同 id 的目录进去就行。启用状态仍读同一份覆盖。
+    pub fn with_builtin_plugins(mut self, overrides: &PluginOverrides) -> Self {
+        let mut seen: HashSet<String> = self
+            .plugins
+            .iter()
+            .map(|plugin| plugin.manifest.id.clone())
+            .collect();
+        for mut plugin in builtin_plugins() {
+            if !seen.insert(plugin.manifest.id.clone()) {
+                continue;
+            }
+            plugin.enabled = overrides
+                .overrides
+                .get(&plugin.manifest.id)
+                .copied()
+                .unwrap_or(plugin.manifest.enabled_by_default);
+            self.plugins.push(plugin);
+        }
+        self.plugins.sort_by(|left, right| {
+            (left.manifest.priority, &left.manifest.id)
+                .cmp(&(right.manifest.priority, &right.manifest.id))
+        });
+        self
+    }
+
+    /// 已启用、需要宿主挂面板的功能插件。
+    ///
+    /// 面板组件在宿主里（见 `manifest::BUILTIN_PANELS`），这里只告诉前端
+    /// 「哪些面板要出现、按什么顺序」；插件被停用，入口就一起消失。
+    pub fn active_panels(&self) -> impl Iterator<Item = &LoadedPlugin> {
+        self.plugins.iter().filter(|plugin| {
+            plugin.enabled
+                && plugin.manifest.kind == PluginKind::Feature
+                && plugin.manifest.panel.is_some()
+        })
     }
 
     pub fn plugins(&self) -> &[LoadedPlugin] {
@@ -283,6 +326,7 @@ pub(super) fn stage_for_plugin(plugin: &LoadedPlugin) -> Result<Arc<dyn RequestS
                 SandboxLimits::default(),
             )))
         }
+        PluginKind::Feature => Err("功能插件不参与请求阶段".to_string()),
     }
 }
 
@@ -301,6 +345,32 @@ pub(super) fn session_exit_hook_for_plugin(
         script,
         SandboxLimits::default(),
     ))
+}
+
+/// 宿主自带的功能插件。
+///
+/// 它们不是用户安装的：清单写在代码里，但启用状态仍读 `plugins-state.json`，
+/// 所以「停用」与磁盘插件走同一条路，不需要另一套开关。
+fn builtin_plugins() -> Vec<LoadedPlugin> {
+    vec![LoadedPlugin {
+        manifest: PluginManifest {
+            id: "report-card".to_string(),
+            name: "Report card".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            hooks: vec![PluginHook::Panel],
+            kind: PluginKind::Feature,
+            panel: Some(PanelDeclaration {
+                entry: "report-card".to_string(),
+                title: None,
+                order: Some(10),
+            }),
+            ..PluginManifest::default()
+        },
+        dir: PathBuf::new(),
+        script: None,
+        enabled: true,
+        builtin: true,
+    }]
 }
 
 fn dir_name(dir: &Path) -> String {
@@ -334,6 +404,7 @@ fn load_plugin_dir(dir: &Path) -> Result<Option<LoadedPlugin>, String> {
         dir: dir.to_path_buf(),
         script,
         enabled: false,
+        builtin: false,
     }))
 }
 
@@ -378,6 +449,10 @@ pub struct PluginSummary {
     pub author: Option<String>,
     pub rule_count: usize,
     pub source_dir: String,
+    /// 宿主自带（不来自磁盘目录）。
+    pub builtin: bool,
+    /// 功能插件的面板声明；其他类型为 `None`。
+    pub panel: Option<PanelDeclaration>,
 }
 
 impl From<&LoadedPlugin> for PluginSummary {
@@ -394,7 +469,13 @@ impl From<&LoadedPlugin> for PluginSummary {
             description: manifest.description.clone(),
             author: manifest.author.clone(),
             rule_count: manifest.rules.len(),
-            source_dir: dir_name(&plugin.dir),
+            source_dir: if plugin.builtin {
+                "builtin".to_string()
+            } else {
+                dir_name(&plugin.dir)
+            },
+            builtin: plugin.builtin,
+            panel: manifest.panel.clone(),
         }
     }
 }
@@ -577,5 +658,55 @@ mod tests {
         assert_eq!(PluginOverrides::load(&path), PluginOverrides::default());
         fs::write(&path, r#"{"version":99,"overrides":{"a":false}}"#).unwrap();
         assert_eq!(PluginOverrides::load(&path), PluginOverrides::default());
+    }
+
+    #[test]
+    fn builtin_report_card_panel_appears_and_can_be_disabled() {
+        let root = tempfile::tempdir().unwrap();
+        let overrides = PluginOverrides::default();
+        let registry =
+            PluginRegistry::discover(root.path(), &overrides).with_builtin_plugins(&overrides);
+        let panels: Vec<&str> = registry
+            .active_panels()
+            .filter_map(|plugin| {
+                plugin
+                    .manifest
+                    .panel
+                    .as_ref()
+                    .map(|panel| panel.entry.as_str())
+            })
+            .collect();
+        assert_eq!(panels, ["report-card"]);
+        // 功能插件不会进入请求管线
+        assert!(registry.active_request_plugins().next().is_none());
+
+        let mut disabled = PluginOverrides::default();
+        disabled.set("report-card", false);
+        let registry =
+            PluginRegistry::discover(root.path(), &disabled).with_builtin_plugins(&disabled);
+        assert_eq!(registry.active_panels().count(), 0);
+        // 停用只是不挂面板，清单还在，插件中心才能重新启用
+        assert!(registry.get("report-card").is_some());
+    }
+
+    #[test]
+    fn a_disk_plugin_can_take_over_a_builtin_id() {
+        let root = tempfile::tempdir().unwrap();
+        write_plugin(
+            root.path(),
+            "report-card",
+            serde_json::json!({
+                "id":"report-card","name":"Custom report card","kind":"feature",
+                "hooks":["panel"],"panel":{"entry":"report-card"}
+            }),
+            None,
+        );
+        let overrides = PluginOverrides::default();
+        let registry =
+            PluginRegistry::discover(root.path(), &overrides).with_builtin_plugins(&overrides);
+        let plugin = registry.get("report-card").expect("loaded");
+        assert!(!plugin.builtin);
+        assert_eq!(plugin.manifest.name, "Custom report card");
+        assert_eq!(registry.active_panels().count(), 1);
     }
 }

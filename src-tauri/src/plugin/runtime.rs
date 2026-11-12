@@ -265,7 +265,8 @@ impl PluginRuntime {
 
     fn rebuild(&self) {
         let overrides = PluginOverrides::load(&self.state_path);
-        let mut registry = PluginRegistry::discover(&self.root, &overrides);
+        let mut registry =
+            PluginRegistry::discover(&self.root, &overrides).with_builtin_plugins(&overrides);
         let stages = registry.build_request_stages_with((self.builtins)());
         let session_exit = registry.build_session_exit_hooks();
         let mut snapshot = self
