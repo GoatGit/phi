@@ -178,7 +178,9 @@ export function TaskRelayPanel({
   const { t } = useTranslation();
   const { contract, verdict, runs } = relay;
   const latest = runs[0] ?? null;
-  const warnings = [...contract.warnings, ...relay.warnings];
+  // 契约解析和基线核对都会报同一件事（比如基线解析不了），去个重，
+  // 否则同一条警告叠两遍、React 的 key 还会撞车
+  const warnings = [...new Set([...contract.warnings, ...relay.warnings])];
 
   return (
     <section className="space-y-3">

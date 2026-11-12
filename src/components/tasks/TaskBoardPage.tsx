@@ -167,6 +167,19 @@ export function TaskBoardPage({
     }
   };
 
+  /**
+   * 接力面板是详情页的附加视图。读不到时只报错、返回 null，
+   * 不能让整个卡片打不开（工作区没登记、卡片 frontmatter 坏了都可能命中）。
+   */
+  const readRelay = async (root: string, taskId: string) => {
+    try {
+      return await orchestrationApi.relay(root, taskId);
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      return null;
+    }
+  };
+
   const reload = async (root: string | null = activeRoot) => {
     if (!root) return;
     try {
@@ -174,7 +187,7 @@ export function TaskBoardPage({
       if (detail) {
         const [fresh, view] = await Promise.all([
           tasksApi.detail(root, detail.task.id),
-          orchestrationApi.relay(root, detail.task.id),
+          readRelay(root, detail.task.id),
         ]);
         setDetail(fresh);
         setRelay(view);
@@ -435,7 +448,7 @@ export function TaskBoardPage({
     try {
       const [nextDetail, nextRelay] = await Promise.all([
         tasksApi.detail(activeRoot, task.id),
-        orchestrationApi.relay(activeRoot, task.id),
+        readRelay(activeRoot, task.id),
       ]);
       setDetail(nextDetail);
       setRelay(nextRelay);
@@ -453,7 +466,7 @@ export function TaskBoardPage({
       const run = await orchestrationApi.runGate(activeRoot, taskId, gate);
       const [fresh, view] = await Promise.all([
         tasksApi.detail(activeRoot, taskId),
-        orchestrationApi.relay(activeRoot, taskId),
+        readRelay(activeRoot, taskId),
       ]);
       setDetail((current) => (current?.task.id === taskId ? fresh : current));
       setRelay(view);
