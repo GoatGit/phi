@@ -9,6 +9,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import {
+  Blocks,
   BookOpen,
   ChartColumn,
   ChevronDown,
@@ -20,6 +21,7 @@ import {
   Route,
   Server,
   Settings,
+  SquareKanban,
   ToolCase,
   X,
 } from "lucide-react";
@@ -434,6 +436,20 @@ function MainDirectory({
           icon={Route}
           label={t("gateway.routing")}
           onClick={() => onSelectPage("routingOverview")}
+        />
+        <NavItem
+          collapsed={collapsed}
+          selected={view === "tasks"}
+          icon={SquareKanban}
+          label={t("tasks.title")}
+          onClick={() => onSelectPage("tasks")}
+        />
+        <NavItem
+          collapsed={collapsed}
+          selected={view === "plugins"}
+          icon={Blocks}
+          label={t("pluginCenter.title")}
+          onClick={() => onSelectPage("plugins")}
         />
         <ToolboxNavItem
           collapsed={collapsed}

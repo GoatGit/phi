@@ -47,6 +47,7 @@ mod services;
 mod session_manager;
 mod settings;
 mod store;
+mod tasks;
 
 mod terminal;
 mod tray;
@@ -1447,6 +1448,17 @@ pub fn run() {
             terminal::terminal_close,
             terminal::terminal_present,
             terminal::terminal_set_visible,
+            tasks::commands::task_workspaces,
+            tasks::commands::task_workspace_add,
+            tasks::commands::task_workspace_init,
+            tasks::commands::task_workspace_remove,
+            tasks::commands::task_board,
+            tasks::commands::task_detail,
+            tasks::commands::task_create,
+            tasks::commands::task_set_status,
+            tasks::commands::task_archive,
+            tasks::commands::task_link_session,
+            tasks::commands::task_unlink_session,
             commands::get_gateway_catalog,
             commands::gateway_subscription_action,
             commands::connect_gateway_subscription,

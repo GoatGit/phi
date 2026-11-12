@@ -158,6 +158,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
+import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
+import { PluginCenterPage } from "@/components/plugins/PluginCenterPage";
 import {
   useDisableCurrentOmo,
   useDisableCurrentOmoSlim,
@@ -1847,11 +1849,29 @@ function App() {
             onRouteAppRequestHandled={() => setRouteAppRequest(null)}
           />
         );
+      case "plugins":
+        return (
+          <PluginCenterPage onBack={drillInReturn ? exitDrillIn : undefined} />
+        );
       case "usage":
         return (
           <UsagePage
             initialAppType={usageAppFilter}
             onBack={drillInReturn ? exitDrillIn : undefined}
+          />
+        );
+      case "tasks":
+        return (
+          <TaskBoardPage
+            terminalApps={terminals.supportedApps}
+            onStartSession={async (root, appId) => {
+              const session = await terminals.launchSession(
+                appId as AppId,
+                root,
+              );
+              selectApp(appId as AppId);
+              return session.id;
+            }}
           />
         );
       case "mcp":
