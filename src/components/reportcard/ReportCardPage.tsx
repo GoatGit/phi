@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ClipboardList, RefreshCw } from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
@@ -46,9 +46,12 @@ export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 切窗口时旧请求可能后到：只让最后一次请求写回状态
+  const latestRequest = useRef(0);
 
   const load = useCallback(
     async (refresh: boolean) => {
+      const request = ++latestRequest.current;
       if (refresh) {
         setRefreshing(true);
       } else {
@@ -56,12 +59,19 @@ export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
       }
       setError(null);
       try {
-        setCard(await reportCardApi.page(days, refresh));
+        const next = await reportCardApi.page(days, refresh);
+        if (request === latestRequest.current) {
+          setCard(next);
+        }
       } catch (cause) {
-        setError(extractErrorMessage(cause));
+        if (request === latestRequest.current) {
+          setError(extractErrorMessage(cause));
+        }
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (request === latestRequest.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [days],
@@ -139,19 +149,24 @@ export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
           </Notice>
         )}
 
-        <Summary
-          card={card}
-          locale={locale}
-          loading={loading && !card}
-          refreshing={refreshing}
-        />
+        {card || loading ? (
+          <Summary
+            card={card}
+            locale={locale}
+            loading={loading && !card}
+            refreshing={refreshing}
+          />
+        ) : null}
 
         {loading && !card ? (
           <div className={usageTable.skeleton} />
         ) : rows.length === 0 ? (
-          <Notice tone="neutral" title={t("reportCard.emptyTitle")}>
-            {t("reportCard.emptyBody")}
-          </Notice>
+          // 读失败时已经有一张错误提示，不要再补一句「还没有可统计的会话」
+          error ? null : (
+            <Notice tone="neutral" title={t("reportCard.emptyTitle")}>
+              {t("reportCard.emptyBody")}
+            </Notice>
+          )
         ) : (
           <div className={usageTable.scroller}>
             <table
