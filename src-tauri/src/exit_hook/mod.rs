@@ -35,8 +35,15 @@ pub(crate) mod store;
 use serde::{Deserialize, Serialize};
 
 /// 托管终端启动时注入的三个环境变量，由 `terminal/session.sh` 读取。
+///
+/// 只有 macOS 的托管 PTY 会注入它们（`terminal::launch::prepare_with`），
+/// 其他平台没有这条启动路径，所以按平台限定，免得在 Linux/Windows 上
+/// 变成「从未被使用」的常量（`-D warnings` 会直接判红）。
+#[cfg(target_os = "macos")]
 pub(crate) const JOURNAL_ENV: &str = "PHI_BATON_JOURNAL";
+#[cfg(target_os = "macos")]
 pub(crate) const TERMINAL_ENV: &str = "PHI_BATON_ID";
+#[cfg(target_os = "macos")]
 pub(crate) const APP_ENV: &str = "PHI_BATON_APP";
 
 /// journal 监听周期。退出是低频事件，2 秒足够快又不会烧 CPU。
@@ -215,6 +222,17 @@ mod tests {
             .max_attempts,
             5
         );
+    }
+
+    /// 宿主注入的变量名与 `session.sh` 里读的名字必须一致：拼错一个字，
+    /// 退出记账就静默失效——而这是接棒唯一的事实来源。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_journal_contract_is_spelled_the_same_on_both_sides() {
+        let script = include_str!("../terminal/session.sh");
+        for name in [JOURNAL_ENV, TERMINAL_ENV, APP_ENV] {
+            assert!(script.contains(name), "session.sh 必须读取 {name}");
+        }
     }
 
     #[test]
