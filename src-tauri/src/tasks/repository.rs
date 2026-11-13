@@ -281,7 +281,7 @@ pub fn create(workspace: &Workspace, input: &NewTask) -> Result<TaskDetail, Stri
     read(workspace, &id)
 }
 
-fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+pub(crate) fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
     let parent = path.parent().ok_or_else(|| "invalid-path".to_string())?;
     let temp = parent.join(format!(".phi-task-{}.tmp", uuid::Uuid::new_v4()));
     fs::write(&temp, contents).map_err(|e| {

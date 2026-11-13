@@ -122,10 +122,7 @@ import {
   useToolUpdatesAvailable,
 } from "@/components/apps/useToolManagement";
 import { UsagePage } from "@/components/usage/UsagePage";
-import {
-  ProviderCatalogPage,
-  RoutingOverviewPage,
-} from "@/components/gateway/GatewayPages";
+import { GatewayPage } from "@/components/gateway/GatewayPages";
 import type { RouteAppRequest } from "@/components/gateway/routingFlowModel";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
 import { SwitchModePanel } from "@/components/providers/mode/SwitchModePanel";
@@ -1830,21 +1827,12 @@ function App() {
 
   const renderGlobalPage = () => {
     switch (currentView) {
-      case "providerCatalog":
-        return (
-          <ProviderCatalogPage
-            onBack={drillInReturn ? exitDrillIn : undefined}
-            onOpenPolicy={(id) => {
-              setGatewayPolicyId(id);
-              setCurrentView("routingOverview");
-            }}
-          />
-        );
       case "routingOverview":
         return (
-          <RoutingOverviewPage
+          <GatewayPage
             onBack={drillInReturn ? exitDrillIn : undefined}
             initialPolicyId={gatewayPolicyId}
+            onOpenPolicy={(id) => setGatewayPolicyId(id)}
             routeAppRequest={routeAppRequest}
             onRouteAppRequestHandled={() => setRouteAppRequest(null)}
           />

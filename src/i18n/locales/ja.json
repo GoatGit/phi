@@ -5755,6 +5755,44 @@
     }
   },
   "tasks": {
+    "relay": {
+      "title": "オーケストレーション",
+      "gate2": "ゲート 2 · 実装の成立",
+      "gate3": "ゲート 3 · レビューの成立",
+      "notRun": "未実行",
+      "runGate2": "ゲート 2 を実行",
+      "runGate3": "ゲート 3 を実行",
+      "runGate2Hint": "カードの受け入れコマンドを実行し、変更が範囲内かを確認します",
+      "runGate3Hint": "レビューの根拠アンカーがソースと一致するか確認します",
+      "noAccept": "カードに phi.accept がないため、ゲート 2 で実行できるコマンドがありません",
+      "noContract": "このカードには phi 契約がありません。phi ブロック（accept / touched / role）を追加すると、ゲート 2 とゲート 3 が判定できます。",
+      "verdictAt": "最新の判定",
+      "role": "役割",
+      "touched": "変更可",
+      "forbidden": "変更不可",
+      "changed": "現在の変更",
+      "changedCount": "{{value}} ファイル",
+      "claims": "根拠アンカー",
+      "claimCount": "{{value}} 件",
+      "budget": "予算",
+      "tokens": "{{value}} トークン",
+      "minutes": "{{value}} 分",
+      "accept": "受け入れ",
+      "timeout": "タイムアウト",
+      "exitCode": "終了コード {{code}}（期待 {{expect}}）",
+      "latest": "最新の判定：ゲート {{gate}}、{{ms}}ms",
+      "emptyHistory": "ゲートはまだ実行されていません。",
+      "gateDone": "ゲート {{gate}}：{{status}}",
+      "rule": {
+        "forbidden": "変更不可",
+        "out-of-scope": "範囲外"
+      },
+      "status": {
+        "pass": "通過",
+        "fail": "未通過",
+        "invalid": "根拠が成立しない"
+      }
+    },
     "title": "タスク",
     "workspace": "リポジトリ",
     "newTask": "タスクを作成",

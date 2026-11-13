@@ -5755,6 +5755,44 @@
     }
   },
   "tasks": {
+    "relay": {
+      "title": "编排接力",
+      "gate2": "门 2 · 实现成立",
+      "gate3": "门 3 · 复查成立",
+      "notRun": "未跑",
+      "runGate2": "跑门 2",
+      "runGate3": "跑门 3",
+      "runGate2Hint": "执行卡片里的验收命令，并核对改动有没有越界",
+      "runGate3Hint": "核对复查意见里的证据锚点能不能对上源码",
+      "noAccept": "卡片没有 phi.accept，门 2 没有可执行的验收命令",
+      "noContract": "这张卡没有 phi 契约：补上 phi 块（accept / touched / role）之后，门 2 与门 3 才有可判定的东西。",
+      "verdictAt": "最近判定",
+      "role": "接力角色",
+      "touched": "允许改动",
+      "forbidden": "禁止改动",
+      "changed": "当前改动",
+      "changedCount": "{{value}} 个文件",
+      "claims": "证据锚点",
+      "claimCount": "{{value}} 条",
+      "budget": "预算",
+      "tokens": "{{value}} tokens",
+      "minutes": "{{value}} 分钟",
+      "accept": "验收",
+      "timeout": "超时",
+      "exitCode": "退出码 {{code}}（期望 {{expect}}）",
+      "latest": "最近一次判定：门 {{gate}}，耗时 {{ms}}ms",
+      "emptyHistory": "还没跑过门判定。",
+      "gateDone": "门 {{gate}} 判定：{{status}}",
+      "rule": {
+        "forbidden": "禁止改动",
+        "out-of-scope": "越界"
+      },
+      "status": {
+        "pass": "通过",
+        "fail": "未通过",
+        "invalid": "证据不成立"
+      }
+    },
     "title": "任务",
     "workspace": "仓库",
     "newTask": "新建任务",
