@@ -19,7 +19,7 @@ import {
   type ReportCard,
 } from "@/lib/api/reportCard";
 import { cn } from "@/lib/utils";
-import { pluginPageClass } from "@/components/plugins/pluginPage";
+import { pluginWidePageClass } from "@/components/plugins/pluginPage";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 /** 与后端 `extract::MIN_SAMPLES` 对齐：样本不够就不报百分比 */
@@ -122,7 +122,7 @@ export function ReportCardPage({
     <div
       className={
         embedded
-          ? cn(pluginPageClass, "space-y-4")
+          ? cn(pluginWidePageClass, "space-y-4")
           : "flex min-h-0 flex-1 flex-col"
       }
     >
@@ -151,10 +151,6 @@ export function ReportCardPage({
             : "min-h-0 flex-1 space-y-4 overflow-y-auto scroll-stable px-6 pt-3 pb-10"
         }
       >
-        <Notice tone="warning" title={t("reportCard.unprovenTitle")}>
-          {t("reportCard.unprovenBody")}
-        </Notice>
-
         {error && (
           <Notice
             tone="danger"
@@ -195,7 +191,7 @@ export function ReportCardPage({
         ) : (
           <div className={usageTable.scroller}>
             <table
-              className={cn(usageTable.table, "min-w-[880px]")}
+              className={cn(usageTable.table, "min-w-[720px]")}
               aria-label={t("reportCard.title")}
             >
               <thead>
@@ -243,7 +239,15 @@ export function ReportCardPage({
           </div>
         )}
 
-        <p className="text-caption text-fg-3">{t("reportCard.footnote")}</p>
+        {/* 可靠性口径放在表格下面：读数字之前不挡路，想追究口径时找得到 */}
+        <div className="space-y-1 pt-1 text-caption text-fg-3">
+          <p>
+            <span className="text-fg-2">{t("reportCard.unprovenTitle")}</span>
+            {" — "}
+            {t("reportCard.unprovenBody")}
+          </p>
+          <p>{t("reportCard.footnote")}</p>
+        </div>
       </div>
     </div>
   );

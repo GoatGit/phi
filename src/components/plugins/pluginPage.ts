@@ -6,3 +6,12 @@
  * 与「设置」「应用首页」用的是同一套 760～880px 版心习惯。
  */
 export const pluginPageClass = "mx-auto w-full max-w-[880px] px-6 pb-12 pt-1";
+
+/**
+ * 以表格为主体的插件页（成绩单）用的宽版心。
+ *
+ * 九列数字挤在 880 里会顶出横向滚动条，而窗口两侧还空着；
+ * 放宽到 1080 让表格铺开，窄窗口仍由表格自身的横向滚动兜底。
+ */
+export const pluginWidePageClass =
+  "mx-auto w-full max-w-[1080px] px-6 pb-12 pt-1";

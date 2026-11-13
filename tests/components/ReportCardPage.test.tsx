@@ -116,6 +116,15 @@ describe("ReportCardPage", () => {
     expect(document.querySelectorAll("#main-content")).toHaveLength(0);
   });
 
+  it("gives the table a wide page so it fits without a scrollbar", async () => {
+    const { container } = render(<ReportCardPage embedded />);
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    // 表格页用 1080 版心、表格不再强制 880 最小宽：九列在版心内铺开
+    expect(container.firstElementChild?.className).toContain("max-w-[1080px]");
+    expect(screen.getByRole("table").className).not.toContain("min-w-[880px]");
+  });
+
   it("shows the empty state when there are no tasks yet", async () => {
     apiMocks.page.mockResolvedValue(
       card({ rows: [], totalTasks: 0, scannedSources: 0 }),
@@ -178,7 +187,13 @@ describe("ReportCardPage", () => {
     render(<ReportCardPage />);
 
     await waitFor(() => expect(apiMocks.page).toHaveBeenCalled());
-    expect(screen.getByText("reportCard.unprovenTitle")).toBeInTheDocument();
+    const caveat = screen.getByText("reportCard.unprovenTitle");
+    const table = screen.getByRole("table");
+    // 说明压在表格下面，不再顶在上方占一条黄色警告
+    expect(
+      table.compareDocumentPosition(caveat) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(caveat.closest(".bg-warning-soft")).toBeNull();
     expect(screen.getByText("reportCard.footnote")).toBeInTheDocument();
   });
 });
