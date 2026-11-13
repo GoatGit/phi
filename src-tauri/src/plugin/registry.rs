@@ -16,6 +16,7 @@ use super::manifest::{
 };
 use super::rules::CompiledRules;
 use super::sandbox::SandboxLimits;
+use super::session_exit::SessionExitHook;
 use super::stage::{RequestStage, RuleStage, ScriptStage};
 
 /// 启用状态覆盖文件名（位于配置目录，不在插件目录，避免被插件自己改掉）。
@@ -206,6 +207,41 @@ impl PluginRegistry {
         })
     }
 
+    /// 已启用、且声明了 `session-exit` 钩子的插件。
+    pub fn active_session_exit_plugins(&self) -> impl Iterator<Item = &LoadedPlugin> {
+        self.plugins.iter().filter(|plugin| {
+            plugin.enabled && plugin.manifest.hooks_session_exit() && plugin.manifest.is_effective()
+        })
+    }
+
+    /// 声明过 `session-exit` 钩子的插件数量（不管启用与否）。
+    ///
+    /// 用来区分「没装插件」和「装了但被用户关掉」：后者是用户的明确取舍，
+    /// 不能因为回落到内置策略就把功能又打开。
+    pub fn declared_session_exit_plugins(&self) -> usize {
+        self.plugins
+            .iter()
+            .filter(|plugin| plugin.manifest.hooks_session_exit() && plugin.manifest.is_effective())
+            .count()
+    }
+
+    /// 构建接棒钩子。声明了 `session-exit` 却没有脚本的插件在这里被记一次错误，
+    /// 而不是静默地不生效——用户需要知道自己的策略插件没跑起来。
+    pub fn build_session_exit_hooks(&mut self) -> Vec<SessionExitHook> {
+        let plugins: Vec<LoadedPlugin> = self.active_session_exit_plugins().cloned().collect();
+        let mut hooks = Vec::with_capacity(plugins.len());
+        for plugin in plugins {
+            match session_exit_hook_for_plugin(&plugin) {
+                Ok(hook) => hooks.push(hook),
+                Err(message) => self.build_errors.push(PluginLoadError {
+                    plugin_dir: dir_name(&plugin.dir),
+                    message: format!("插件 '{}' 未生效: {message}", plugin.manifest.id),
+                }),
+            }
+        }
+        hooks
+    }
+
     /// 构建请求阶段。内置阶段（隐私脱敏）由调用方追加在插件之后，
     /// 保证「插件先改写、内置脱敏最后兜底」的固定顺序。
     pub fn build_request_stages_with(
@@ -248,6 +284,23 @@ pub(super) fn stage_for_plugin(plugin: &LoadedPlugin) -> Result<Arc<dyn RequestS
             )))
         }
     }
+}
+
+pub(super) fn session_exit_hook_for_plugin(
+    plugin: &LoadedPlugin,
+) -> Result<SessionExitHook, String> {
+    if plugin.manifest.kind != PluginKind::Script {
+        return Err("session-exit 钩子只支持脚本插件".to_string());
+    }
+    let script = plugin
+        .script
+        .clone()
+        .ok_or_else(|| "脚本内容缺失".to_string())?;
+    Ok(SessionExitHook::new(
+        plugin.manifest.id.clone(),
+        script,
+        SandboxLimits::default(),
+    ))
 }
 
 fn dir_name(dir: &Path) -> String {

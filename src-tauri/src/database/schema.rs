@@ -27,6 +27,7 @@ impl Database {
         crate::tasks::create_tables(conn)?;
         crate::orchestration::create_tables(conn)?;
         crate::lessons::create_tables(conn)?;
+        crate::exit_hook::create_tables(conn)?;
         // 1. Providers 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS providers (

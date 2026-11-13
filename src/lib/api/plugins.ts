@@ -16,8 +16,12 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type PluginKind = "rules" | "script";
 
-/** 插件挂载点。目前只有出站请求体一个。 */
-export type PluginHook = "request";
+/**
+ * 插件挂载点。
+ * - `request`：代理出站请求体的改写阶段；
+ * - `session-exit`：托管会话异常退出时的接棒决策（脚本导出 `onSessionExit`）。
+ */
+export type PluginHook = "request" | "session-exit";
 
 export interface PluginSummary {
   id: string;
@@ -57,6 +61,18 @@ export interface PluginPreviewResponse {
   payload: unknown;
 }
 
+/** `session-exit` 钩子的决策。`null` 表示插件弃权（交回内置策略）。 */
+export interface SessionExitDecision {
+  action: "resume" | "record";
+  mode: "same-session" | "fresh-session" | null;
+  reason: string;
+}
+
+export interface SessionExitPreviewResponse {
+  pluginId: string;
+  decision: SessionExitDecision | null;
+}
+
 export const pluginsApi = {
   list: () => invoke<PluginSummaryResponse>("list_plugins"),
   setEnabled: (id: string, enabled: boolean) =>
@@ -64,6 +80,12 @@ export const pluginsApi = {
   /** 干跑：不受启用状态影响，也不会真的发请求 */
   preview: (id: string, payload: unknown) =>
     invoke<PluginPreviewResponse>("preview_plugin_request", { id, payload }),
+  /** 干跑接棒钩子：只拿一段示例事件跑决策，不会真的重启会话 */
+  previewSessionExit: (id: string, event: unknown) =>
+    invoke<SessionExitPreviewResponse>("preview_plugin_session_exit", {
+      id,
+      event,
+    }),
 };
 
 // ─── 隐私脱敏 ──────────────────────────────────────────────────────────────

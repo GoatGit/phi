@@ -33,6 +33,20 @@ describe("pluginsApi · 请求插件命令契约", () => {
       ["preview_plugin_request", { id: "strip-thinking", payload: { a: 1 } }],
     ]);
   });
+
+  it("接棒钩子试跑：事件作为 event 传给命令", async () => {
+    // session-exit 插件与请求插件走两条命令：用请求体试跑接棒钩子会永远拿不到决策。
+    await pluginsApi.previewSessionExit("session-baton", {
+      failureKind: "quota",
+    });
+
+    expect(core.invoke.mock.calls).toEqual([
+      [
+        "preview_plugin_session_exit",
+        { id: "session-baton", event: { failureKind: "quota" } },
+      ],
+    ]);
+  });
 });
 
 describe("privacyApi · 脱敏命令契约", () => {

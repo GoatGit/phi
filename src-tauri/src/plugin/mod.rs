@@ -27,6 +27,7 @@ pub mod registry;
 pub mod rules;
 pub mod runtime;
 pub mod sandbox;
+pub mod session_exit;
 pub mod stage;
 
 pub use manifest::{
@@ -37,6 +38,10 @@ pub use registry::{
 };
 pub use runtime::{PluginRuntime, PluginRuntimeSummary};
 pub use sandbox::{SandboxError, SandboxLimits};
+pub use session_exit::{
+    run_session_exit_hooks, SessionExitAction, SessionExitChoice, SessionExitDecision,
+    SessionExitHook, SessionExitOutcome,
+};
 pub use stage::{
     run_request_stages, RequestStage, RuleStage, ScriptStage, StageContext, StageOutcome,
 };

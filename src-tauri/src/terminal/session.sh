@@ -14,7 +14,19 @@ trap ':' INT QUIT
 # /dev/null as stdin and ignores SIGINT for them. Do not time out or kill a
 # healthy CLI; wait for its own exit before restoring terminal modes.
 "$@"
+phi_terminal_status=$?
 trap - INT QUIT
+
+# 接棒（Session Baton）唯一的事实来源：CLI 自己的退出码。
+# 只有托管在这里的进程才分得清「跑完了」和「刚死」——上层拿不到这个数。
+# 追加一行到 phi 指定的 journal（字段用 TAB 分隔：终端会话、退出码、秒级时间、应用、cwd）。
+# 写入失败不能影响终端本身，所以三重兜底：路径由 phi 给出、追加失败忽略、stderr 丢弃。
+if [ -n "${PHI_BATON_JOURNAL-}" ] && [ -n "${PHI_BATON_ID-}" ]; then
+  phi_terminal_now=$(date +%s 2>/dev/null || echo 0)
+  printf '%s\t%s\t%s\t%s\t%s\n' \
+    "$PHI_BATON_ID" "$phi_terminal_status" "$phi_terminal_now" \
+    "${PHI_BATON_APP-}" "$PWD" >>"$PHI_BATON_JOURNAL" 2>/dev/null || :
+fi
 
 # Some CLIs exit while the PTY is still in raw mode. Restore it before handing
 # the same PTY, working directory and scrollback to an interactive login shell.

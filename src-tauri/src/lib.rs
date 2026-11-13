@@ -15,6 +15,7 @@ mod database;
 mod deeplink;
 mod diagnostics;
 mod error;
+mod exit_hook;
 mod gateway;
 mod gemini_config;
 mod gemini_mcp;
@@ -1212,6 +1213,9 @@ pub fn run() {
             // 将同一个实例注入到全局状态，避免重复创建导致的不一致
             app.manage(app_state);
 
+            // 接棒：监听托管会话的退出记账，并把内置策略插件补进插件中心。
+            exit_hook::service::start(app.handle().clone());
+
             // 初始化 SkillService
             let skill_service = SkillService::new();
             app.manage(commands::skill::SkillServiceState(Arc::new(skill_service)));
@@ -1450,6 +1454,11 @@ pub fn run() {
             terminal::terminal_close,
             terminal::terminal_present,
             terminal::terminal_set_visible,
+            exit_hook::commands::baton_status,
+            exit_hook::commands::baton_policy_set,
+            exit_hook::commands::baton_resume,
+            exit_hook::commands::baton_handoff,
+            commands::preview_plugin_session_exit,
             tasks::commands::task_workspaces,
             tasks::commands::task_workspace_add,
             tasks::commands::task_workspace_init,

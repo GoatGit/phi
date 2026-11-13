@@ -76,3 +76,36 @@ pub async fn preview_plugin_request(
         Err(err) => Err(err.to_string()),
     }
 }
+
+/// `session-exit` 钩子的试跑结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionExitPreviewResponse {
+    pub plugin_id: String,
+    /// 决策：`action` / `mode` / `reason`；`None` 表示插件弃权。
+    pub decision: Option<Value>,
+}
+
+/// 用一段示例事件试跑接棒钩子（不受启用状态影响，也不会真的重启任何会话）。
+#[tauri::command]
+pub async fn preview_plugin_session_exit(
+    id: String,
+    event: Value,
+) -> Result<SessionExitPreviewResponse, String> {
+    let decision = runtime()
+        .preview_session_exit(&id, &event)
+        .map_err(|error| format!("试跑失败：{error}"))?;
+    Ok(SessionExitPreviewResponse {
+        plugin_id: id,
+        decision: decision.map(|decision| {
+            serde_json::json!({
+                "action": match decision.action {
+                    crate::plugin::SessionExitAction::Resume => "resume",
+                    crate::plugin::SessionExitAction::Record => "record",
+                },
+                "mode": decision.mode,
+                "reason": decision.reason,
+            })
+        }),
+    })
+}

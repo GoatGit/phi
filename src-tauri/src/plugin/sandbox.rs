@@ -16,6 +16,9 @@ use serde_json::Value;
 /// 脚本必须导出的入口函数名。
 pub const ENTRY_FUNCTION: &str = "onRequest";
 
+/// 接棒钩子必须导出的入口函数名。
+pub const SESSION_EXIT_FUNCTION: &str = "onSessionExit";
+
 /// 沙箱限制。
 #[derive(Debug, Clone, Copy)]
 pub struct SandboxLimits {
@@ -59,11 +62,16 @@ impl fmt::Display for SandboxError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::PayloadTooLarge { limit, actual } => {
-                write!(formatter, "请求体超过插件上限（{actual} > {limit} 字符）")
+                write!(formatter, "脚本入参超过上限（{actual} > {limit} 字符）")
             }
             Self::Runtime(message) => write!(formatter, "创建 JS 运行时失败: {message}"),
             Self::Compile(message) => write!(formatter, "脚本编译失败: {message}"),
-            Self::EntryMissing => write!(formatter, "脚本没有导出函数 {ENTRY_FUNCTION}"),
+            Self::EntryMissing => {
+                write!(
+                    formatter,
+                    "脚本没有导出声明的入口函数（onRequest / onSessionExit）"
+                )
+            }
             Self::Execution(message) => write!(formatter, "脚本执行失败: {message}"),
             Self::OutputTooLarge { limit, actual } => {
                 write!(formatter, "脚本输出超过上限（{actual} > {limit} 字符）")
@@ -82,6 +90,27 @@ impl std::error::Error for SandboxError {}
 pub fn run_request_script(
     script: &str,
     payload: &Value,
+    limits: &SandboxLimits,
+) -> Result<Option<Value>, SandboxError> {
+    run_entry_script(script, payload, ENTRY_FUNCTION, limits)
+}
+
+/// 在沙箱里执行接棒决策钩子（`onSessionExit`）。
+///
+/// `Ok(None)` 表示插件弃权（不表态），由宿主回落到内置策略；
+/// `Ok(Some(value))` 是插件给出的决策对象，能否采纳由宿主再校验一遍。
+pub fn run_session_exit_script(
+    script: &str,
+    payload: &Value,
+    limits: &SandboxLimits,
+) -> Result<Option<Value>, SandboxError> {
+    run_entry_script(script, payload, SESSION_EXIT_FUNCTION, limits)
+}
+
+fn run_entry_script(
+    script: &str,
+    payload: &Value,
+    entry: &str,
     limits: &SandboxLimits,
 ) -> Result<Option<Value>, SandboxError> {
     let payload_json = serde_json::to_string(payload)
@@ -110,7 +139,7 @@ pub fn run_request_script(
             .map_err(|err| SandboxError::Compile(err.to_string()))?;
         let function: Function = ctx
             .globals()
-            .get(ENTRY_FUNCTION)
+            .get(entry)
             .map_err(|_| SandboxError::EntryMissing)?;
         let argument = ctx
             .json_parse(payload_json.as_str())

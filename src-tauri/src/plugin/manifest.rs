@@ -51,14 +51,19 @@ fn default_true() -> bool {
 
 /// 插件挂载的钩子点。
 ///
-/// 目前只有出站请求体一个钩子：它是客户端意图的唯一定义处，响应侧改写会破坏
-/// 流式语义与用量记账，先把一个点做稳。
+/// - `request`：出站请求体（JSON）变换，代理热路径上生效；
+/// - `session-exit`：托管会话异常退出时的接棒决策。
+///
+/// 两个钩子都只能**决策或改写数据**，不能直接拿宿主能力：进程、文件系统、
+/// 网络都不在沙箱里。接棒真正重启进程由宿主执行，插件只决定「接不接、怎么接」。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum PluginHook {
     /// 出站请求体（JSON）变换。
     #[default]
     Request,
+    /// 托管会话异常退出时的接棒决策（脚本导出 `onSessionExit`）。
+    SessionExit,
 }
 
 /// 插件实现方式。
@@ -262,6 +267,13 @@ impl PluginManifest {
                         "规则插件不能声明入口脚本",
                     ));
                 }
+                // 钩子是行为契约，不是数据：声明式规则只能改写请求体。
+                if self.hooks_session_exit() {
+                    return Err(PluginValidationError::new(
+                        "hooks",
+                        "session-exit 钩子只支持脚本插件",
+                    ));
+                }
             }
         }
         Ok(())
@@ -287,10 +299,16 @@ impl PluginManifest {
         self.hooks.contains(&PluginHook::Request)
     }
 
+    /// 这个插件是否要在会话异常退出时给出接棒决策。
+    pub fn hooks_session_exit(&self) -> bool {
+        self.hooks.contains(&PluginHook::SessionExit)
+    }
+
     /// 规则插件没有规则时是空操作，直接跳过，避免热路径白跑。
     pub fn is_effective(&self) -> bool {
         match self.kind {
-            PluginKind::Script => true,
+            // 脚本插件的效果取决于它声明的钩子，不取决于规则数。
+            PluginKind::Script => !self.hooks.is_empty(),
             PluginKind::Rules => !self.rules.is_empty(),
         }
     }

@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "id": "session-baton",
+  "name": "接棒（Session Baton）",
+  "version": "0.1.0",
+  "description": "托管会话跑到一半挂了的时候决定接不接、怎么接：额度耗尽续同一会话，上下文超限开新会话并交接，用户主动中断不打扰。",
+  "author": "PHI",
+  "hooks": ["session-exit"],
+  "priority": 100,
+  "enabled_by_default": true,
+  "kind": "script",
+  "entry": "main.js"
+}
