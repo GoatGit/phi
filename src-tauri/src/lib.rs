@@ -46,6 +46,7 @@ mod prompt;
 mod prompt_files;
 mod provider;
 mod proxy;
+mod report_card;
 mod services;
 mod session_manager;
 mod settings;
@@ -1479,6 +1480,7 @@ pub fn run() {
             lessons::commands::lesson_restore,
             lessons::commands::lesson_injection_preview,
             lessons::commands::lesson_set_injection,
+            report_card::commands::report_card_page,
             commands::get_gateway_catalog,
             commands::gateway_subscription_action,
             commands::connect_gateway_subscription,

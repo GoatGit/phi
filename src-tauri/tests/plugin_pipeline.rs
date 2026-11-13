@@ -101,8 +101,21 @@ fn broken_plugin_is_reported_without_disabling_the_others() {
 
     let runtime = PluginRuntime::from_config_dir();
     let summary = runtime.summary();
-    assert_eq!(summary.plugins.len(), 1);
-    assert_eq!(summary.plugins[0].id, "healthy");
+    // 命令层用这份清单驱动插件中心，所以宿主自带的功能插件（report-card）也在里面。
+    // 这里验证的是磁盘插件：坏的那个只进错误、好的那个照常生效。
+    let disk: Vec<&_> = summary.plugins.iter().filter(|p| !p.builtin).collect();
+    assert_eq!(disk.len(), 1, "只有 healthy 是磁盘插件");
+    assert_eq!(disk[0].id, "healthy");
+    assert!(disk[0].enabled);
+    assert!(
+        summary.plugins.iter().any(|p| p.builtin),
+        "内置功能插件应出现在清单里：{:?}",
+        summary
+            .plugins
+            .iter()
+            .map(|p| p.id.as_str())
+            .collect::<Vec<_>>()
+    );
     assert_eq!(summary.errors.len(), 1);
     assert_eq!(summary.errors[0].plugin_dir, "broken");
 
@@ -132,10 +145,15 @@ fn plugin_can_be_disabled_without_touching_its_manifest() {
     overrides.save(&config_dir().join(STATE_FILE)).unwrap();
 
     let runtime = PluginRuntime::from_config_dir();
+    // 功能插件不产生请求阶段，停用的请求插件也不产生，所以这里应当是空的。
     assert!(runtime.stages().is_empty());
     let summary = runtime.summary();
-    assert_eq!(summary.plugins.len(), 1);
-    assert!(!summary.plugins[0].enabled);
+    let off = summary
+        .plugins
+        .iter()
+        .find(|plugin| plugin.id == "off.demo")
+        .expect("off.demo 应出现在清单里");
+    assert!(!off.enabled);
 
     // 干跑不受启用状态影响：作者要先能看到效果再决定开不开。
     let mut body = json!({"secret": 1, "keep": 2});

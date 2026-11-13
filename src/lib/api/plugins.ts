@@ -14,14 +14,22 @@ import { invoke } from "@tauri-apps/api/core";
 
 // ─── 请求插件 ──────────────────────────────────────────────────────────────
 
-export type PluginKind = "rules" | "script";
+export type PluginKind = "rules" | "script" | "feature";
 
 /**
  * 插件挂载点。
  * - `request`：代理出站请求体的改写阶段；
- * - `session-exit`：托管会话异常退出时的接棒决策（脚本导出 `onSessionExit`）。
+ * - `session-exit`：托管会话异常退出时的接棒决策（脚本导出 `onSessionExit`）；
+ * - `panel`：只在界面挂一个宿主内置面板，不参与请求。
  */
-export type PluginHook = "request" | "session-exit";
+export type PluginHook = "request" | "session-exit" | "panel";
+
+/** 功能插件的面板声明。`entry` 只能指向宿主内置面板。 */
+export interface PluginPanelDeclaration {
+  entry: string;
+  title?: string | null;
+  order?: number | null;
+}
 
 export interface PluginSummary {
   id: string;
@@ -36,8 +44,12 @@ export interface PluginSummary {
   description: string | null;
   author: string | null;
   ruleCount: number;
-  /** 插件目录名（不是绝对路径） */
+  /** 插件目录名（不是绝对路径）；宿主自带的写 `builtin` */
   sourceDir: string;
+  /** 宿主自带（不在插件目录里） */
+  builtin: boolean;
+  /** 功能插件的面板声明；其他类型为 null */
+  panel: PluginPanelDeclaration | null;
 }
 
 export interface PluginLoadError {

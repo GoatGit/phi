@@ -28,6 +28,7 @@ impl Database {
         crate::orchestration::create_tables(conn)?;
         crate::lessons::create_tables(conn)?;
         crate::exit_hook::create_tables(conn)?;
+        crate::report_card::create_tables(conn)?;
         // 1. Providers 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS providers (
@@ -617,6 +618,11 @@ impl Database {
                         log::info!("迁移数据库从 v24 到 v25（教训库的禁区清单与扫描水位）");
                         Self::migrate_v24_to_v25(conn)?;
                         Self::set_user_version(conn, 25)?;
+                    }
+                    25 => {
+                        log::info!("迁移数据库从 v25 到 v26（成绩单的会话事实表）");
+                        Self::migrate_v25_to_v26(conn)?;
+                        Self::set_user_version(conn, 26)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1753,6 +1759,13 @@ impl Database {
     /// 都是新建表，`IF NOT EXISTS` 即可幂等；历史会话由首次「刷新」补扫。
     fn migrate_v24_to_v25(conn: &Connection) -> Result<(), AppError> {
         crate::lessons::create_tables(conn)
+    }
+
+    /// v25 -> v26: 成绩单的会话来源表与任务事实表。
+    ///
+    /// 都是新建表，`IF NOT EXISTS` 即可幂等；已有会话的解析结果由首次同步补齐。
+    fn migrate_v25_to_v26(conn: &Connection) -> Result<(), AppError> {
+        crate::report_card::create_tables(conn)
     }
 
     /// 插入默认模型定价数据
@@ -4076,6 +4089,50 @@ mod tests {
             |row| row.get(0),
         )?;
         assert_eq!(links, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v25_to_v26_creates_report_card_tables_and_keeps_existing_rows(
+    ) -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE providers (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+             INSERT INTO providers (id, name) VALUES ('p-1', 'kept');",
+        )?;
+        Database::set_user_version(&conn, 25)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let kept: String =
+            conn.query_row("SELECT name FROM providers WHERE id = 'p-1'", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(kept, "kept");
+        // 三张表都要真能写：会话来源、任务事实、同步水位。
+        conn.execute(
+            "INSERT INTO report_card_sources (session_key, provider_id, session_id, source_path,
+                                              project_dir, fingerprint, scanned_at)
+             VALUES ('claude:s-1', 'claude', 's-1', '/t/s-1.jsonl', '/repo', 'fp', 10)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO report_card_tasks (task_key, session_key, provider_id, project_dir,
+                                            started_at, ended_at, model)
+             VALUES ('t-1', 'claude:s-1', 'claude', '/repo', 1, 2, 'gpt-5')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO report_card_meta (key, value) VALUES ('last_sync_at', 3)",
+            [],
+        )?;
+        let synced: i64 = conn.query_row(
+            "SELECT value FROM report_card_meta WHERE key = 'last_sync_at'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(synced, 3);
         Ok(())
     }
 

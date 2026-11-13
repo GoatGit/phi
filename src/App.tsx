@@ -156,6 +156,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
 import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
+import { ReportCardPage } from "@/components/reportcard/ReportCardPage";
 import { PluginCenterPage } from "@/components/plugins/PluginCenterPage";
 import {
   useDisableCurrentOmo,
@@ -1839,7 +1840,10 @@ function App() {
         );
       case "plugins":
         return (
-          <PluginCenterPage onBack={drillInReturn ? exitDrillIn : undefined} />
+          <PluginCenterPage
+            onBack={drillInReturn ? exitDrillIn : undefined}
+            onOpenPanel={(page) => setCurrentView(page)}
+          />
         );
       case "usage":
         return (
@@ -1861,6 +1865,10 @@ function App() {
               return session.id;
             }}
           />
+        );
+      case "reportCard":
+        return (
+          <ReportCardPage onBack={drillInReturn ? exitDrillIn : undefined} />
         );
       case "mcp":
         return (

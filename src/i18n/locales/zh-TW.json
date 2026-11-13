@@ -5654,7 +5654,7 @@
     "saving": "儲存中…",
     "close": "關閉",
     "tabs": {
-      "stages": "請求外掛",
+      "stages": "外掛",
       "privacy": "隱私脫敏",
       "router": "MCP 路由",
       "lessons": "教訓库"
@@ -5699,9 +5699,13 @@
       }
     },
     "stages": {
-      "intro": "外掛在請求發往上游之前改寫請求體。依優先級從小到大依序執行，某個外掛出錯只跳過它自己。",
+      "intro": "請求外掛在請求發往上游之前改寫請求體，依優先級從小到大依序執行，某個外掛出錯只跳過它自己。功能外掛不執行程序碼，只在側邊欄掛一個內建面板。",
       "dir": "外掛目錄",
       "kindRules": "規則",
+      "kindFeature": "功能",
+      "builtin": "宿主內建",
+      "panelEntry": "面板：{{entry}}",
+      "openPanel": "開啟",
       "kindScript": "腳本",
       "priority": "優先級 {{value}}",
       "ruleCount": "{{count}} 條規則",
@@ -5792,6 +5796,43 @@
       "applyFailed": "設定已儲存，但重新投影失敗：{{message}}",
       "saveFailed": "儲存失敗：{{message}}",
       "loadFailed": "MCP 路由設定讀取失敗"
+    }
+  },
+  "reportCard": {
+    "title": "成績單",
+    "windowLabel": "統計區間",
+    "windowDays": "{{days}} 天",
+    "refresh": "重新掃描",
+    "unprovenTitle": "這是可靠性，不是品質",
+    "unprovenBody": "數字來自工作階段裡的工具結果。phi 沒有跑你的驗收指令，也還沒追蹤改動是否被還原——所以這裡只比「誰更少出錯」，不判斷「誰更管用」。",
+    "loadFailed": "讀取成績單失敗",
+    "retry": "重試",
+    "emptyTitle": "還沒有可統計的工作階段",
+    "emptyBody": "phi 只在你用過本機的 agent 工作階段之後才有據可查。先跑幾個任務，再回來看看。",
+    "footnote": "按空閒 30 分鐘切分任務；樣本不足時只顯示樣本量，不顯示百分比。資料留在本機。",
+    "unlabeledModel": "未標註模型",
+    "insufficient": "樣本不足（{{samples}}）",
+    "today": "今天",
+    "daysAgo": "{{days}} 天前",
+    "columns": {
+      "model": "模型",
+      "tasks": "任務",
+      "calls": "工具呼叫",
+      "failureRate": "失敗率",
+      "interruptRate": "中斷率",
+      "emptyDelivery": "空交付率",
+      "stepDuration": "單步耗時",
+      "costPerTask": "單任務成本",
+      "lastSeen": "最近活躍"
+    },
+    "summary": {
+      "tasks": "任務",
+      "models": "模型",
+      "projects": "專案",
+      "sources": "工作階段",
+      "syncing": "正在掃描工作階段…",
+      "syncedRecently": "剛剛同步過",
+      "synced": "本輪解析 {{count}} 個變動的工作階段"
     }
   },
   "tasks": {

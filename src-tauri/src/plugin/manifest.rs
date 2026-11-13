@@ -64,6 +64,8 @@ pub enum PluginHook {
     Request,
     /// 托管会话异常退出时的接棒决策（脚本导出 `onSessionExit`）。
     SessionExit,
+    /// 界面面板：只在宿主里挂一个内置页面，不参与请求。
+    Panel,
 }
 
 /// 插件实现方式。
@@ -75,6 +77,8 @@ pub enum PluginKind {
     Rules,
     /// 脚本：插件目录里的 `main.js` 导出 `onRequest(payload)`。
     Script,
+    /// 功能插件：只在宿主界面挂一个内置面板，不跑脚本、不改请求。
+    Feature,
 }
 
 /// 声明式规则的操作。
@@ -138,6 +142,61 @@ pub struct PluginManifest {
     /// 规则插件的规则列表。
     #[serde(default)]
     pub rules: Vec<DeclarativeRule>,
+    /// 功能插件的面板声明（`kind = feature` 时必填）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel: Option<PanelDeclaration>,
+}
+
+/// 功能插件可以挂的面板 id。
+///
+/// 宿主持有这些面板的组件，插件只能引用这里的 id——功能插件永远不携带自己的
+/// 前端代码，所以启用一个功能插件不会扩大攻击面，也不需要为它加 CSP 例外。
+pub const BUILTIN_PANELS: &[&str] = &["report-card"];
+
+const MAX_PANEL_ENTRY_CHARS: usize = 64;
+
+/// 功能插件的面板声明。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PanelDeclaration {
+    /// 内置面板 id，必须在 [`BUILTIN_PANELS`] 里。
+    pub entry: String,
+    /// 面板标题；缺省时由宿主按 entry 取文案。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// 侧栏与列表里的顺序，数值小的在前。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<i32>,
+}
+
+impl PanelDeclaration {
+    fn validate(&self) -> Result<(), PluginValidationError> {
+        if self.entry.is_empty() || self.entry.chars().count() > MAX_PANEL_ENTRY_CHARS {
+            return Err(PluginValidationError::new(
+                "panel.entry",
+                format!("面板 id 长度必须在 1..={MAX_PANEL_ENTRY_CHARS} 字符之间"),
+            ));
+        }
+        if !BUILTIN_PANELS.contains(&self.entry.as_str()) {
+            return Err(PluginValidationError::new(
+                "panel.entry",
+                format!(
+                    "面板 '{}' 不是内置面板（可用: {}）",
+                    self.entry,
+                    BUILTIN_PANELS.join(", ")
+                ),
+            ));
+        }
+        if let Some(title) = &self.title {
+            if title.is_empty() || title.chars().count() > MAX_NAME_CHARS {
+                return Err(PluginValidationError::new(
+                    "panel.title",
+                    format!("面板标题长度必须在 1..={MAX_NAME_CHARS} 字符之间"),
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for PluginManifest {
@@ -155,6 +214,7 @@ impl Default for PluginManifest {
             kind: PluginKind::Rules,
             entry: None,
             rules: Vec::new(),
+            panel: None,
         }
     }
 }
@@ -259,6 +319,12 @@ impl PluginManifest {
                         "脚本插件不能再带声明式规则",
                     ));
                 }
+                if self.panel.is_some() || self.hooks.contains(&PluginHook::Panel) {
+                    return Err(PluginValidationError::new(
+                        "panel",
+                        "只有功能插件可以声明面板",
+                    ));
+                }
             }
             PluginKind::Rules => {
                 if self.entry.is_some() {
@@ -274,6 +340,33 @@ impl PluginManifest {
                         "session-exit 钩子只支持脚本插件",
                     ));
                 }
+                if self.panel.is_some() || self.hooks.contains(&PluginHook::Panel) {
+                    return Err(PluginValidationError::new(
+                        "panel",
+                        "只有功能插件可以声明面板",
+                    ));
+                }
+            }
+            PluginKind::Feature => {
+                let panel = self
+                    .panel
+                    .as_ref()
+                    .ok_or_else(|| PluginValidationError::new("panel", "功能插件必须声明面板"))?;
+                panel.validate()?;
+                if self.entry.is_some() || !self.rules.is_empty() {
+                    return Err(PluginValidationError::new(
+                        "kind",
+                        "功能插件不能声明脚本入口或声明式规则",
+                    ));
+                }
+                // 功能插件只在界面出现，不参与任何请求路径；这条约束写在清单里，
+                // 代理热路径就不用再为代表页面的插件做一层判断。
+                if self.hooks != vec![PluginHook::Panel] {
+                    return Err(PluginValidationError::new(
+                        "hooks",
+                        "功能插件必须且只能声明 panel 钩子",
+                    ));
+                }
             }
         }
         Ok(())
@@ -281,7 +374,7 @@ impl PluginManifest {
 
     /// 脚本入口的规范化相对路径；规则插件返回 `None`。
     pub fn entry_path(&self) -> Result<Option<PathBuf>, PluginValidationError> {
-        if self.kind == PluginKind::Rules {
+        if self.kind != PluginKind::Script {
             return Ok(None);
         }
         let Some(entry) = &self.entry else {
@@ -310,6 +403,7 @@ impl PluginManifest {
             // 脚本插件的效果取决于它声明的钩子，不取决于规则数。
             PluginKind::Script => !self.hooks.is_empty(),
             PluginKind::Rules => !self.rules.is_empty(),
+            PluginKind::Feature => self.panel.is_some(),
         }
     }
 }
@@ -592,5 +686,65 @@ mod tests {
         let mut manifest = script_manifest();
         manifest.manifest_version = CURRENT_MANIFEST_VERSION + 1;
         assert_eq!(manifest.validate().unwrap_err().field, "manifest_version");
+    }
+
+    fn feature_manifest(entry: &str) -> PluginManifest {
+        PluginManifest {
+            id: "report-card".to_string(),
+            name: "Report card".to_string(),
+            hooks: vec![PluginHook::Panel],
+            kind: PluginKind::Feature,
+            panel: Some(PanelDeclaration {
+                entry: entry.to_string(),
+                title: None,
+                order: Some(10),
+            }),
+            ..PluginManifest::default()
+        }
+    }
+
+    #[test]
+    fn feature_panels_must_point_at_a_builtin_panel() {
+        assert!(feature_manifest("report-card").validate().is_ok());
+        assert_eq!(
+            feature_manifest("made-up").validate().unwrap_err().field,
+            "panel.entry"
+        );
+    }
+
+    #[test]
+    fn feature_plugins_cannot_take_part_in_requests() {
+        let mut manifest = feature_manifest("report-card");
+        manifest.hooks = vec![PluginHook::Panel, PluginHook::Request];
+        assert_eq!(manifest.validate().unwrap_err().field, "hooks");
+
+        let mut without_panel = feature_manifest("report-card");
+        without_panel.panel = None;
+        assert_eq!(without_panel.validate().unwrap_err().field, "panel");
+    }
+
+    #[test]
+    fn request_plugins_cannot_declare_panels() {
+        let mut manifest = script_manifest();
+        manifest.panel = Some(PanelDeclaration {
+            entry: "report-card".to_string(),
+            title: None,
+            order: None,
+        });
+        assert_eq!(manifest.validate().unwrap_err().field, "panel");
+
+        let mut rules = PluginManifest {
+            id: "rules.only".to_string(),
+            name: "Rules".to_string(),
+            hooks: vec![PluginHook::Panel],
+            ..PluginManifest::default()
+        };
+        rules.rules = vec![DeclarativeRule {
+            op: DeclarativeOp::Remove,
+            path: "a".to_string(),
+            pattern: None,
+            replacement: None,
+        }];
+        assert_eq!(rules.validate().unwrap_err().field, "panel");
     }
 }
