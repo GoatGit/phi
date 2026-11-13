@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -376,6 +377,16 @@ export function useToolManagement() {
     Record<string, WslShellPreference>
   >({});
   const [loadingTools, setLoadingTools] = useState<Record<string, boolean>>({});
+  // 探测是异步的（每个工具一次子进程 + 一次网络），页面切走或测试环境销毁后仍会收尾。
+  // 卸载后回写本地 state，在 jsdom 里会因为 window 已不存在抛出未处理拒绝，让测试进程
+  // 以退出码 1 结束（用例本身全过，看起来像随机失败）。收尾回写前先确认仍然挂载。
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   // 每个工具独立锁定，覆盖预检、等待确认、执行与版本刷新。
   // 共享状态同步加锁，避免重复点击或重挂后的页面重复提交同一工具。
   const releaseTools = useCallback((toolNames: ToolName[]) => {
@@ -450,15 +461,17 @@ export function useToolManagement() {
         console.error("[useToolManagement] Failed to refresh tools", error);
         return [];
       } finally {
-        setLoadingTools((prev) => {
-          const next = { ...prev };
-          for (const name of toolNames) {
-            if (latestToolVersionRequests.get(name) === requestId) {
-              next[name] = false;
+        if (mountedRef.current) {
+          setLoadingTools((prev) => {
+            const next = { ...prev };
+            for (const name of toolNames) {
+              if (latestToolVersionRequests.get(name) === requestId) {
+                next[name] = false;
+              }
             }
-          }
-          return next;
-        });
+            return next;
+          });
+        }
       }
     },
     [],
@@ -493,13 +506,14 @@ export function useToolManagement() {
         );
       } finally {
         // 全量探测结束：把缓存时间戳刷新为现在，标记「刚完成一次全量加载」、重置 TTL。
+        // 缓存写在模块级 store，卸载后仍应保留；只有本地 loading 状态要确认还挂载着。
         const latestCache = toolManagementState.toolVersionsCache;
         if (latestCache) {
           updateToolManagementState({
             toolVersionsCache: { ...latestCache, at: Date.now() },
           });
         }
-        setIsLoadingTools(false);
+        if (mountedRef.current) setIsLoadingTools(false);
       }
     },
     [wslShellByTool, refreshToolVersions],

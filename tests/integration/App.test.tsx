@@ -329,6 +329,41 @@ describe("App integration with MSW", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps one sidebar entry for the merged routing page", async () => {
+    const { default: App } = await import("@/App");
+    renderApp(App);
+
+    const nav = document.querySelector("nav") as HTMLElement;
+    const sidebarRouting = await waitFor(() =>
+      within(nav).getByRole("button", {
+        name: "gateway.routing",
+        hidden: true,
+      }),
+    );
+    // 供应商页并进来后，一级导航只剩合并后的「路由」一个入口
+    expect(
+      within(nav).queryByRole("button", {
+        name: "gateway.providers",
+        hidden: true,
+      }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(sidebarRouting);
+    // 同一个页面里两个页签：路由 + 供应商
+    expect(
+      await screen.findByRole("tab", {
+        name: "gateway.routing",
+        hidden: true,
+      }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("tab", {
+        name: "gateway.providers",
+        hidden: true,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("starts with an empty app list and adds or removes a sidebar shortcut on demand", async () => {
     setSettings({ sidebarApps: [] });
     const { default: App } = await import("@/App");
