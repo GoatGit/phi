@@ -103,38 +103,51 @@ mod tests {
         format!("{ID}\t{exit}\t1762900000\t{app}\t{cwd}")
     }
 
+    /// `parse_line` 要求 cwd 是绝对路径。"/tmp" 在 Windows 上不算绝对路径，
+    /// 所以这些用例用运行平台的临时目录——两个平台验的是同一件事，
+    /// 不靠平台判断来跳过。
+    fn directory() -> String {
+        std::env::temp_dir().to_string_lossy().into_owned()
+    }
+
     #[test]
     fn parses_a_real_record() {
-        let record = parse_line(&line("1", "claude", "/tmp/project")).expect("record");
+        let cwd = directory();
+        let record = parse_line(&line("1", "claude", &cwd)).expect("record");
         assert_eq!(record.terminal_id, ID);
         assert_eq!(record.app_id, "claude");
         assert_eq!(record.exit_code, 1);
         assert_eq!(record.at, 1_762_900_000);
-        assert_eq!(record.cwd, "/tmp/project");
+        assert_eq!(record.cwd, cwd);
     }
 
     #[test]
     fn keeps_tabs_that_belong_to_cwd() {
         // cwd 里出现 TAB 时 splitn(5) 把剩下的全部留给最后一个字段。
-        let record = parse_line(&format!("{ID}\t0\t1762900000\tcodex\t/tmp/a\tb")).expect("record");
-        assert_eq!(record.cwd, "/tmp/a\tb");
+        let cwd = std::path::Path::new(&directory())
+            .join("a\tb")
+            .to_string_lossy()
+            .into_owned();
+        let record = parse_line(&format!("{ID}\t0\t1762900000\tcodex\t{cwd}")).expect("record");
+        assert_eq!(record.cwd, cwd);
     }
 
     #[test]
     fn rejects_records_that_could_steer_the_launch() {
+        let cwd = directory();
         for bad in [
             String::new(),
-            "not-a-uuid\t1\t1762900000\tclaude\t/tmp".to_string(),
+            format!("not-a-uuid\t1\t1762900000\tclaude\t{cwd}"),
             // 应用名只能是 terminal 认识的那几个，别的一律不认
-            line("1", "claude; rm -rf /", "/tmp"),
-            line("1", "shell", "/tmp"),
+            line("1", "claude; rm -rf /", &cwd),
+            line("1", "shell", &cwd),
             // 退出码越界 / 非数字
-            line("256", "claude", "/tmp"),
-            line("-1", "claude", "/tmp"),
-            line("boom", "claude", "/tmp"),
+            line("256", "claude", &cwd),
+            line("-1", "claude", &cwd),
+            line("boom", "claude", &cwd),
             // 时间戳非法
-            format!("{ID}\t1\t0\tclaude\t/tmp"),
-            format!("{ID}\t1\tyesterday\tclaude\t/tmp"),
+            format!("{ID}\t1\t0\tclaude\t{cwd}"),
+            format!("{ID}\t1\tyesterday\tclaude\t{cwd}"),
             // 相对路径 / 空路径
             line("1", "claude", "relative/dir"),
             line("1", "claude", ""),
@@ -147,7 +160,11 @@ mod tests {
 
     #[test]
     fn oversized_lines_are_dropped() {
-        let long = format!("{ID}\t1\t1762900000\tclaude\t/{}", "a".repeat(9000));
+        let long = format!(
+            "{ID}\t1\t1762900000\tclaude\t{}{}",
+            directory(),
+            "a".repeat(9000)
+        );
         assert!(parse_line(&long).is_none());
     }
 
@@ -180,7 +197,7 @@ mod tests {
         use std::io::Write as _;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("journal.log");
-        let full = line("1", "claude", "/tmp");
+        let full = line("1", "claude", &directory());
         let (head, tail) = full.split_at(20);
         std::fs::write(&path, head).unwrap();
 
