@@ -26,6 +26,7 @@ impl Database {
         crate::access::create_tables(conn)?;
         crate::tasks::create_tables(conn)?;
         crate::orchestration::create_tables(conn)?;
+        crate::lessons::create_tables(conn)?;
         // 1. Providers 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS providers (
@@ -610,6 +611,11 @@ impl Database {
                         log::info!("迁移数据库从 v23 到 v24（编排接力的门判定记录表）");
                         Self::migrate_v23_to_v24(conn)?;
                         Self::set_user_version(conn, 24)?;
+                    }
+                    24 => {
+                        log::info!("迁移数据库从 v24 到 v25（教训库的禁区清单与扫描水位）");
+                        Self::migrate_v24_to_v25(conn)?;
+                        Self::set_user_version(conn, 25)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1739,6 +1745,13 @@ impl Database {
     /// `phi_verdict` 结论都在 git 里，不进数据库。
     fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
         crate::orchestration::create_tables(conn)
+    }
+
+    /// v24 -> v25: 教训库的三张表（教训、按会话计数的命中记录、工作区设置）。
+    ///
+    /// 都是新建表，`IF NOT EXISTS` 即可幂等；历史会话由首次「刷新」补扫。
+    fn migrate_v24_to_v25(conn: &Connection) -> Result<(), AppError> {
+        crate::lessons::create_tables(conn)
     }
 
     /// 插入默认模型定价数据
@@ -4062,6 +4075,48 @@ mod tests {
             |row| row.get(0),
         )?;
         assert_eq!(links, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v24_to_v25_creates_lesson_tables_and_keeps_existing_rows() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE providers (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+             INSERT INTO providers (id, name) VALUES ('p-1', 'kept');",
+        )?;
+        Database::set_user_version(&conn, 24)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let kept: String =
+            conn.query_row("SELECT name FROM providers WHERE id = 'p-1'", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(kept, "kept");
+        // 三张表都要真能写：教训、按会话计数的命中记录、工作区设置。
+        conn.execute(
+            "INSERT INTO lessons (root, id, paths, trigger_text, evidence, next_step,
+                                  hits, first_seen, last_seen, apps)
+             VALUES ('/repo', 'l-1', '[]', 'trigger', 'evidence', 'next', 1, 2, 3, '[]')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO lesson_occurrences (root, lesson_id, session_id, seen_at)
+             VALUES ('/repo', 'l-1', 's-1', 4)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO lesson_settings (root, inject) VALUES ('/repo', 1)",
+            [],
+        )?;
+        let injected: i64 = conn.query_row(
+            "SELECT inject FROM lesson_settings WHERE root = '/repo'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(injected, 1);
         Ok(())
     }
 

@@ -1,4 +1,25 @@
 {
+  "sessionBaton": {
+    "hooks": {
+      "request": "Request rewrite",
+      "sessionExit": "Session exit"
+    },
+    "pluginCenter": {
+      "hint": "When a hosted session dies, this plugin decides whether to take over. PHI does the restart itself — plugins never touch the process."
+    },
+    "preview": {
+      "title": "Dry run {{name}}",
+      "hint": "Edit the \"the session just died\" event and see how this plugin would rule. Decision only — nothing is restarted.",
+      "input": "Exit event",
+      "output": "Decision",
+      "actionResume": "Take over",
+      "actionRecord": "Record only",
+      "modeFresh": "new session with handoff",
+      "modeSame": "same session",
+      "abstained": "The plugin abstains: the built-in policy handles this kind of exit.",
+      "invalidJson": "The event is not valid JSON"
+    }
+  },
   "gateway": {
     "providers": "Providers",
     "routing": "Routing",
@@ -5635,7 +5656,47 @@
     "tabs": {
       "stages": "Request plugins",
       "privacy": "Privacy",
-      "router": "MCP routing"
+      "router": "MCP routing",
+      "lessons": "Lessons"
+    },
+    "lessons": {
+      "intro": "Turns failed sessions into a repo-level list of no-go zones: what broke, and what to watch out for before touching which file.",
+      "sourceHint": "Built from locally hosted session records: tool errors and non-zero exit codes. No model is called, entries come from fixed templates.",
+      "noWorkspaceTitle": "No repository yet",
+      "noWorkspaceBody": "Lessons grow per repository. Register one on the Tasks page and its list of no-go zones shows up here.",
+      "repo": "Repository",
+      "repoPlaceholder": "Pick a repository",
+      "scan": "Scan sessions",
+      "scanning": "Scanning…",
+      "loadFailed": "Could not read the lesson list",
+      "scannedAt": "Last scan {{time}}",
+      "neverScanned": "Never scanned",
+      "scanSummary": "{{sessions}} sessions scanned, {{failures}} failures",
+      "pending": "{{count}} sessions still to scan",
+      "injectionTitle": "Write into AGENTS.md",
+      "injectionHint": "When on, phi writes the no-go list into {{file}} and only maintains what sits between its own comment markers. Nothing else in the file is touched.",
+      "injectionMeta": "{{used}}/{{budget}} chars · lessons v{{version}}",
+      "injectionStale": "The block in the file no longer matches the current lessons; scan again to realign",
+      "preview": "Preview",
+      "empty": "No lessons yet. Run a few tasks, break something for real, and the first one appears.",
+      "hits": "hit {{count}}×",
+      "dismiss": "Delete this lesson",
+      "dismissedTitle": "Deleted lessons",
+      "dismissReason": "Reason: {{reason}}",
+      "restore": "Restore",
+      "previewTitle": "About to write into {{file}}",
+      "previewHint": "{{count}} entries, {{used}}/{{budget}} chars. Read once at session start, never appended per turn.",
+      "previewEmpty": "Nothing to write yet",
+      "dismissTitle": "Delete this lesson",
+      "dismissHint": "It stops being injected, but its text and evidence stay below. Write a clear reason so it does not grow back on the next scan.",
+      "dismissPlaceholder": "e.g. this failure was the environment, not the approach",
+      "cancel": "Cancel",
+      "errors": {
+        "invalidDirectory": "That repository path is not usable",
+        "notRegistered": "This repository is not registered on the Tasks page",
+        "reasonRequired": "A reason is required to delete a lesson",
+        "notFound": "That lesson is gone already"
+      }
     },
     "stages": {
       "intro": "Plugins rewrite the request body before it leaves for the upstream. They run from the lowest priority to the highest, and a failing plugin only skips itself.",

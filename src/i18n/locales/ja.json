@@ -1,4 +1,25 @@
 {
+  "sessionBaton": {
+    "hooks": {
+      "request": "リクエスト書き換え",
+      "sessionExit": "セッション終了"
+    },
+    "pluginCenter": {
+      "hint": "ホストされたセッションが落ちたとき、引き継ぐかどうかをこのプラグインが決めます。再起動は PHI が行い、プラグインはプロセスに触れません。"
+    },
+    "preview": {
+      "title": "{{name}} を試走",
+      "hint": "「セッションが落ちた」イベントを編集して、このプラグインの判断を確かめます。判断だけで、実際の再起動は行いません。",
+      "input": "終了イベント",
+      "output": "判断結果",
+      "actionResume": "引き継ぐ",
+      "actionRecord": "記録のみ",
+      "modeFresh": "新しいセッションで引き継ぎ",
+      "modeSame": "同じセッションを継続",
+      "abstained": "プラグインは棄権：この種の終了は組み込みポリシーが処理します。",
+      "invalidJson": "イベントが正しい JSON ではありません"
+    }
+  },
   "gateway": {
     "providers": "プロバイダー",
     "routing": "ルーティング",
@@ -5635,7 +5656,47 @@
     "tabs": {
       "stages": "リクエスト",
       "privacy": "プライバシー",
-      "router": "MCP ルーティング"
+      "router": "MCP ルーティング",
+      "lessons": "教訓庫"
+    },
+    "lessons": {
+      "intro": "失敗したセッションをリポジトリ単位の「觸ってはいけない場所」に変えます。どこで壊れたか、どのファイルを觸る前に気をつけるかがここに並びます。",
+      "sourceHint": "元はこの Mac で管理しているセッション記録です。ツールのエラーと 0 以外の終了コードだけを見て、モデルは呼ばす固定テンプレートで書きます。",
+      "noWorkspaceTitle": "使えるリポジトリがまだありません",
+      "noWorkspaceBody": "教訓はリポジトリごとに育ちます。まず「タスク」ページでリポジトリを登録してください。",
+      "repo": "リポジトリ",
+      "repoPlaceholder": "リポジトリを選ぶ",
+      "scan": "セッションを走査",
+      "scanning": "走査中…",
+      "loadFailed": "教訓庫を読み込めませんでした",
+      "scannedAt": "前回の走査 {{time}}",
+      "neverScanned": "まだ走査していません",
+      "scanSummary": "{{sessions}} 件のセッションを走査し、失敗 {{failures}} 件",
+      "pending": "未走査のセッションが {{count}} 件あります",
+      "injectionTitle": "AGENTS.md に書き込む",
+      "injectionHint": "オンにすると、phi は禁止リストを {{file}} に書き込みます。自分のコメントマーカーの間だけを維持し、他の場所は一切変えません。",
+      "injectionMeta": "{{used}}/{{budget}} 文字 · lessons v{{version}}",
+      "injectionStale": "ファイル内のブロックが現在の教訓と一致していません。もう一度走査すると揃います",
+      "preview": "書き込む内容を見る",
+      "empty": "教訓はまだありません。いくつかタスクを回して本当に失敗すると、最初の一件が生まれます。",
+      "hits": "{{count}} 回ヒット",
+      "dismiss": "この教訓を削除",
+      "dismissedTitle": "削除済みの教訓",
+      "dismissReason": "削除理由：{{reason}}",
+      "restore": "戻す",
+      "previewTitle": "{{file}} に書き込む内容",
+      "previewHint": "{{count}} 件、{{used}}/{{budget}} 文字。セッション開始時に一度だけ読まれ、毎ターン追加はしません。",
+      "previewEmpty": "書き込める教訓はまだありません",
+      "dismissTitle": "この教訓を削除",
+      "dismissHint": "削除すると注入されなくなりますが、本文と証拠は下に残ります。理由を書いておくと、次の再計算で生え戻りません。",
+      "dismissPlaceholder": "例：今回の失敗は環境要因で、やり方の問題ではない",
+      "cancel": "キャンセル",
+      "errors": {
+        "invalidDirectory": "リポジトリのパスが無効です",
+        "notRegistered": "このリポジトリはタスクページで登録されていません",
+        "reasonRequired": "削除理由は必須です",
+        "notFound": "その教訓はすでにありません"
+      }
     },
     "stages": {
       "intro": "プラグインは上流に送る前のリクエスト本文を書き換えます。優先度の小さい順に実行され、失敗したプラグインはそれだけが実行されないままになります。",
