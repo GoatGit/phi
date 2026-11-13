@@ -6,6 +6,7 @@
 use crate::store::AppState;
 use crate::tasks::model::{Board, NewTask, TaskDetail, TaskLink, WorkspaceInfo};
 use crate::tasks::{board, document, repository};
+use crate::Database;
 use std::path::{Path, PathBuf};
 use tauri::State;
 
@@ -19,17 +20,26 @@ fn canonical(root: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn registered(state: &AppState, root: &str) -> Result<PathBuf, String> {
+fn registered_in(db: &Database, root: &str) -> Result<PathBuf, String> {
     let path = canonical(root)?;
-    let roots = state.db.task_workspaces().map_err(|e| e.to_string())?;
+    let roots = db.task_workspaces().map_err(|e| e.to_string())?;
     if !roots.iter().any(|entry| Path::new(entry) == path) {
         return Err("workspace-not-registered".into());
     }
     Ok(path)
 }
 
-fn open(state: &AppState, root: &str) -> Result<document::Workspace, String> {
-    document::open(&registered(state, root)?)
+fn registered(state: &AppState, root: &str) -> Result<PathBuf, String> {
+    registered_in(&state.db, root)
+}
+
+pub(crate) fn open(state: &AppState, root: &str) -> Result<document::Workspace, String> {
+    open_in(&state.db, root)
+}
+
+/// 只要 `Database` 的版本：门判定在阻塞线程池里跑，那里拿不到 `AppState`。
+pub(crate) fn open_in(db: &Database, root: &str) -> Result<document::Workspace, String> {
+    document::open(&registered_in(db, root)?)
 }
 
 fn detail_with_links(

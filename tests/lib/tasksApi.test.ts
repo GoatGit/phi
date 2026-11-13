@@ -4,6 +4,7 @@ const core = vi.hoisted(() => ({ invoke: vi.fn() }));
 
 vi.mock("@tauri-apps/api/core", () => core);
 
+import { orchestrationApi } from "@/lib/api/orchestration";
 import { taskErrorMessage, tasksApi } from "@/lib/api/tasks";
 
 /**
@@ -92,6 +93,20 @@ describe("tasksApi · 看板命令契约", () => {
           sessionId: "session-1",
         },
       ],
+    ]);
+  });
+});
+
+describe("orchestrationApi · 编排接力命令契约", () => {
+  it("读接力视图：gateNumber 用 camelCase，门判定带 2 / 3", async () => {
+    await orchestrationApi.relay("/repo", "TASK-1");
+    await orchestrationApi.runGate("/repo", "TASK-1", 2);
+    await orchestrationApi.runGate("/repo", "TASK-1", 3);
+
+    expect(core.invoke.mock.calls).toEqual([
+      ["task_relay", { root: "/repo", taskId: "TASK-1" }],
+      ["task_gate_run", { root: "/repo", taskId: "TASK-1", gateNumber: 2 }],
+      ["task_gate_run", { root: "/repo", taskId: "TASK-1", gateNumber: 3 }],
     ]);
   });
 });

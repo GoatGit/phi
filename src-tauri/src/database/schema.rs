@@ -25,6 +25,7 @@ impl Database {
         crate::gateway::create_tables(conn)?;
         crate::access::create_tables(conn)?;
         crate::tasks::create_tables(conn)?;
+        crate::orchestration::create_tables(conn)?;
         // 1. Providers 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS providers (
@@ -604,6 +605,11 @@ impl Database {
                         log::info!("迁移数据库从 v22 到 v23（任务看板的工作区与会话关联表）");
                         Self::migrate_v22_to_v23(conn)?;
                         Self::set_user_version(conn, 23)?;
+                    }
+                    23 => {
+                        log::info!("迁移数据库从 v23 到 v24（编排接力的门判定记录表）");
+                        Self::migrate_v23_to_v24(conn)?;
+                        Self::set_user_version(conn, 24)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1725,6 +1731,14 @@ impl Database {
     /// `create_tables` 的 `IF NOT EXISTS` 保证幂等。
     fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
         crate::tasks::create_tables(conn)
+    }
+
+    /// v23 -> v24: 编排接力的门判定记录表。
+    ///
+    /// 只新建表，`IF NOT EXISTS` 即可幂等。任务卡片里的 `phi:` 契约与
+    /// `phi_verdict` 结论都在 git 里，不进数据库。
+    fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
+        crate::orchestration::create_tables(conn)
     }
 
     /// 插入默认模型定价数据

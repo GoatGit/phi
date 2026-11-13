@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { orchestrationApi, type RelayView } from "@/lib/api/orchestration";
 import { settingsApi } from "@/lib/api/settings";
 import {
   taskErrorMessage,
@@ -99,6 +100,8 @@ export function TaskBoardPage({
   );
   const [board, setBoard] = useState<TaskBoard | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
+  /** 编排接力视图：跟着详情一起读，详情关掉就清 */
+  const [relay, setRelay] = useState<RelayView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -150,6 +153,7 @@ export function TaskBoardPage({
   const selectWorkspace = async (root: string) => {
     setActiveRoot(root);
     setDetail(null);
+    setRelay(null);
     try {
       localStorage.setItem(ROOT_STORAGE_KEY, root);
     } catch {
@@ -163,13 +167,30 @@ export function TaskBoardPage({
     }
   };
 
+  /**
+   * 接力面板是详情页的附加视图。读不到时只报错、返回 null，
+   * 不能让整个卡片打不开（工作区没登记、卡片 frontmatter 坏了都可能命中）。
+   */
+  const readRelay = async (root: string, taskId: string) => {
+    try {
+      return await orchestrationApi.relay(root, taskId);
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      return null;
+    }
+  };
+
   const reload = async (root: string | null = activeRoot) => {
     if (!root) return;
     try {
       await loadBoard(root);
       if (detail) {
-        const fresh = await tasksApi.detail(root, detail.task.id);
+        const [fresh, view] = await Promise.all([
+          tasksApi.detail(root, detail.task.id),
+          readRelay(root, detail.task.id),
+        ]);
         setDetail(fresh);
+        setRelay(view);
       }
     } catch (error) {
       if (String(error) === "stale-fingerprint") {
@@ -217,6 +238,7 @@ export function TaskBoardPage({
       const next = list.find((entry) => entry.valid) ?? null;
       setBoard(null);
       setDetail(null);
+      setRelay(null);
       if (next) await selectWorkspace(next.root);
       else setActiveRoot(null);
     } catch (error) {
@@ -256,6 +278,7 @@ export function TaskBoardPage({
     try {
       await tasksApi.archive(activeRoot, task.id, task.fingerprint);
       setDetail((current) => (current?.task.id === task.id ? null : current));
+      setRelay(null);
       await loadBoard(activeRoot);
       toast.success(t("tasks.archived"));
     } catch (error) {
@@ -423,9 +446,41 @@ export function TaskBoardPage({
   const openDetail = async (task: TaskCard) => {
     if (!activeRoot) return;
     try {
-      setDetail(await tasksApi.detail(activeRoot, task.id));
+      const [nextDetail, nextRelay] = await Promise.all([
+        tasksApi.detail(activeRoot, task.id),
+        readRelay(activeRoot, task.id),
+      ]);
+      setDetail(nextDetail);
+      setRelay(nextRelay);
     } catch (error) {
       toast.error(taskErrorMessage(error, t));
+    }
+  };
+
+  /** 门判定会往卡片里回写结论，所以判完必须重读详情与看板。 */
+  const handleRunGate = async (gate: 2 | 3) => {
+    if (!activeRoot || !detail) return;
+    const taskId = detail.task.id;
+    setBusy(true);
+    try {
+      const run = await orchestrationApi.runGate(activeRoot, taskId, gate);
+      const [fresh, view] = await Promise.all([
+        tasksApi.detail(activeRoot, taskId),
+        readRelay(activeRoot, taskId),
+      ]);
+      setDetail((current) => (current?.task.id === taskId ? fresh : current));
+      setRelay(view);
+      await loadBoard(activeRoot);
+      const status = t(`tasks.relay.status.${run.status}`, {
+        defaultValue: run.status,
+      });
+      const message = t("tasks.relay.gateDone", { gate, status });
+      if (run.status === "pass") toast.success(message);
+      else toast.info(message);
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -523,10 +578,14 @@ export function TaskBoardPage({
 
       <TaskDetailSheet
         detail={detail}
+        relay={relay}
         statuses={board?.statuses ?? []}
         terminalApps={terminalApps}
         busy={busy}
-        onClose={() => setDetail(null)}
+        onClose={() => {
+          setDetail(null);
+          setRelay(null);
+        }}
         onSetStatus={(status) => {
           if (detail) void handleSetStatus(detail.task, status);
         }}
@@ -537,6 +596,7 @@ export function TaskBoardPage({
           if (detail) void handleStartSession(detail.task, appId);
         }}
         onUnlink={(sessionId) => void handleUnlink(sessionId)}
+        onRunGate={(gate) => void handleRunGate(gate)}
       />
 
       <CreateTaskDialog
@@ -553,6 +613,8 @@ export function TaskBoardPage({
         onCreated={(created) => {
           setCreateOpen(false);
           setDetail(created);
+          // 新卡还没读接力视图，等下次打开详情再读
+          setRelay(null);
         }}
       />
 

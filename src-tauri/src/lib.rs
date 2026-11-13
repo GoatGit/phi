@@ -34,6 +34,7 @@ pub mod mode;
 mod model_capabilities;
 mod openclaw_config;
 mod opencode_config;
+mod orchestration;
 mod panic_hook;
 mod pi_config;
 pub mod plugin;
@@ -1459,6 +1460,8 @@ pub fn run() {
             tasks::commands::task_archive,
             tasks::commands::task_link_session,
             tasks::commands::task_unlink_session,
+            orchestration::commands::task_relay,
+            orchestration::commands::task_gate_run,
             commands::get_gateway_catalog,
             commands::gateway_subscription_action,
             commands::connect_gateway_subscription,

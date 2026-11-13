@@ -26,11 +26,15 @@ import {
 } from "@/components/ui/select";
 import { getAppDisplayName } from "@/components/shell/AppGlyph";
 import { fmtUsd } from "@/components/usage/format";
+import type { RelayView } from "@/lib/api/orchestration";
 import type { TaskDetail } from "@/lib/api/tasks";
 import { cn } from "@/lib/utils";
+import { TaskRelayPanel } from "./TaskRelayPanel";
 
 interface TaskDetailSheetProps {
   detail: TaskDetail | null;
+  /** 编排接力视图：卡片没有契约时也可能有（会提示缺什么） */
+  relay: RelayView | null;
   statuses: string[];
   /** 可以开终端会话的应用；空数组表示这台机器 / 平台不支持 */
   terminalApps: string[];
@@ -40,6 +44,7 @@ interface TaskDetailSheetProps {
   onArchive: () => void;
   onStartSession: (appId: string) => void;
   onUnlink: (sessionId: string) => void;
+  onRunGate: (gate: 2 | 3) => void;
 }
 
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
@@ -54,6 +59,7 @@ function Meta({ label, value }: { label: string; value: React.ReactNode }) {
 /** 任务详情抽屉：只读正文 + 三个写操作（改状态、归档、开始会话）。 */
 export function TaskDetailSheet({
   detail,
+  relay,
   statuses,
   terminalApps,
   busy,
@@ -62,6 +68,7 @@ export function TaskDetailSheet({
   onArchive,
   onStartSession,
   onUnlink,
+  onRunGate,
 }: TaskDetailSheetProps) {
   const { t } = useTranslation();
   const task = detail?.task ?? null;
@@ -234,6 +241,14 @@ export function TaskDetailSheet({
                   </ul>
                 )}
               </section>
+
+              {relay && relay.taskId === task.id ? (
+                <TaskRelayPanel
+                  relay={relay}
+                  busy={busy}
+                  onRunGate={onRunGate}
+                />
+              ) : null}
 
               <p className="m-0 break-all font-mono text-[11px] text-fg-3">
                 {task.file}
