@@ -4079,13 +4079,13 @@ mod tests {
     }
 
     #[test]
-    fn migrate_v23_to_v24_creates_lesson_tables_and_keeps_existing_rows() -> Result<(), AppError> {
+    fn migrate_v24_to_v25_creates_lesson_tables_and_keeps_existing_rows() -> Result<(), AppError> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(
             "CREATE TABLE providers (id TEXT PRIMARY KEY, name TEXT NOT NULL);
              INSERT INTO providers (id, name) VALUES ('p-1', 'kept');",
         )?;
-        Database::set_user_version(&conn, 23)?;
+        Database::set_user_version(&conn, 24)?;
 
         Database::apply_schema_migrations_on_conn(&conn)?;
 
