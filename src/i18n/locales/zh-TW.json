@@ -5653,11 +5653,52 @@
     "save": "儲存",
     "saving": "儲存中…",
     "close": "關閉",
-    "tabs": {
-      "stages": "外掛",
-      "privacy": "隱私脫敏",
-      "router": "MCP 路由",
-      "lessons": "教訓库"
+    "home": {
+      "intro": "外掛都在這一頁。點開一張卡片進入它自己的主頁，右上角可以把它釘到左側導覽。",
+      "dir": "外掛目錄",
+      "enabled": "已啟用",
+      "disabled": "已停用",
+      "alwaysOn": "內建能力",
+      "builtin": "宿主自帶",
+      "pinned": "已釘在側欄",
+      "loadFailed": "外掛列表讀取失敗",
+      "loadFailures": "這些外掛沒能載入"
+    },
+    "pin": {
+      "pin": "釘在側欄",
+      "unpin": "取消釘住"
+    },
+    "detail": {
+      "missing": "這個外掛不存在，可能已經被移除。",
+      "enable": "啟用",
+      "enableHint": "停用後它不再參與執行，但清單與設定都保留。",
+      "priority": "優先級",
+      "rules": "規則數",
+      "sourceDir": "來自 {{dir}}",
+      "previewRequest": "試跑請求改寫",
+      "previewSessionExit": "試跑接棒決策"
+    },
+    "cards": {
+      "reportCard": {
+        "title": "成績單",
+        "description": "看每個模型在你自己倉庫上的可靠性：失敗率、中斷率、單步耗時、單任務成本。"
+      },
+      "sessionBaton": {
+        "title": "接棒",
+        "description": "工作階段跑到一半掛掉時決定接不接、怎麼接：額度耗盡續原工作階段，上下文超限開新工作階段並交接。"
+      },
+      "privacy": {
+        "title": "隱私脫敏",
+        "description": "在本機替換憑證與個人資訊，可選是否改寫發往上游的請求內容。"
+      },
+      "mcpRouter": {
+        "title": "MCP 路由",
+        "description": "同一個 MCP 伺服器在不同用戶端裡的名字與可見性，在這裡統一。"
+      },
+      "lessons": {
+        "title": "教訓庫",
+        "description": "把失敗工作階段沉澱成倉庫級禁區清單，回饋給 agent。"
+      }
     },
     "lessons": {
       "intro": "把失敗會話沉澱成倉庫級的禁區清單：哪一步炸過、動哪個檔案前要小心，都在這一頁。",

@@ -6,7 +6,8 @@ import type { AppId } from "@/lib/api";
  *
  * - 应用页：首页（home）、供应商页；OpenClaw 还有工作区页，Hermes 有记忆页。
  * - 全局页：路由（供应商与路由总览是它的两个页签）、用量统计、MCP、
- *   Skills、提示词、会话。
+ *   Skills、提示词、会话、插件中心。插件中心是主页（卡片列表），
+ *   `plugin:<id>` 是某个插件在插件中心里的页签，也可以钉在侧栏一级导航。
  * - 设置：侧栏里的一个一级入口，分区（通用/应用/网关/数据/关于）
  *   是设置页内的标签，不再单独跳转。
  *   授权中心已取消：订阅型账号统一在「供应商 → 订阅」里登录与管理。
@@ -14,19 +15,44 @@ import type { AppId } from "@/lib/api";
 
 export type AppPage = "home" | "providers" | "workspace" | "hermesMemory";
 
+/**
+ * 插件中心里的插件页：`plugin:<id>`。
+ *
+ * 插件中心主页是 `plugins`，打开某张插件卡片后才切到这个视图。把「开了哪个
+ * 插件」编码进视图本身，侧栏的钉住入口、重启后的上次位置、页签高亮就能共用
+ * 同一份状态，不需要再维护第二份「当前插件」状态。
+ */
+export const PLUGIN_VIEW_PREFIX = "plugin:";
+
+export type PluginView = `${typeof PLUGIN_VIEW_PREFIX}${string}`;
+
 export type GlobalPage =
   | "routingOverview"
   | "tasks"
-  | "reportCard"
   | "plugins"
   | "usage"
   | "mcp"
   | "skills"
   | "skillsDiscovery"
   | "prompts"
-  | "sessions";
+  | "sessions"
+  | PluginView;
 
 export type View = AppPage | GlobalPage | "settings";
+
+/** 插件 id → 插件页视图。 */
+export function pluginView(pluginId: string): PluginView {
+  return `${PLUGIN_VIEW_PREFIX}${pluginId}`;
+}
+
+/** 插件页视图 → 插件 id；不是插件页时返回 null。 */
+export function pluginIdFromView(
+  view: string | null | undefined,
+): string | null {
+  if (!view || !view.startsWith(PLUGIN_VIEW_PREFIX)) return null;
+  const pluginId = view.slice(PLUGIN_VIEW_PREFIX.length);
+  return pluginId || null;
+}
 
 export type SettingsSection =
   | "general"
@@ -66,10 +92,9 @@ export function visibleSettingsSections(
 
 const APP_PAGES: AppPage[] = ["home", "providers", "workspace", "hermesMemory"];
 
-const GLOBAL_PAGES: GlobalPage[] = [
+const GLOBAL_PAGES: Exclude<GlobalPage, PluginView>[] = [
   "routingOverview",
   "tasks",
-  "reportCard",
   "plugins",
   "usage",
   "mcp",
@@ -95,6 +120,8 @@ const LEGACY_VIEWS: Record<string, View> = {
   openclawAgents: "workspace",
   openclawConfig: "providers",
   appConfig: "settings",
+  // 成绩单曾经是侧栏一级页，现在是插件中心里的一张卡片。
+  reportCard: pluginView("report-card"),
 };
 
 export function isAppPage(view: View): view is AppPage {
@@ -102,7 +129,9 @@ export function isAppPage(view: View): view is AppPage {
 }
 
 export function isGlobalPage(view: View): view is GlobalPage {
-  return (GLOBAL_PAGES as string[]).includes(view);
+  return (
+    pluginIdFromView(view) !== null || (GLOBAL_PAGES as string[]).includes(view)
+  );
 }
 
 export function parseView(value: string | null | undefined): View | null {
@@ -111,6 +140,8 @@ export function parseView(value: string | null | undefined): View | null {
   if (value === "settings") return "settings";
   if ((APP_PAGES as string[]).includes(value)) return value as AppPage;
   if ((GLOBAL_PAGES as string[]).includes(value)) return value as GlobalPage;
+  const pluginId = pluginIdFromView(value);
+  if (pluginId) return pluginView(pluginId);
   return null;
 }
 

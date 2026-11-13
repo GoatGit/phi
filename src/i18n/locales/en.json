@@ -5653,11 +5653,52 @@
     "save": "Save",
     "saving": "Saving…",
     "close": "Close",
-    "tabs": {
-      "stages": "Plugins",
-      "privacy": "Privacy",
-      "router": "MCP routing",
-      "lessons": "Lessons"
+    "home": {
+      "intro": "Every plugin lives here. Open a card to see its own page; pin it from the top-right to keep it in the sidebar.",
+      "dir": "Plugin directory",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "alwaysOn": "Built in",
+      "builtin": "Host",
+      "pinned": "Pinned to sidebar",
+      "loadFailed": "Could not read the plugin list",
+      "loadFailures": "Some plugins failed to load"
+    },
+    "pin": {
+      "pin": "Pin to sidebar",
+      "unpin": "Unpin"
+    },
+    "detail": {
+      "missing": "This plugin no longer exists; it may have been uninstalled.",
+      "enable": "Enabled",
+      "enableHint": "Disabling stops it from running but keeps the manifest and settings.",
+      "priority": "Priority",
+      "rules": "Rules",
+      "sourceDir": "From {{dir}}",
+      "previewRequest": "Dry-run request rewrite",
+      "previewSessionExit": "Dry-run baton decision"
+    },
+    "cards": {
+      "reportCard": {
+        "title": "Report card",
+        "description": "How each model behaves on your own repositories: failure rate, interruptions, step time, cost per task."
+      },
+      "sessionBaton": {
+        "title": "Session baton",
+        "description": "Decides whether and how to continue a session that died mid-task: resume after quota, hand off after context overflow."
+      },
+      "privacy": {
+        "title": "Privacy",
+        "description": "Replace credentials and personal data locally, with an optional rewrite of upstream request bodies."
+      },
+      "mcpRouter": {
+        "title": "MCP routing",
+        "description": "Unify how each MCP server is named and exposed across clients."
+      },
+      "lessons": {
+        "title": "Lessons",
+        "description": "Turn failed sessions into a repository-level list of no-go zones for your agent."
+      }
     },
     "lessons": {
       "intro": "Turns failed sessions into a repo-level list of no-go zones: what broke, and what to watch out for before touching which file.",

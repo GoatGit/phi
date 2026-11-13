@@ -5653,11 +5653,52 @@
     "save": "保存",
     "saving": "保存中…",
     "close": "关闭",
-    "tabs": {
-      "stages": "插件",
-      "privacy": "隐私脱敏",
-      "router": "MCP 路由",
-      "lessons": "教训库"
+    "home": {
+      "intro": "插件都在这一页。点开一张卡片进入它自己的主页，右上角可以把它钉到左侧导航。",
+      "dir": "插件目录",
+      "enabled": "已启用",
+      "disabled": "已停用",
+      "alwaysOn": "内置能力",
+      "builtin": "宿主自带",
+      "pinned": "已钉在侧栏",
+      "loadFailed": "插件列表读取失败",
+      "loadFailures": "这些插件没能加载"
+    },
+    "pin": {
+      "pin": "钉在侧栏",
+      "unpin": "取消钉住"
+    },
+    "detail": {
+      "missing": "这个插件不存在，可能已经被卸载。",
+      "enable": "启用",
+      "enableHint": "停用后它不再参与运行，但清单与配置都保留。",
+      "priority": "优先级",
+      "rules": "规则数",
+      "sourceDir": "来自 {{dir}}",
+      "previewRequest": "试跑请求改写",
+      "previewSessionExit": "试跑接棒决策"
+    },
+    "cards": {
+      "reportCard": {
+        "title": "成绩单",
+        "description": "看每个模型在你自己仓库上的可靠性：失败率、中断率、单步耗时、单任务成本。"
+      },
+      "sessionBaton": {
+        "title": "接棒",
+        "description": "会话跑到一半挂了时决定接不接、怎么接：额度耗尽续原会话，上下文超限开新会话并交接。"
+      },
+      "privacy": {
+        "title": "隐私脱敏",
+        "description": "在本机替换凭据与个人信息，可选是否改写发往上游的请求体。"
+      },
+      "mcpRouter": {
+        "title": "MCP 路由",
+        "description": "同一个 MCP 服务器在不同客户端里的名字与可见性，在这里统一。"
+      },
+      "lessons": {
+        "title": "教训库",
+        "description": "把失败会话沉淀成仓库级禁区清单，回喂给 agent。"
+      }
     },
     "lessons": {
       "intro": "把失败会话沉淀成仓库级的禁区清单：哪一步炸过、动哪个文件之前要小心，都在这一页。",

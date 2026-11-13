@@ -104,6 +104,18 @@ describe("ReportCardPage", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("drops its own page header when embedded as a plugin tab", async () => {
+    render(<ReportCardPage embedded />);
+
+    await waitFor(() => expect(screen.getByText("gpt-5")).toBeInTheDocument());
+    // 页头由插件中心提供；内层不再画一个标题，也不占用 main-content
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "reportCard.windowDays" }),
+    ).toHaveLength(3);
+    expect(document.querySelectorAll("#main-content")).toHaveLength(0);
+  });
+
   it("shows the empty state when there are no tasks yet", async () => {
     apiMocks.page.mockResolvedValue(
       card({ rows: [], totalTasks: 0, scannedSources: 0 }),

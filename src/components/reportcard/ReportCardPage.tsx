@@ -29,16 +29,21 @@ const WINDOWS = [7, 30, 90] as const;
 interface ReportCardPageProps {
   /** 从别处下钻进来时的返回入口 */
   onBack?: () => void;
+  /** 作为插件中心的一个页签嵌入：不再画自己的页头，窗口切换与刷新放进内容顶部 */
+  embedded?: boolean;
 }
 
 /**
- * 侧栏一级页「成绩单」。
+ * 成绩单。
  *
  * 给人看的是一个模型在**这个人自己的仓库上**表现如何，而不是 benchmark 排名。
  * 只有可靠性：工具调用失败率、被中断率、空交付率、单步耗时、单任务成本。
  * 验收命令与返工观察还没接上，所以这一页明确写着「未证实」，不给质量排序。
  */
-export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
+export function ReportCardPage({
+  onBack,
+  embedded = false,
+}: ReportCardPageProps = {}) {
   const { t, i18n } = useTranslation();
   const locale = getLocaleFromLanguage(getResolvedLang(i18n));
   const [days, setDays] = useState<number>(30);
@@ -83,48 +88,65 @@ export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
 
   const rows = card?.rows ?? [];
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <AppPageHeader
-        leading={onBack && <PageHeaderBackButton onClick={onBack} />}
-        icon={
-          onBack ? undefined : (
-            <ClipboardList className="h-4 w-4" strokeWidth={1.75} />
-          )
-        }
-        title={t("reportCard.title")}
-        actions={
-          <>
-            <SegmentedControl
-              size="sm"
-              aria-label={t("reportCard.windowLabel")}
-              value={String(days)}
-              onValueChange={(value) => setDays(Number(value))}
-              items={WINDOWS.map((value) => ({
-                value: String(value),
-                label: t("reportCard.windowDays", { days: value }),
-              }))}
-            />
-            <Button
-              type="button"
-              variant="quiet"
-              size="icon-compact"
-              onClick={() => void load(true)}
-              disabled={refreshing}
-              aria-label={t("reportCard.refresh")}
-            >
-              <RefreshCw
-                className={cn("h-4 w-4", refreshing && "animate-spin")}
-                strokeWidth={1.75}
-              />
-            </Button>
-          </>
-        }
+  // 窗口切换与刷新在独立页里放在页头，嵌入插件页签时放进内容顶部。
+  const controls = (
+    <>
+      <SegmentedControl
+        size="sm"
+        aria-label={t("reportCard.windowLabel")}
+        value={String(days)}
+        onValueChange={(value) => setDays(Number(value))}
+        items={WINDOWS.map((value) => ({
+          value: String(value),
+          label: t("reportCard.windowDays", { days: value }),
+        }))}
       />
+      <Button
+        type="button"
+        variant="quiet"
+        size="icon-compact"
+        onClick={() => void load(true)}
+        disabled={refreshing}
+        aria-label={t("reportCard.refresh")}
+      >
+        <RefreshCw
+          className={cn("h-4 w-4", refreshing && "animate-spin")}
+          strokeWidth={1.75}
+        />
+      </Button>
+    </>
+  );
+
+  return (
+    <div
+      className={
+        embedded ? "space-y-4 px-6 pb-10 pt-1" : "flex min-h-0 flex-1 flex-col"
+      }
+    >
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {controls}
+        </div>
+      ) : (
+        <AppPageHeader
+          leading={onBack && <PageHeaderBackButton onClick={onBack} />}
+          icon={
+            onBack ? undefined : (
+              <ClipboardList className="h-4 w-4" strokeWidth={1.75} />
+            )
+          }
+          title={t("reportCard.title")}
+          actions={controls}
+        />
+      )}
 
       <div
-        id="main-content"
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto scroll-stable px-6 pt-3 pb-10"
+        id={embedded ? undefined : "main-content"}
+        className={
+          embedded
+            ? "space-y-4"
+            : "min-h-0 flex-1 space-y-4 overflow-y-auto scroll-stable px-6 pt-3 pb-10"
+        }
       >
         <Notice tone="warning" title={t("reportCard.unprovenTitle")}>
           {t("reportCard.unprovenBody")}
