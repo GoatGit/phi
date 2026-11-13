@@ -1753,7 +1753,6 @@ impl Database {
     fn migrate_v24_to_v25(conn: &Connection) -> Result<(), AppError> {
         crate::lessons::create_tables(conn)
     }
-    }
 
     /// 插入默认模型定价数据
     /// 格式: (model_id, display_name, input, output, cache_read, cache_creation)
