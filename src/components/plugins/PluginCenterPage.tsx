@@ -1,8 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { Pin, PinOff, RefreshCw } from "lucide-react";
+import { ArrowUpRight, Pin, PinOff, Plus, RefreshCw } from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { PageTabs } from "@/components/ui/page-tabs";
@@ -17,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { LessonsPanel } from "./LessonsPanel";
 import { McpRouterPanel } from "./McpRouterPanel";
 import { PluginDetailPage } from "./PluginDetailPage";
+import { pluginPageClass } from "./pluginPage";
 import { PrivacyPanel } from "./PrivacyPanel";
 
 // 主页页签用插件 id 不可能出现的字符，避免和某个叫 "home" 的插件撞名。
@@ -139,7 +139,7 @@ function PluginPage({ entry }: { entry: PluginCenterEntry | null }) {
   const { t } = useTranslation();
   if (!entry) {
     return (
-      <div className="px-6 pb-10">
+      <div className={pluginPageClass}>
         <Notice tone="warning" title={t("pluginCenter.detail.missing")} />
       </div>
     );
@@ -154,15 +154,6 @@ function PluginPage({ entry }: { entry: PluginCenterEntry | null }) {
   }
   return <PluginDetailPage entry={entry} />;
 }
-
-const STATUS_LABEL_KEYS: Record<
-  Exclude<PluginCenterEntry["status"], "unknown">,
-  string
-> = {
-  enabled: "pluginCenter.home.enabled",
-  disabled: "pluginCenter.home.disabled",
-  "always-on": "pluginCenter.home.alwaysOn",
-};
 
 function PluginHomePage({
   entries,
@@ -179,18 +170,10 @@ function PluginHomePage({
   const root = data?.root ?? null;
   const errors = data?.errors ?? [];
   const errorMessage = error ? commandErrorMessage(error) : null;
+  const busy = isLoading || isFetching;
 
   return (
-    <div className="space-y-5 px-6 pb-10">
-      <section className="space-y-1">
-        <p className="text-body text-fg-2">{t("pluginCenter.home.intro")}</p>
-        {root && (
-          <p className="text-caption text-fg-3">
-            {t("pluginCenter.home.dir")}：{root}
-          </p>
-        )}
-      </section>
-
+    <div className={cn(pluginPageClass, "space-y-4")}>
       {errorMessage && (
         <Notice
           tone="danger"
@@ -218,7 +201,7 @@ function PluginHomePage({
         </Notice>
       )}
 
-      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {entries.map((entry) => (
           <li key={entry.id}>
             <PluginCard
@@ -228,24 +211,14 @@ function PluginHomePage({
             />
           </li>
         ))}
-      </ul>
-
-      <div className="flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="compact"
-          onClick={() => void refetch()}
-          disabled={isLoading || isFetching}
-        >
-          <RefreshCw
-            className={cn(
-              "me-1.5 h-3.5 w-3.5",
-              (isLoading || isFetching) && "animate-spin",
-            )}
+        <li>
+          <AddPluginSlot
+            root={root}
+            busy={busy}
+            onRefresh={() => void refetch()}
           />
-          {t("pluginCenter.refresh")}
-        </Button>
-      </div>
+        </li>
+      </ul>
     </div>
   );
 }
@@ -261,55 +234,92 @@ function PluginCard({
 }) {
   const { t } = useTranslation();
   const Icon = entry.icon;
-  const statusLabel =
-    entry.status === "unknown" ? null : t(STATUS_LABEL_KEYS[entry.status]);
+  // 只有「停用」值得单独说一句：其余状态是默认值，写在每张卡片上只是噪音。
+  const disabled = entry.status === "disabled";
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="flex h-full w-full flex-col gap-3 rounded-panel border border-border bg-surface p-4 text-start transition-[border-color,background-color] duration-150 hover:border-border-strong hover:bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex h-full w-full flex-col gap-2.5 rounded-panel border border-border bg-surface p-4 text-start transition-[border-color,box-shadow] duration-150 hover:border-border-strong hover:shadow-v7-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="flex items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-subtle text-fg-1 ring-1 ring-border">
-          <Icon className="h-[18px] w-[18px]" />
+      <span className="flex items-center gap-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-subtle text-fg-2 ring-1 ring-border transition-colors group-hover:text-fg-1">
+          <Icon className="h-4 w-4" />
         </span>
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-strong font-medium text-fg-1">
-              {entry.title}
-            </span>
-            {pinned && (
-              <Pin
-                className="h-3 w-3 shrink-0 text-fg-3"
-                aria-label={t("pluginCenter.home.pinned")}
-              />
-            )}
-          </div>
-          {entry.description && (
-            <p className="line-clamp-2 text-caption text-fg-2">
-              {entry.description}
-            </p>
-          )}
-        </div>
-      </div>
-      {statusLabel && (
-        <div className="mt-auto flex items-center gap-1.5 text-caption text-fg-3">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "h-1.5 w-1.5 rounded-full",
-              entry.status === "disabled" ? "bg-fg-3" : "bg-success",
-            )}
+        <span className="min-w-0 flex-1 truncate text-strong text-fg-1">
+          {entry.title}
+        </span>
+        {pinned && (
+          <Pin
+            className="h-3 w-3 shrink-0 text-fg-3"
+            aria-label={t("pluginCenter.home.pinned")}
           />
-          <span>{statusLabel}</span>
-          {entry.kind === "config" && (
-            <Badge variant="outline" className="ms-1 text-fg-3">
-              {t("pluginCenter.home.builtin")}
-            </Badge>
-          )}
-        </div>
+        )}
+        <ArrowUpRight
+          aria-hidden="true"
+          className="h-4 w-4 shrink-0 text-fg-3 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+        />
+      </span>
+      {entry.description && (
+        <p
+          className="line-clamp-2 text-body text-fg-2"
+          title={entry.description}
+        >
+          {entry.description}
+        </p>
+      )}
+      {disabled && (
+        <span className="mt-auto pt-0.5 text-caption text-fg-3">
+          {t("pluginCenter.home.disabled")}
+        </span>
       )}
     </button>
+  );
+}
+
+/** 卡片末尾的一格空位：告诉人插件从哪来，刷新的入口也在这里。 */
+function AddPluginSlot({
+  root,
+  busy,
+  onRefresh,
+}: {
+  root: string | null;
+  busy: boolean;
+  onRefresh: () => void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="flex h-full flex-col gap-2 rounded-panel border border-dashed border-border p-4">
+      <span className="flex items-center gap-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-fg-3">
+          <Plus className="h-4 w-4" />
+        </span>
+        <span className="text-strong text-fg-2">
+          {t("pluginCenter.home.addPlugin.title")}
+        </span>
+      </span>
+      <p className="text-caption text-fg-3">
+        {t("pluginCenter.home.addPlugin.body")}
+      </p>
+      {root && (
+        <p className="truncate font-mono text-caption text-fg-3" title={root}>
+          {root}
+        </p>
+      )}
+      <Button
+        variant="ghost"
+        size="compact"
+        className="mt-auto self-start"
+        onClick={onRefresh}
+        disabled={busy}
+      >
+        <RefreshCw
+          className={cn("me-1.5 h-3.5 w-3.5", busy && "animate-spin")}
+        />
+        {t("pluginCenter.refresh")}
+      </Button>
+    </div>
   );
 }

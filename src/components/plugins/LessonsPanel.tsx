@@ -32,6 +32,7 @@ import {
 import { tasksApi, type TaskWorkspace } from "@/lib/api/tasks";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { pluginPageClass } from "./pluginPage";
 
 const ROOT_STORAGE_KEY = "phi.lesson.workspace";
 
@@ -195,7 +196,7 @@ export function LessonsPanel() {
 
   if (loading) {
     return (
-      <div className="px-6 pb-10 text-body text-fg-3">
+      <div className={cn(pluginPageClass, "text-body text-fg-3")}>
         {t("pluginCenter.loading")}
       </div>
     );
@@ -203,7 +204,7 @@ export function LessonsPanel() {
 
   if (workspaces.length === 0) {
     return (
-      <div className="space-y-4 px-6 pb-10">
+      <div className={cn(pluginPageClass, "space-y-4")}>
         <p className="text-body text-fg-2">{t("pluginCenter.lessons.intro")}</p>
         <Notice
           tone="neutral"
@@ -216,7 +217,7 @@ export function LessonsPanel() {
   }
 
   return (
-    <div className="space-y-4 px-6 pb-10">
+    <div className={cn(pluginPageClass, "space-y-4")}>
       <section className="space-y-1">
         <p className="text-body text-fg-2">{t("pluginCenter.lessons.intro")}</p>
         <p className="text-caption text-fg-3">

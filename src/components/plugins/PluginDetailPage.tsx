@@ -13,10 +13,12 @@ import {
 } from "@/lib/api/plugins";
 import { pluginKeys, type PluginCenterEntry } from "@/hooks/usePluginCatalog";
 import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import {
   PluginPreviewDialog,
   SessionExitPreviewDialog,
 } from "./PluginPreviewDialogs";
+import { pluginPageClass } from "./pluginPage";
 
 /** 钩子标签。未知钩子原样展示，方便插件作者自己扩展时先看到它。 */
 function hookLabel(hook: PluginHook, t: (key: string) => string): string {
@@ -29,7 +31,8 @@ function hookLabel(hook: PluginHook, t: (key: string) => string): string {
  * 单个插件的详情页（插件中心里的一个页签）。
  *
  * 固定卡片里的「成绩单 / 隐私脱敏 / MCP 路由 / 教训库」都有自己的面板；这里
- * 只处理清单插件：展示它挂在哪、按什么顺序跑、来源在哪，并提供启停与试跑。
+ * 只处理清单插件：一句话说清它是干什么的，然后才是启停、优先级与试跑。
+ * 插件名已经在页签上，这里不再重复一遍。
  */
 export function PluginDetailPage({ entry }: { entry: PluginCenterEntry }) {
   const { t } = useTranslation();
@@ -42,7 +45,7 @@ export function PluginDetailPage({ entry }: { entry: PluginCenterEntry }) {
   const plugin = entry.summary;
   if (!plugin) {
     return (
-      <div className="px-6 pb-10">
+      <div className={pluginPageClass}>
         <Notice tone="warning" title={t("pluginCenter.detail.missing")} />
       </div>
     );
@@ -67,43 +70,43 @@ export function PluginDetailPage({ entry }: { entry: PluginCenterEntry }) {
   const canPreviewRequest = plugin.hooks.includes("request");
   const canPreviewSessionExit = plugin.hooks.includes("session-exit");
 
+  const kindLabel =
+    plugin.kind === "script"
+      ? t("pluginCenter.stages.kindScript")
+      : plugin.kind === "feature"
+        ? t("pluginCenter.stages.kindFeature")
+        : t("pluginCenter.stages.kindRules");
+
+  // 来源、作者、版本是同一类「查得到就行」的信息，压成一行，不占正文版面。
+  const metaLine = [
+    plugin.builtin
+      ? t("pluginCenter.stages.builtin")
+      : t("pluginCenter.detail.sourceDir", { dir: plugin.sourceDir }),
+    plugin.author,
+    `v${plugin.version}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <div className="space-y-5 px-6 pb-10">
-      <section className="space-y-1">
+    <div className={cn(pluginPageClass, "space-y-4")}>
+      <section className="space-y-2">
+        {plugin.description && (
+          <p className="text-body text-fg-2">{plugin.description}</p>
+        )}
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-strong font-medium text-fg-1">
-            {plugin.name}
-          </span>
           <Badge variant="outline" className="text-fg-2">
-            {plugin.kind === "script"
-              ? t("pluginCenter.stages.kindScript")
-              : plugin.kind === "feature"
-                ? t("pluginCenter.stages.kindFeature")
-                : t("pluginCenter.stages.kindRules")}
+            {kindLabel}
           </Badge>
           {plugin.hooks.map((hook) => (
             <Badge key={hook} variant="outline" className="text-fg-3">
               {hookLabel(hook, (key) => t(key) as string)}
             </Badge>
           ))}
-          <span className="text-caption text-fg-3">v{plugin.version}</span>
         </div>
-        {plugin.description && (
-          <p className="text-body text-fg-2">{plugin.description}</p>
-        )}
-        <p className="text-caption text-fg-3">
-          {[
-            plugin.builtin
-              ? t("pluginCenter.stages.builtin")
-              : t("pluginCenter.detail.sourceDir", { dir: plugin.sourceDir }),
-            plugin.author,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
       </section>
 
-      <section className="rounded-panel border border-border bg-surface">
+      <section className="overflow-hidden rounded-panel border border-border bg-surface">
         <div className="flex items-center justify-between gap-4 px-4 py-3">
           <div className="min-w-0 space-y-0.5">
             <p className="text-strong text-fg-1">
@@ -120,7 +123,7 @@ export function PluginDetailPage({ entry }: { entry: PluginCenterEntry }) {
             onCheckedChange={(next) => void toggle(next)}
           />
         </div>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border px-4 py-3 text-caption">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border px-4 py-3 text-caption">
           <div className="flex items-center justify-between gap-2">
             <dt className="text-fg-3">{t("pluginCenter.detail.priority")}</dt>
             <dd className="tabular-nums text-fg-1">{plugin.priority}</dd>
@@ -130,6 +133,12 @@ export function PluginDetailPage({ entry }: { entry: PluginCenterEntry }) {
             <dd className="tabular-nums text-fg-1">{plugin.ruleCount}</dd>
           </div>
         </dl>
+        <p
+          className="truncate border-t border-border px-4 py-2 text-caption text-fg-3"
+          title={metaLine}
+        >
+          {metaLine}
+        </p>
       </section>
 
       {(canPreviewRequest || canPreviewSessionExit) && (

@@ -25,6 +25,8 @@ import {
   type RedactionRuleConfig,
 } from "@/lib/api/plugins";
 import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
+import { pluginPageClass } from "./pluginPage";
 
 /** 检测器 → 文案键，顺序与后端 `DetectorKind` 一致。 */
 const DETECTOR_LABEL: Record<DetectorKind, string> = {
@@ -165,7 +167,7 @@ export function PrivacyPanel() {
 
   if (loading) {
     return (
-      <div className="px-6 pb-10 text-body text-fg-3">
+      <div className={cn(pluginPageClass, "text-body text-fg-3")}>
         {t("pluginCenter.loading")}
       </div>
     );
@@ -173,7 +175,7 @@ export function PrivacyPanel() {
 
   if (error || !draft) {
     return (
-      <div className="space-y-4 px-6 pb-10">
+      <div className={cn(pluginPageClass, "space-y-4")}>
         <Notice
           tone="danger"
           title={t("pluginCenter.privacy.loadFailed")}
@@ -190,15 +192,8 @@ export function PrivacyPanel() {
   }
 
   return (
-    <div className="space-y-5 px-6 pb-10">
-      <section className="space-y-1">
-        <p className="text-body text-fg-2">{t("pluginCenter.privacy.intro")}</p>
-        {data && (
-          <p className="text-caption text-fg-3">
-            {t("pluginCenter.privacy.path")}：{data.path}
-          </p>
-        )}
-      </section>
+    <div className={cn(pluginPageClass, "space-y-5")}>
+      <p className="text-body text-fg-2">{t("pluginCenter.privacy.intro")}</p>
 
       <section className="divide-y divide-border overflow-hidden rounded-panel border border-border">
         <ToggleRow

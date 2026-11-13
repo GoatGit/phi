@@ -25,6 +25,7 @@ import {
 } from "@/lib/api/plugins";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { pluginPageClass } from "./pluginPage";
 
 function blankRoute(serverId: string): McpRoute {
   return {
@@ -48,7 +49,6 @@ function blankRoute(serverId: string): McpRoute {
  */
 export function McpRouterPanel() {
   const { t } = useTranslation();
-  const [path, setPath] = useState<string | null>(null);
   const [draft, setDraft] = useState<McpRouterConfig | null>(null);
   const [catalog, setCatalog] = useState<RouterCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +64,6 @@ export function McpRouterPanel() {
         mcpRouterApi.get(),
         mcpRouterApi.catalog(),
       ]);
-      setPath(response.path);
       setDraft(response.config);
       setCatalog(preview);
       setError(null);
@@ -109,7 +108,6 @@ export function McpRouterPanel() {
     try {
       const response = await mcpRouterApi.save(draft);
       setDraft(response.config);
-      setPath(response.path);
       // 保存会重投影，预览得重新算一遍才和实际一致。
       setCatalog(await mcpRouterApi.catalog());
       if (response.applied) {
@@ -134,7 +132,7 @@ export function McpRouterPanel() {
 
   if (loading) {
     return (
-      <div className="px-6 pb-10 text-body text-fg-3">
+      <div className={cn(pluginPageClass, "text-body text-fg-3")}>
         {t("pluginCenter.loading")}
       </div>
     );
@@ -142,7 +140,7 @@ export function McpRouterPanel() {
 
   if (error || !draft) {
     return (
-      <div className="space-y-4 px-6 pb-10">
+      <div className={cn(pluginPageClass, "space-y-4")}>
         <Notice
           tone="danger"
           title={t("pluginCenter.router.loadFailed")}
@@ -159,15 +157,8 @@ export function McpRouterPanel() {
   }
 
   return (
-    <div className="space-y-5 px-6 pb-10">
-      <section className="space-y-1">
-        <p className="text-body text-fg-2">{t("pluginCenter.router.intro")}</p>
-        {path && (
-          <p className="text-caption text-fg-3">
-            {t("pluginCenter.router.path")}：{path}
-          </p>
-        )}
-      </section>
+    <div className={cn(pluginPageClass, "space-y-5")}>
+      <p className="text-body text-fg-2">{t("pluginCenter.router.intro")}</p>
 
       <section className="divide-y divide-border overflow-hidden rounded-panel border border-border">
         <div className="flex items-start justify-between gap-4 bg-surface px-4 py-3">

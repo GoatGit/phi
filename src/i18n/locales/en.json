@@ -5654,15 +5654,14 @@
     "saving": "Saving…",
     "close": "Close",
     "home": {
-      "intro": "Every plugin lives here. Open a card to see its own page; pin it from the top-right to keep it in the sidebar.",
-      "dir": "Plugin directory",
-      "enabled": "Enabled",
       "disabled": "Disabled",
-      "alwaysOn": "Built in",
-      "builtin": "Host",
       "pinned": "Pinned to sidebar",
       "loadFailed": "Could not read the plugin list",
-      "loadFailures": "Some plugins failed to load"
+      "loadFailures": "Some plugins failed to load",
+      "addPlugin": {
+        "title": "Add a plugin",
+        "body": "Drop a folder with a plugin.json into the plugin directory, then refresh."
+      }
     },
     "pin": {
       "pin": "Pin to sidebar",
@@ -5693,11 +5692,11 @@
       },
       "mcpRouter": {
         "title": "MCP routing",
-        "description": "Unify how each MCP server is named and exposed across clients."
+        "description": "One name, alias and visibility per MCP server, the same in every client."
       },
       "lessons": {
         "title": "Lessons",
-        "description": "Turn failed sessions into a repository-level list of no-go zones for your agent."
+        "description": "Turns failed sessions into a repository no-go list the agent reads when a session starts."
       }
     },
     "lessons": {
@@ -5740,18 +5739,10 @@
       }
     },
     "stages": {
-      "intro": "Request plugins rewrite the request body before it leaves for the upstream. They run from the lowest priority to the highest, and a failing plugin only skips itself. Feature plugins run no code; they only add a built-in panel to the sidebar.",
-      "dir": "Plugin directory",
       "kindRules": "Rules",
       "kindFeature": "Feature",
       "builtin": "Built-in",
-      "panelEntry": "Panel: {{entry}}",
-      "openPanel": "Open",
       "kindScript": "Script",
-      "priority": "priority {{value}}",
-      "ruleCount": "{{count}} rules",
-      "enable": "Enable",
-      "preview": "Try it",
       "previewTitle": "Try {{name}}",
       "previewHint": "Paste a request body to see what this plugin turns it into. A trial run ignores the enabled state and never reaches the upstream.",
       "previewRun": "Run",
@@ -5760,14 +5751,10 @@
       "previewHits": "{{count}} hits",
       "previewNoHits": "No hits",
       "invalidJson": "That is not valid JSON",
-      "loadFailures": "These plugins failed to load",
-      "loadFailed": "Could not read the plugin list",
-      "empty": "No plugins yet. Drop a folder with a plugin.json into the plugin directory and it shows up here.",
       "toggleFailed": "Could not toggle the plugin: {{message}}"
     },
     "privacy": {
       "intro": "Replaces credentials and easy-to-misuse personal data on this machine. Request bodies are left alone by default: rewriting a prompt changes behaviour, so it is opt-in.",
-      "path": "Config file",
       "enabled": "Redaction on",
       "enabledHint": "Turning this off skips both request bodies and error summaries",
       "body": "Rewrite the outgoing request body",
@@ -5808,7 +5795,6 @@
     },
     "router": {
       "intro": "One place for how each MCP server is named and who can see it. With no routes configured, every server is passed through under its own name.",
-      "path": "Config file",
       "enabled": "Routing on",
       "enabledHint": "When off, every server passes through under its own name",
       "separator": "Namespace separator",

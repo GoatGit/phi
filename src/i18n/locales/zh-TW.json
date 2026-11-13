@@ -5646,7 +5646,7 @@
     }
   },
   "pluginCenter": {
-    "title": "插件中心",
+    "title": "外掛中心",
     "refresh": "重新整理",
     "loading": "載入中…",
     "running": "執行中…",
@@ -5654,15 +5654,14 @@
     "saving": "儲存中…",
     "close": "關閉",
     "home": {
-      "intro": "外掛都在這一頁。點開一張卡片進入它自己的主頁，右上角可以把它釘到左側導覽。",
-      "dir": "外掛目錄",
-      "enabled": "已啟用",
       "disabled": "已停用",
-      "alwaysOn": "內建能力",
-      "builtin": "宿主自帶",
       "pinned": "已釘在側欄",
-      "loadFailed": "外掛列表讀取失敗",
-      "loadFailures": "這些外掛沒能載入"
+      "loadFailed": "外掛清單讀取失敗",
+      "loadFailures": "這些外掛沒能載入",
+      "addPlugin": {
+        "title": "新增外掛",
+        "body": "把帶 plugin.json 的資料夾放進外掛目錄，再重新整理一次。"
+      }
     },
     "pin": {
       "pin": "釘在側欄",
@@ -5693,11 +5692,11 @@
       },
       "mcpRouter": {
         "title": "MCP 路由",
-        "description": "同一個 MCP 伺服器在不同用戶端裡的名字與可見性，在這裡統一。"
+        "description": "統一同一個 MCP 伺服器在各用戶端裡的名字、別名與可見性。"
       },
       "lessons": {
         "title": "教訓庫",
-        "description": "把失敗工作階段沉澱成倉庫級禁區清單，回饋給 agent。"
+        "description": "把失敗工作階段整理成倉庫的禁區清單，工作階段開始時餵給 agent。"
       }
     },
     "lessons": {
@@ -5740,18 +5739,10 @@
       }
     },
     "stages": {
-      "intro": "請求外掛在請求發往上游之前改寫請求體，依優先級從小到大依序執行，某個外掛出錯只跳過它自己。功能外掛不執行程序碼，只在側邊欄掛一個內建面板。",
-      "dir": "外掛目錄",
       "kindRules": "規則",
       "kindFeature": "功能",
       "builtin": "宿主內建",
-      "panelEntry": "面板：{{entry}}",
-      "openPanel": "開啟",
       "kindScript": "腳本",
-      "priority": "優先級 {{value}}",
-      "ruleCount": "{{count}} 條規則",
-      "enable": "啟用",
-      "preview": "試跑",
       "previewTitle": "試跑 {{name}}",
       "previewHint": "輸入一段請求體 JSON，看這個外掛會把它改成什麼。試跑不受啟用狀態影響，也不會真的發出請求。",
       "previewRun": "執行",
@@ -5760,14 +5751,10 @@
       "previewHits": "命中 {{count}} 處",
       "previewNoHits": "沒有命中",
       "invalidJson": "請求體不是合法的 JSON",
-      "loadFailures": "這些外掛沒能載入",
-      "loadFailed": "外掛清單讀取失敗",
-      "empty": "還沒有外掛。在外掛目錄裡放一個帶 plugin.json 的資料夾，它就會出現在這裡。",
       "toggleFailed": "切換外掛失敗：{{message}}"
     },
     "privacy": {
       "intro": "把憑證和容易被誤用的個人資訊在本機替換掉。請求體預設不改寫——改 prompt 是行為變化，需要你自己打開。",
-      "path": "設定檔",
       "enabled": "啟用脫敏",
       "enabledHint": "關閉後請求體與錯誤摘要都不處理",
       "body": "改寫發往上游的請求體",
@@ -5808,7 +5795,6 @@
     },
     "router": {
       "intro": "同一個 MCP 伺服器在不同客戶端裡的名字與可見性在這裡統一。沒有設定路由時，所有伺服器按原名直通。",
-      "path": "設定檔",
       "enabled": "啟用路由中心",
       "enabledHint": "關閉時所有伺服器按原名直通",
       "separator": "命名空間分隔符",

@@ -5654,15 +5654,14 @@
     "saving": "保存中…",
     "close": "关闭",
     "home": {
-      "intro": "插件都在这一页。点开一张卡片进入它自己的主页，右上角可以把它钉到左侧导航。",
-      "dir": "插件目录",
-      "enabled": "已启用",
       "disabled": "已停用",
-      "alwaysOn": "内置能力",
-      "builtin": "宿主自带",
       "pinned": "已钉在侧栏",
       "loadFailed": "插件列表读取失败",
-      "loadFailures": "这些插件没能加载"
+      "loadFailures": "这些插件没能加载",
+      "addPlugin": {
+        "title": "添加插件",
+        "body": "把带 plugin.json 的文件夹放进插件目录，再刷新一次。"
+      }
     },
     "pin": {
       "pin": "钉在侧栏",
@@ -5685,7 +5684,7 @@
       },
       "sessionBaton": {
         "title": "接棒",
-        "description": "会话跑到一半挂了时决定接不接、怎么接：额度耗尽续原会话，上下文超限开新会话并交接。"
+        "description": "会话中途挂掉时决定接不接：额度耗尽续原会话，上下文超限开新会话并交接。"
       },
       "privacy": {
         "title": "隐私脱敏",
@@ -5693,11 +5692,11 @@
       },
       "mcpRouter": {
         "title": "MCP 路由",
-        "description": "同一个 MCP 服务器在不同客户端里的名字与可见性，在这里统一。"
+        "description": "统一同一个 MCP 服务器在各客户端里的名字、别名与可见性。"
       },
       "lessons": {
         "title": "教训库",
-        "description": "把失败会话沉淀成仓库级禁区清单，回喂给 agent。"
+        "description": "把失败会话整理成仓库的禁区清单，会话开始时喂给 agent。"
       }
     },
     "lessons": {
@@ -5740,18 +5739,10 @@
       }
     },
     "stages": {
-      "intro": "请求插件在请求发往上游之前改写请求体，按优先级从小到大依次执行，某个插件出错只跳过它自己。功能插件不跑代码，只在侧栏挂一个内置面板。",
-      "dir": "插件目录",
       "kindRules": "规则",
       "kindFeature": "功能",
       "builtin": "宿主自带",
-      "panelEntry": "面板：{{entry}}",
-      "openPanel": "打开",
       "kindScript": "脚本",
-      "priority": "优先级 {{value}}",
-      "ruleCount": "{{count}} 条规则",
-      "enable": "启用",
-      "preview": "试跑",
       "previewTitle": "试跑 {{name}}",
       "previewHint": "输入一段请求体 JSON，看这个插件会把它改成什么。试跑不受启用状态影响，也不会真的发出请求。",
       "previewRun": "运行",
@@ -5760,14 +5751,10 @@
       "previewHits": "命中 {{count}} 处",
       "previewNoHits": "没有命中",
       "invalidJson": "请求体不是合法 JSON",
-      "loadFailures": "这些插件没能加载",
-      "loadFailed": "插件列表读取失败",
-      "empty": "还没有插件。在插件目录里放一个带 plugin.json 的文件夹，它就会出现在这里。",
       "toggleFailed": "切换插件失败：{{message}}"
     },
     "privacy": {
       "intro": "把凭据和容易被误用的个人信息在本机替换掉。请求体默认不改写——改 prompt 是行为变化，需要你自己打开。",
-      "path": "配置文件",
       "enabled": "启用脱敏",
       "enabledHint": "关闭后请求体与错误摘要都不处理",
       "body": "改写发往上游的请求体",
@@ -5808,7 +5795,6 @@
     },
     "router": {
       "intro": "同一个 MCP 服务器在不同客户端里的名字与可见性在这里统一。没有配置路由时，所有服务器按原名直通。",
-      "path": "配置文件",
       "enabled": "启用路由中心",
       "enabledHint": "关闭时所有服务器按原名直通",
       "separator": "命名空间分隔符",

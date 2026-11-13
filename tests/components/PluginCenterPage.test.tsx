@@ -84,11 +84,41 @@ describe("PluginCenterPage", () => {
     for (const title of ["成绩单", "接棒", "隐私脱敏", "MCP 路由", "教训库"]) {
       expect(await screen.findByText(title)).toBeInTheDocument();
     }
-    expect(
-      screen.getByText(
-        "插件都在这一页。点开一张卡片进入它自己的主页，右上角可以把它钉到左侧导航。",
-      ),
-    ).toBeInTheDocument();
+    // 卡片末尾留一格空位：插件从哪来、刷新入口都在这格。
+    expect(screen.getByText("添加插件")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/phi/plugins")).toBeInTheDocument();
+  });
+
+  it("does not repeat status on every card", async () => {
+    renderPage();
+
+    // 默认状态写在每张卡上只是噪音；只有停用的插件才单独标一句。
+    expect(await screen.findByText("成绩单")).toBeInTheDocument();
+    expect(screen.queryByText("已启用")).not.toBeInTheDocument();
+    expect(screen.queryByText("内置能力")).not.toBeInTheDocument();
+    expect(screen.queryByText("宿主自带")).not.toBeInTheDocument();
+    expect(screen.queryByText("已停用")).not.toBeInTheDocument();
+  });
+
+  it("marks a disabled plugin on its card", async () => {
+    apiMocks.list.mockResolvedValue(
+      summary([
+        plugin(),
+        plugin({
+          id: "session-baton",
+          name: "接棒",
+          kind: "script",
+          hooks: ["session-exit"],
+          enabled: false,
+          panel: null,
+          builtin: false,
+          sourceDir: "session-baton",
+        }),
+      ]),
+    );
+    renderPage();
+
+    expect(await screen.findByText("已停用")).toBeInTheDocument();
   });
 
   it("opens a plugin as a tab instead of navigating away", async () => {

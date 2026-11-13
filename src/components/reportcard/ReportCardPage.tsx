@@ -19,6 +19,7 @@ import {
   type ReportCard,
 } from "@/lib/api/reportCard";
 import { cn } from "@/lib/utils";
+import { pluginPageClass } from "@/components/plugins/pluginPage";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 /** 与后端 `extract::MIN_SAMPLES` 对齐：样本不够就不报百分比 */
@@ -120,7 +121,9 @@ export function ReportCardPage({
   return (
     <div
       className={
-        embedded ? "space-y-4 px-6 pb-10 pt-1" : "flex min-h-0 flex-1 flex-col"
+        embedded
+          ? cn(pluginPageClass, "space-y-4")
+          : "flex min-h-0 flex-1 flex-col"
       }
     >
       {embedded ? (
