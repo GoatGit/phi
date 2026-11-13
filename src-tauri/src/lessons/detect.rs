@@ -380,16 +380,30 @@ mod tests {
 
     #[test]
     fn paths_are_relative_to_the_repo_and_unknown_shapes_are_dropped() {
+        // 仓库根用真实的绝对路径：Windows 上 `/repo/src/app.rs` 既没有盘符也不是
+        // 绝对路径，`strip_prefix` 根本走不到，那种写法只有 Unix 成立。
+        let repo = std::env::temp_dir();
+        let inside = repo.join("src/app.rs");
+        let inside_with_lines = format!("{}:12-20", inside.to_string_lossy());
+        let outside = repo
+            .parent()
+            .map(|parent| parent.join("elsewhere/src/app.rs"))
+            .unwrap_or_else(|| repo.join("..").join("elsewhere/src/app.rs"));
+
         assert_eq!(
-            normalize_path(workspace(), "/repo/src/app.rs:12-20"),
+            normalize_path(&repo, &inside_with_lines),
             Some("src/app.rs".to_string())
         );
         assert_eq!(
-            normalize_path(workspace(), "./src/app.rs"),
+            normalize_path(&repo, &inside.to_string_lossy()),
             Some("src/app.rs".to_string())
         );
-        assert_eq!(normalize_path(workspace(), "cargo test -- billing"), None);
-        assert_eq!(normalize_path(workspace(), "/elsewhere/src/app.rs"), None);
-        assert_eq!(normalize_path(workspace(), "../outside.rs"), None);
+        assert_eq!(
+            normalize_path(&repo, "./src/app.rs"),
+            Some("src/app.rs".to_string())
+        );
+        assert_eq!(normalize_path(&repo, "cargo test -- billing"), None);
+        assert_eq!(normalize_path(&repo, &outside.to_string_lossy()), None);
+        assert_eq!(normalize_path(&repo, "../outside.rs"), None);
     }
 }
