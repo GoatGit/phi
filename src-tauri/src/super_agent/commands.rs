@@ -11,6 +11,7 @@ use crate::super_agent::model::{DispatchSpec, RouterSettings, RouterStatus, RunS
 use crate::super_agent::runtime;
 use crate::super_agent::store::{self, RunWrite};
 use crate::super_agent::tick::{self, TickContext};
+use crate::super_agent::worker::WorkerRuntime;
 
 #[tauri::command]
 pub fn router_settings(state: State<'_, AppState>) -> Result<RouterSettings, String> {
@@ -55,7 +56,7 @@ pub async fn router_tick(
 ) -> Result<TickReport, String> {
     let db = state.db.clone();
     let judge = SystemOneJudge::new(db.clone());
-    let dispatcher = runtime::dispatcher_for(&app);
+    let workers = runtime::workers_for(&app);
     // 与定时 tick 用同一个 episode（含 sidecar 与降级链）：手跑一轮就是预览
     // 下一轮真的会发生什么，不能拿规则版冒充它。
     let episode = runtime::episode_for(&app);
@@ -63,7 +64,7 @@ pub async fn router_tick(
         TickContext {
             db: db.as_ref(),
             judge: &judge,
-            dispatcher: dispatcher.as_ref(),
+            workers: &workers,
             episode: episode.as_ref(),
             now: store::now_ms(),
         },
@@ -91,6 +92,60 @@ pub fn task_session_arguments(
     ))
 }
 
+/// 「打开 worker 的终端」的结果。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenedWorker {
+    pub session_id: String,
+    /// 该切到哪个应用页签：就是 worker 自己那个 CLI。
+    pub app_id: String,
+}
+
+/// 打开一个 worker 的终端。
+///
+/// 两个后端说法不同，所以由这里归一：
+/// - 托管终端：worker 本身就是 phi 的一个会话，会话还在就原样把 id 交回去；
+/// - zellij：worker 不在 phi 的终端表里，现开一个查看器窗格挂上去（关掉只是
+///   断开查看，worker 照旧在 zellij 里跑）。
+#[tauri::command]
+pub fn task_open_worker(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    root: String,
+    task_id: String,
+) -> Result<OpenedWorker, String> {
+    let run = state
+        .db
+        .router_run(&root, &task_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "run-not-found".to_string())?;
+    let session = run
+        .session_id
+        .clone()
+        .ok_or_else(|| "no-worker-session".to_string())?;
+    let app_id = run.worker_app.clone().unwrap_or_default();
+    let workers = runtime::workers_for(&app);
+    match workers.viewer(&session)? {
+        Some(plan) => Ok(OpenedWorker {
+            session_id: crate::terminal::open_viewer(
+                &app,
+                &plan.app_id,
+                &plan.title,
+                &plan.cwd,
+                plan.argv,
+                plan.environment,
+            )?
+            .id,
+            app_id: plan.app_id,
+        }),
+        None if crate::terminal::session_exists(&session) => Ok(OpenedWorker {
+            session_id: session,
+            app_id,
+        }),
+        None => Err("session-ended".into()),
+    }
+}
+
 /// 读一张卡的规划 DAG（`plan_task` 的产物）。规则版 episode 不拆任务，所以通常是空的；
 /// sidecar 版接上之后，这里就是详情页画图的数据源。
 #[tauri::command]
@@ -115,9 +170,9 @@ pub async fn router_pause_task(
         .db
         .router_run(&root, &task_id)
         .map_err(|e| e.to_string())?;
-    let dispatcher = runtime::dispatcher_for(&app);
+    let workers = runtime::workers_for(&app);
     if let Some(session) = run.as_ref().and_then(|run| run.session_id.as_deref()) {
-        dispatcher.cancel(session).map_err(|error| {
+        workers.cancel(session).map_err(|error| {
             log::warn!("router pause failed task={task_id}: {error}");
             error
         })?;
@@ -240,7 +295,7 @@ pub async fn router_start_task(
         return Err("lease-busy".into());
     }
 
-    let dispatcher = runtime::dispatcher_for(&app);
+    let workers = runtime::workers_for(&app);
     let spec = DispatchSpec {
         task_id: task_id.clone(),
         root: candidate.root.clone(),
@@ -248,7 +303,7 @@ pub async fn router_start_task(
         file: candidate.file.clone(),
         title: candidate.title.clone(),
     };
-    let result = dispatcher.dispatch(&spec);
+    let result = workers.dispatch(&spec);
     // 成功时保留租约直到 TTL：写入运行态之前有一个窗口，并发的 tick 会再派一次。
     if result.is_err() {
         let _ = state.db.release_router_lease(&candidate.root, &task_id);

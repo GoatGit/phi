@@ -12,7 +12,6 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::super_agent::dispatch::Dispatcher;
 use crate::super_agent::episode::{Episode, EpisodeInput, RuleEpisode};
 use crate::super_agent::judge::{BoxFuture, Judge, JudgeError, JudgeReply, Question};
 use crate::super_agent::model::{
@@ -20,6 +19,7 @@ use crate::super_agent::model::{
 };
 use crate::super_agent::store::RunWrite;
 use crate::super_agent::tick::{self, TickContext};
+use crate::super_agent::worker::{WorkerRuntime, WorkerState};
 use crate::tasks::document::initialize;
 use crate::tasks::model::NewTask;
 use crate::tasks::repository;
@@ -67,10 +67,15 @@ fn settings(shadow: bool) -> RouterSettings {
 struct RecordingDispatcher {
     dispatched: Mutex<Vec<DispatchSpec>>,
     cancelled: Mutex<Vec<String>>,
+    /// 假装这些会话已经退出，带着退出码。
+    exited: Mutex<Vec<(String, i32)>>,
+    /// 假装这些会话还在跑。没登记的会话一律 `Unknown`：假运行时不知道的事
+    /// 不能默认成「还活着」，否则结算路径会永远不触发。
+    alive: Mutex<Vec<String>>,
     fail_with: Option<String>,
 }
 
-impl Dispatcher for RecordingDispatcher {
+impl WorkerRuntime for RecordingDispatcher {
     fn dispatch(&self, spec: &DispatchSpec) -> Result<DispatchOutcome, String> {
         if let Some(reason) = &self.fail_with {
             return Err(reason.clone());
@@ -84,6 +89,22 @@ impl Dispatcher for RecordingDispatcher {
     fn cancel(&self, session_id: &str) -> Result<(), String> {
         self.cancelled.lock().unwrap().push(session_id.into());
         Ok(())
+    }
+
+    fn probe(&self, session_id: &str) -> WorkerState {
+        if let Some((_, code)) = self
+            .exited
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(id, _)| id == session_id)
+        {
+            return WorkerState::Exited(*code);
+        }
+        if self.alive.lock().unwrap().iter().any(|id| id == session_id) {
+            return WorkerState::Alive;
+        }
+        WorkerState::Unknown
     }
 }
 
@@ -176,7 +197,7 @@ async fn run_tick(
     db: &Database,
     settings: RouterSettings,
     judge: &dyn Judge,
-    dispatcher: &dyn Dispatcher,
+    workers: &dyn WorkerRuntime,
     episode: &dyn Episode,
 ) -> crate::super_agent::model::TickReport {
     db.save_router_settings(&settings).expect("settings");
@@ -184,7 +205,7 @@ async fn run_tick(
         TickContext {
             db,
             judge,
-            dispatcher,
+            workers,
             episode,
             now: crate::super_agent::store::now_ms(),
         },
@@ -430,6 +451,12 @@ async fn concurrency_limit_stops_the_tick_before_the_loop() {
         )
         .expect("run");
     let dispatcher = RecordingDispatcher::default();
+    // 运行中的那张卡必须「看起来还在跑」，否则这一轮会先把它的名额结算掉。
+    dispatcher
+        .alive
+        .lock()
+        .unwrap()
+        .push("concurrency-test-running".into());
     let report = run_tick(
         &workspace.db,
         config,
@@ -667,6 +694,7 @@ fn reconcile_requires_done_status_not_just_a_changed_card() {
         &settings(false),
         crate::super_agent::store::now_ms(),
         &journal,
+        &RecordingDispatcher::default(),
         &mut report,
     );
     let run = workspace
@@ -696,6 +724,7 @@ fn reconcile_requires_done_status_not_just_a_changed_card() {
         &settings(false),
         crate::super_agent::store::now_ms(),
         &journal,
+        &RecordingDispatcher::default(),
         &mut report,
     );
     let run = workspace
@@ -719,6 +748,7 @@ fn reconcile_fails_a_non_zero_exit_and_asks_when_there_is_no_record() {
         &settings(false),
         crate::super_agent::store::now_ms(),
         &journal,
+        &RecordingDispatcher::default(),
         &mut empty_report(),
     );
     let run = workspace
@@ -737,6 +767,7 @@ fn reconcile_fails_a_non_zero_exit_and_asks_when_there_is_no_record() {
         &settings(false),
         crate::super_agent::store::now_ms(),
         &journal,
+        &RecordingDispatcher::default(),
         &mut empty_report(),
     );
     let run = workspace
@@ -746,6 +777,65 @@ fn reconcile_fails_a_non_zero_exit_and_asks_when_there_is_no_record() {
         .expect("row");
     assert_eq!(run.state, RunState::NeedsYou);
     assert!(run.detail.expect("detail").contains("没有退出记录"));
+}
+
+#[test]
+fn reconcile_uses_the_runtime_exit_code_when_the_journal_is_missing() {
+    // journal 只在 worker.sh 跑到结尾时才写；进程被外部杀掉、或者磁盘满，
+    // 都可能是「进程结束了但没有记录」。zellij 的 pane 自己记得退出码，
+    // 这时不能再拿「没有退出记录」去问人——那会把一次明确的失败变成打扰。
+    let workspace = workspace(1, "In Progress");
+    let journal_dir = tempfile::tempdir().expect("journal dir");
+    let journal = journal_dir.path().join("session-exit.log");
+    let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3310";
+    dispatch_run(&workspace.db, &workspace.root, session, None);
+    let workers = RecordingDispatcher::default();
+    workers
+        .exited
+        .lock()
+        .unwrap()
+        .push((session.to_string(), 7));
+
+    crate::super_agent::tick::reconcile(
+        &workspace.db,
+        &settings(false),
+        crate::super_agent::store::now_ms(),
+        &journal,
+        &workers,
+        &mut empty_report(),
+    );
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Failed);
+    assert!(run.detail.expect("detail").contains('7'));
+}
+
+#[test]
+fn worker_records_keep_the_pane_a_restarted_scheduler_has_to_find() {
+    // 应用重启后 zellij 里的 worker 还在跑，调度器只有这张表能找回它。
+    let workspace = workspace(1, "In Progress");
+    let record = crate::super_agent::store::WorkerRecord {
+        session_id: "session-z1".into(),
+        root: workspace.root.clone(),
+        task_id: "TASK-1".into(),
+        backend: crate::super_agent::store::WorkerBackend::Zellij,
+        session_name: Some("phi-workers".into()),
+        pane_id: Some("terminal_3".into()),
+        app_id: "codex".into(),
+        created_at: 1,
+    };
+    workspace.db.put_worker(&record).expect("put");
+    assert_eq!(
+        workspace.db.worker("session-z1").expect("get"),
+        Some(record.clone())
+    );
+
+    // 停掉之后必须删：留着会让 probe 去问一个已经不在的 pane。
+    workspace.db.delete_worker("session-z1").expect("delete");
+    assert_eq!(workspace.db.worker("session-z1").expect("get"), None);
 }
 
 #[test]
@@ -777,6 +867,7 @@ fn reconcile_settles_a_worker_whose_pty_is_still_alive() {
         &settings(false),
         crate::super_agent::store::now_ms(),
         &journal,
+        &RecordingDispatcher::default(),
         &mut empty_report(),
     );
     let run = workspace
@@ -795,6 +886,8 @@ fn reconcile_leaves_a_still_running_worker_alone() {
     let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3305";
     dispatch_run(&workspace.db, &workspace.root, session, None);
     crate::terminal::register_test_session(session);
+    let workers = RecordingDispatcher::default();
+    workers.alive.lock().unwrap().push(session.into());
     let journal = journal_with(
         &journal_dir,
         "3f2504e0-4f89-11d3-9a0c-0305e82c3306",
@@ -807,6 +900,7 @@ fn reconcile_leaves_a_still_running_worker_alone() {
         &settings(false),
         crate::super_agent::store::now_ms(),
         &journal,
+        &workers,
         &mut empty_report(),
     );
     let run = workspace
@@ -1190,6 +1284,7 @@ fn reconcile_accepts_done_and_releases_lease() {
         &settings(false),
         crate::super_agent::store::now_ms(),
         &journal,
+        &RecordingDispatcher::default(),
         &mut empty_report(),
     );
     assert_eq!(

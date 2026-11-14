@@ -119,7 +119,22 @@ pub(crate) fn create_tables(conn: &rusqlite::Connection) -> Result<(), AppError>
             depends_on TEXT NOT NULL DEFAULT '[]',
             state TEXT NOT NULL,
             PRIMARY KEY (task_id, node_id)
-        );",
+        );
+        -- worker 落在哪个运行时里：主键是派发时发给 CLI 的会话 id，
+        -- 也是 journal 里的那一列，两条事实靠它对齐。
+        CREATE TABLE IF NOT EXISTS router_workers (
+            session_id TEXT PRIMARY KEY,
+            root TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            backend TEXT NOT NULL,
+            session_name TEXT,
+            pane_id TEXT,
+            app_id TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_router_workers_task
+            ON router_workers(root, task_id);",
     )
     .map_err(error)
 }
@@ -488,4 +503,115 @@ impl Database {
 #[allow(dead_code)]
 pub(crate) fn decisions_json(decisions: &[Decision]) -> String {
     serde_json::to_string(decisions).unwrap_or_else(|_| "[]".into())
+}
+
+// ---------------------------------------------------------------- workers
+
+/// worker 跑在哪个运行时里。
+///
+/// `Zellij` 的进程不归 phi 的 PTY 所有，关终端、关应用都不杀它；
+/// `Terminal` 是旧路径（托管 PTY），应用退出就一起结束。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WorkerBackend {
+    Zellij,
+    Terminal,
+}
+
+impl WorkerBackend {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Zellij => "zellij",
+            Self::Terminal => "terminal",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "zellij" => Some(Self::Zellij),
+            "terminal" => Some(Self::Terminal),
+            _ => None,
+        }
+    }
+}
+
+/// 一条 worker 归属：后台调度器重启后靠它找回自己派出去的那个 pane。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkerRecord {
+    pub session_id: String,
+    pub root: String,
+    pub task_id: String,
+    pub backend: WorkerBackend,
+    pub session_name: Option<String>,
+    pub pane_id: Option<String>,
+    pub app_id: String,
+    pub created_at: i64,
+}
+
+impl Database {
+    pub(crate) fn put_worker(&self, record: &WorkerRecord) -> Result<(), AppError> {
+        let now = now_ms();
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "INSERT INTO router_workers
+                (session_id, root, task_id, backend, session_name, pane_id, app_id,
+                 created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(session_id) DO UPDATE SET
+                root = excluded.root,
+                task_id = excluded.task_id,
+                backend = excluded.backend,
+                session_name = excluded.session_name,
+                pane_id = excluded.pane_id,
+                app_id = excluded.app_id,
+                updated_at = excluded.updated_at",
+            params![
+                record.session_id,
+                record.root,
+                record.task_id,
+                record.backend.as_str(),
+                record.session_name,
+                record.pane_id,
+                record.app_id,
+                record.created_at,
+                now
+            ],
+        )
+        .map_err(error)?;
+        Ok(())
+    }
+
+    pub(crate) fn worker(&self, session_id: &str) -> Result<Option<WorkerRecord>, AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.query_row(
+            "SELECT session_id, root, task_id, backend, session_name, pane_id, app_id, created_at
+             FROM router_workers WHERE session_id = ?1",
+            params![session_id],
+            |row| {
+                Ok(WorkerRecord {
+                    session_id: row.get(0)?,
+                    root: row.get(1)?,
+                    task_id: row.get(2)?,
+                    backend: WorkerBackend::parse(&row.get::<_, String>(3)?)
+                        .unwrap_or(WorkerBackend::Terminal),
+                    session_name: row.get(4)?,
+                    pane_id: row.get(5)?,
+                    app_id: row.get(6)?,
+                    created_at: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(error)
+    }
+
+    /// 停掉一个 worker 之后删归属：留着会让下一次 probe 去问一个已经不在的 pane。
+    pub(crate) fn delete_worker(&self, session_id: &str) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "DELETE FROM router_workers WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(error)?;
+        Ok(())
+    }
 }

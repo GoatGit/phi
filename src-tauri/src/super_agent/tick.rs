@@ -14,7 +14,10 @@ use crate::super_agent::judge::{Judge, Question, Thresholds};
 use crate::super_agent::model::{
     Action, Candidate, Decision, DispatchSpec, RouterSettings, RouterTrace, RunState, TickReport,
 };
-use crate::super_agent::{dispatch, prefilter, snapshot, store};
+use crate::super_agent::prefilter;
+use crate::super_agent::snapshot;
+use crate::super_agent::store;
+use crate::super_agent::worker::{WorkerRuntime, WorkerState};
 use crate::Database;
 
 /// 一次 episode 的预算。与 pi 版共用同一套口径：读一次卡算一步，提名一次算一步。
@@ -31,7 +34,7 @@ pub(crate) static TICK_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_
 pub(crate) struct TickContext<'a> {
     pub db: &'a Database,
     pub judge: &'a dyn Judge,
-    pub dispatcher: &'a dyn dispatch::Dispatcher,
+    pub workers: &'a dyn WorkerRuntime,
     pub episode: &'a dyn Episode,
     pub now: i64,
 }
@@ -79,6 +82,7 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
         &settings,
         ctx.now,
         &crate::exit_hook::journal_path(),
+        ctx.workers,
         &mut report,
     );
 
@@ -228,7 +232,7 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
         // ---------------------------------------------------------- 执行
         apply(
             ctx.db,
-            ctx.dispatcher,
+            ctx.workers,
             &settings,
             &group,
             &decisions,
@@ -294,11 +298,15 @@ fn finish(
 ///
 /// 退出码为 0 且任务已移到 Done 才算完成。触发列中尚未完成的任务冷却后重派，
 /// 无退出记录或耗尽次数的任务转人工；不把进程消失或任意文件改动冒充完成。
+///
+/// 「还在不在」问运行时（[`WorkerRuntime::probe`]），不问进程名也不问 pane：
+/// zellij 的 session 活着不等于任务在跑，pane 退出也不等于任务完成。
 pub(crate) fn reconcile(
     db: &Database,
     settings: &RouterSettings,
     now: i64,
     journal: &std::path::Path,
+    workers: &dyn WorkerRuntime,
     report: &mut TickReport,
 ) {
     let Ok(runs) = db.router_runs() else { return };
@@ -325,13 +333,13 @@ pub(crate) fn reconcile(
             .session_id
             .as_deref()
             .and_then(|session| crate::exit_hook::journal::last_exit(journal, session));
-        if record.is_none()
-            && run
-                .session_id
-                .as_deref()
-                .is_some_and(crate::terminal::session_exists)
-        {
-            // 还没有退出记录、会话也还在：worker 真的还在跑。
+        let alive = run
+            .session_id
+            .as_deref()
+            .map(|session| workers.probe(session))
+            .unwrap_or(WorkerState::Unknown);
+        if record.is_none() && alive == WorkerState::Alive {
+            // 还没有退出记录、运行时也说还在跑：worker 真的还在。
             if run.state == RunState::Dispatched {
                 let _ = db.set_router_state(
                     &run.root,
@@ -346,8 +354,17 @@ pub(crate) fn reconcile(
 
         let task = resolve_task(db, Some(&run.root), &run.task_id);
         let current = task.as_ref().map(|task| task.fingerprint.as_str());
-        let (state, detail) = match record {
-            Some(record) if record.exit_code == 0 => {
+        // journal 是唯一事实；它没写成功时，pane 自己记的退出码还能救一次
+        // （两者同源：worker.sh 拿到的就是 CLI 的退出码）。
+        let exit_code = record
+            .as_ref()
+            .map(|record| record.exit_code)
+            .or(match alive {
+                WorkerState::Exited(code) => Some(code),
+                _ => None,
+            });
+        let (state, detail) = match exit_code {
+            Some(0) => {
                 let card_changed = current
                     .zip(run.card_fingerprint.as_deref())
                     .is_some_and(|(current, before)| current != before);
@@ -389,10 +406,7 @@ pub(crate) fn reconcile(
                     )
                 }
             }
-            Some(record) => (
-                RunState::Failed,
-                format!("worker 退出码 {}", record.exit_code),
-            ),
+            Some(code) => (RunState::Failed, format!("worker 退出码 {code}")),
             None => (
                 RunState::NeedsYou,
                 "会话已结束，但没有退出记录，请确认结果".to_string(),
@@ -594,7 +608,7 @@ pub(crate) fn settle(
 /// 是第一次开自动调度时必须走的路：先看它判断得对不对。
 fn apply(
     db: &Database,
-    dispatcher: &dyn dispatch::Dispatcher,
+    workers: &dyn WorkerRuntime,
     settings: &RouterSettings,
     candidates: &[Candidate],
     decisions: &[Decision],
@@ -662,7 +676,7 @@ fn apply(
                     file: candidate.file.clone(),
                     title: candidate.title.clone(),
                 };
-                let result = dispatcher.dispatch(&spec);
+                let result = workers.dispatch(&spec);
                 // 成功时不放租约：写入运行态之前有一个窗口，并发的另一轮 tick
                 // （手动「开始」会 kick 一次）看到旧快照就会再派一次。租约到期
                 // （TTL）自己会被回收，不需要提前放。
@@ -701,7 +715,7 @@ fn apply(
                         let environment = matches!(
                             error.as_str(),
                             "no-window" | "unsupported-platform" | "unsupported-app"
-                        );
+                        ) || error.starts_with("zellij-");
                         let state =
                             if environment || candidate.attempts() + 1 >= settings.max_attempts {
                                 RunState::NeedsYou

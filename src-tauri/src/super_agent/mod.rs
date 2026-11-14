@@ -7,13 +7,12 @@
 //! | 数据 | [`model`] / [`store`] | DTO 与 sqlite 事实（运行态、租约、trace） |
 //! | 读 | [`snapshot`] / [`prefilter`] | 把看板压成候选，再按确定性规则剔除 |
 //! | 判断 | [`judge`] / [`episode`] / [`sidecar`] | 谓词（Jev）、规则版循环、pi sidecar 的协议与闸门 |
-//! | 执行 | [`tick`] / [`dispatch`] | 结算决策、派发进程、写运行态 |
+//! | 执行 | [`tick`] / [`worker`] | 结算决策、起停 worker、写运行态 |
 //! | 边界 | [`commands`] / [`runtime`] | 前端命令与后台定时器 |
 //!
 //! 设计依据见 `docs/design/super-agent-router.md`。
 
 pub(crate) mod commands;
-pub(crate) mod dispatch;
 pub(crate) mod episode;
 pub(crate) mod judge;
 pub(crate) mod model;
@@ -23,6 +22,7 @@ pub(crate) mod sidecar;
 pub(crate) mod snapshot;
 pub(crate) mod store;
 pub(crate) mod tick;
+pub(crate) mod worker;
 
 #[cfg(test)]
 mod tests;

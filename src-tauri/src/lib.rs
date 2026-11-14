@@ -1495,6 +1495,7 @@ pub fn run() {
             super_agent::commands::router_start_task,
             super_agent::commands::router_plan,
             super_agent::commands::task_session_arguments,
+            super_agent::commands::task_open_worker,
             commands::get_gateway_catalog,
             commands::gateway_subscription_action,
             commands::connect_gateway_subscription,

@@ -641,6 +641,11 @@ impl Database {
                         Self::migrate_v28_to_v29(conn)?;
                         Self::set_user_version(conn, 29)?;
                     }
+                    29 => {
+                        log::info!("迁移数据库从 v29 到 v30（记录 worker 落在哪个运行时里）");
+                        Self::migrate_v29_to_v30(conn)?;
+                        Self::set_user_version(conn, 30)?;
+                    }
                     _ => {
                         return Err(AppError::Database(format!(
                             "未知的数据库版本 {version}，无法迁移到 {SCHEMA_VERSION}"
@@ -1848,6 +1853,14 @@ impl Database {
             .map_err(|e| AppError::Database(format!("v28 -> v29 搬迁运行态失败: {e}")))?;
         }
         Ok(())
+    }
+
+    /// v29 -> v30: 新增 worker 归属表。
+    ///
+    /// 只是新建表，`IF NOT EXISTS` 幂等。升级前派发的 worker 没有归属记录，
+    /// 会在 probe 时落到「交给托管终端查」那条退路上，不需要回填。
+    fn migrate_v29_to_v30(conn: &Connection) -> Result<(), AppError> {
+        crate::super_agent::create_tables(conn)
     }
 
     fn migrate_v26_to_v27(conn: &Connection) -> Result<(), AppError> {

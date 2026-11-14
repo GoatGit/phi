@@ -9,12 +9,12 @@ use std::time::Duration;
 use tauri::Manager;
 
 use crate::store::AppState;
-use crate::super_agent::dispatch::{Dispatcher, TerminalDispatcher};
 use crate::super_agent::episode::{Episode, FallbackEpisode, RuleEpisode};
 use crate::super_agent::judge::SystemOneJudge;
 use crate::super_agent::sidecar::SidecarEpisode;
 use crate::super_agent::store;
 use crate::super_agent::tick::{self, TickContext};
+use crate::super_agent::worker::Workers;
 
 /// tick 间隔。30 秒足够跟上人的节奏，也不会把判官调用打满。
 const TICK_INTERVAL: Duration = Duration::from_secs(30);
@@ -36,13 +36,13 @@ async fn tick_once(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let db = state.db.clone();
     let judge = SystemOneJudge::new(db.clone());
-    let dispatcher = TerminalDispatcher::new(app.clone());
+    let workers = Workers::new(app.clone());
     let episode = episode_for(app);
     tick::run(
         TickContext {
             db: db.as_ref(),
             judge: &judge,
-            dispatcher: &dispatcher,
+            workers: &workers,
             episode: &episode,
             now: store::now_ms(),
         },
@@ -105,9 +105,11 @@ fn log_choice_once(choice: &str) {
     }
 }
 
-/// 供命令层复用：拿一份「真实实现」的执行器。
-pub(crate) fn dispatcher_for(app: &tauri::AppHandle) -> Box<dyn Dispatcher> {
-    Box::new(TerminalDispatcher::new(app.clone()))
+/// 供命令层复用：拿一份「真实实现」的运行时。
+///
+/// 里层会自己选 zellij 还是托管终端，命令层不需要知道。
+pub(crate) fn workers_for(app: &tauri::AppHandle) -> Workers {
+    Workers::new(app.clone())
 }
 
 /// 任务开始跑时立刻 tick 一次，不用等下一个节拍。

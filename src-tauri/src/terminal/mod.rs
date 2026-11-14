@@ -2,6 +2,8 @@
 //! worker-thread boundary. Navigation only changes presentation, not ownership.
 mod launch;
 #[cfg(target_os = "macos")]
+pub(crate) use launch::{prepare_worker, ExitHookEnv};
+#[cfg(target_os = "macos")]
 mod native;
 mod themes;
 use serde::{Deserialize, Serialize};
@@ -120,11 +122,21 @@ pub(crate) fn quote_argument(value: &str) -> String {
 
 /// 同一个应用下不重名的窗格标题。
 fn unique_title(state: &Registry, app_id: &str, cwd: &str) -> String {
-    let base = std::path::Path::new(cwd)
+    unique_title_of(state, app_id, &default_title(cwd, app_id))
+}
+
+/// 默认标题：目录名，拿不到就用应用名。
+fn default_title(cwd: &str, app_id: &str) -> String {
+    std::path::Path::new(cwd)
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| app_id.to_string());
-    let mut title = base.clone();
+        .unwrap_or_else(|| app_id.to_string())
+}
+
+/// 同一应用下不重名的标题。查看器要带着自己的标题来（`zellij · TASK-3`），
+/// 不能拿目录名冒充——它显示的是「在哪看」，不显示「跑的是什么」。
+fn unique_title_of(state: &Registry, app_id: &str, base: &str) -> String {
+    let mut title = base.to_string();
     let mut number = 2;
     while state
         .sessions
@@ -242,10 +254,10 @@ pub fn terminal_create(
 }
 fn begin_start(window: tauri::WebviewWindow, session: Snapshot) {
     #[cfg(target_os = "macos")]
-    tauri::async_runtime::spawn(async move {
+    {
         let plan_session = session.clone();
-        let journal = crate::exit_hook::journal_path();
-        let result = tauri::async_runtime::spawn_blocking(move || {
+        begin_start_with(window, session, move || {
+            let journal = crate::exit_hook::journal_path();
             // 每个托管会话都记账：接棒的第一手事实是 CLI 自己的退出码。
             launch::prepare_with(
                 &plan_session.app_id,
@@ -256,8 +268,22 @@ fn begin_start(window: tauri::WebviewWindow, session: Snapshot) {
                     journal: &journal,
                 }),
             )
-        })
-        .await;
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, session);
+}
+
+/// 两条启动路径（CLI / 直接跑 argv）共用这一段：解析失败要落到具体的 phase，
+/// 成功则回到主线程建 surface。分开写两份，迟早有一份忘了置失败态。
+#[cfg(target_os = "macos")]
+fn begin_start_with<F>(window: tauri::WebviewWindow, session: Snapshot, prepare: F)
+where
+    F: FnOnce() -> Result<launch::LaunchPlan, String> + Send + 'static,
+{
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let result = tauri::async_runtime::spawn_blocking(prepare).await;
         let plan = match result {
             Ok(Ok(plan)) => plan,
             error => {
@@ -278,7 +304,6 @@ fn begin_start(window: tauri::WebviewWindow, session: Snapshot) {
                 return;
             }
         };
-        let app = window.app_handle().clone();
         let _ = app.run_on_main_thread(move || {
             let (valid, theme) = {
                 let state = registry().lock().unwrap();
@@ -301,8 +326,63 @@ fn begin_start(window: tauri::WebviewWindow, session: Snapshot) {
             }
         });
     });
+}
+
+/// 后台开一个「查看器」窗格：不做 CLI 解析，直接把 argv 交给 PTY。
+///
+/// 目前只有一处用处：worker 跑在 zellij 里，要把它显示在 phi 界面上，
+/// 就挂一个 `zellij attach` 的客户端——关掉这个窗格只是断开查看，
+/// worker 本身照旧在 zellij 的 server 里跑。
+pub(crate) fn open_viewer(
+    app: &tauri::AppHandle,
+    app_id: &str,
+    title: &str,
+    cwd: &str,
+    argv: Vec<String>,
+    environment: std::collections::BTreeMap<String, String>,
+) -> Result<Snapshot, String> {
+    if !cfg!(target_os = "macos") {
+        return Err("unsupported-platform".into());
+    }
+    launch::validate_directory(cwd)?;
+    APP.get_or_init(|| app.clone());
+    let snapshot = {
+        let mut state = registry().lock().unwrap();
+        if state.closing {
+            return Err("application-exiting".into());
+        }
+        if state.sessions.len() >= 32 {
+            return Err("terminal-limit".into());
+        }
+        let snapshot = Snapshot {
+            id: uuid::Uuid::new_v4().to_string(),
+            app_id: app_id.to_string(),
+            title: unique_title_of(&state, app_id, title),
+            launch_cwd: cwd.to_string(),
+            // 查看器没有「重启后重新拉起」的语义：它的命令由调用方每次重新拼。
+            launch_args: String::new(),
+            phase: "checking".into(),
+            generation: 1,
+            sequence: 1,
+            error_code: None,
+        };
+        state.sessions.push(snapshot.clone());
+        snapshot
+    };
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "missing-main-window".to_string())?;
+    changed(&snapshot);
+    #[cfg(target_os = "macos")]
+    {
+        let directory = cwd.to_string();
+        begin_start_with(window, snapshot.clone(), move || {
+            launch::prepare_raw(&directory, &argv, environment)
+        });
+    }
     #[cfg(not(target_os = "macos"))]
-    let _ = (window, session);
+    let _ = window;
+    Ok(snapshot)
 }
 /// 接棒用的入口：不经过前端，直接在后台新开一个托管窗格。
 ///

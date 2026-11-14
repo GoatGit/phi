@@ -77,13 +77,36 @@ pub struct ExitHookEnv<'a> {
     pub terminal_id: &'a str,
     pub journal: &'a std::path::Path,
 }
+/// 后台 worker 交给 pane 的东西：一条 argv，没有 shell 参与拼接。
+///
+/// 为什么不用 LaunchPlan 的那条命令串：zellij 的 pane 由 server 起的，
+/// 客户端的环境变量不会被带进 pane（实测 `FOO=bar zellij action new-pane`
+/// 里看不到 FOO）。所以 CLI 自己的配置目录、PATH、退出记账路径都必须写进
+/// argv 本身——`/usr/bin/env K=V ...` 是唯一不需要再拼引号的做法。
 #[cfg(target_os = "macos")]
-pub fn prepare_with(
-    app: &str,
-    cwd: &str,
-    arguments: &str,
-    exit_hook: Option<ExitHookEnv<'_>>,
-) -> Result<LaunchPlan, String> {
+pub struct WorkerLaunch {
+    pub argv: Vec<String>,
+    pub cwd: PathBuf,
+}
+
+/// `session.sh` 的同门师弟：跑 CLI、记退出码、不落回交互式 shell。
+#[cfg(target_os = "macos")]
+pub const WORKER_SUPERVISOR: &str = include_str!("worker.sh");
+
+/// 启动一个 CLI 要的全部事实。托管 PTY 与 zellij pane 共用这一份解析，
+/// 免得两条路径对「用哪个可执行文件、带哪些环境变量」各说一套。
+#[cfg(target_os = "macos")]
+struct Resolved {
+    cwd: PathBuf,
+    executable: PathBuf,
+    args: Vec<String>,
+    path: String,
+    /// 该 CLI 自己的配置目录（CLAUDE_CONFIG_DIR / CODEX_HOME …）。
+    custom: Option<(&'static str, String)>,
+}
+
+#[cfg(target_os = "macos")]
+fn resolve(app: &str, cwd: &str, arguments: &str) -> Result<Resolved, String> {
     let (tool, args) = cli(app).ok_or("unsupported-app")?;
     let extra_args = parse_arguments(arguments)?;
     validate_directory(cwd)?;
@@ -101,19 +124,11 @@ pub fn prepare_with(
     }
     let cwd = PathBuf::from(cwd);
     let (executable, path) = crate::commands::misc::embedded_cli_environment(tool)?;
-    // The PTY belongs to the terminal session, not to the initial CLI.
-    // Run the CLI as a child, then return to a usable shell when it exits.
     let args: Vec<_> = args
         .iter()
         .map(|s| s.to_string())
         .chain(extra_args)
         .collect();
-    let command = session_command(
-        &crate::commands::misc::get_user_shell(),
-        &executable.to_string_lossy(),
-        &args,
-    );
-    let mut environment = BTreeMap::from([("PATH".into(), path)]);
     let custom = match app {
         "claude" => crate::settings::get_claude_override_dir().map(|p| ("CLAUDE_CONFIG_DIR", p)),
         "codex" => crate::settings::get_codex_override_dir().map(|p| ("CODEX_HOME", p)),
@@ -133,8 +148,34 @@ pub fn prepare_with(
         "mcode" => Some(("MINIMAX_DATA_DIR", crate::mcode_config::data_dir())),
         _ => None,
     };
-    if let Some((key, value)) = custom {
-        environment.insert(key.into(), value.to_string_lossy().into_owned());
+    Ok(Resolved {
+        cwd,
+        executable,
+        args,
+        path,
+        custom: custom.map(|(key, value)| (key, value.to_string_lossy().into_owned())),
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub fn prepare_with(
+    app: &str,
+    cwd: &str,
+    arguments: &str,
+    exit_hook: Option<ExitHookEnv<'_>>,
+) -> Result<LaunchPlan, String> {
+    let resolved = resolve(app, cwd, arguments)?;
+    // The PTY belongs to the terminal session, not to the initial CLI.
+    // Run the CLI as a child, then return to a usable shell when it exits.
+    let command = session_command(
+        &crate::commands::misc::get_user_shell(),
+        &resolved.executable.to_string_lossy(),
+        &resolved.args,
+    );
+    let mut environment: BTreeMap<String, String> =
+        BTreeMap::from([("PATH".to_string(), resolved.path)]);
+    if let Some((key, value)) = resolved.custom {
+        environment.insert(key.into(), value);
     }
     if let Some(exit_hook) = exit_hook {
         // session.sh 只认这三个环境变量：没有它们就完全不记账，
@@ -151,7 +192,69 @@ pub fn prepare_with(
     }
     Ok(LaunchPlan {
         command,
-        cwd,
+        cwd: resolved.cwd,
+        environment,
+    })
+}
+
+/// 后台 worker 的 argv：环境变量内联、监督脚本内联、CLI 作为最后一个可执行文件。
+#[cfg(target_os = "macos")]
+pub fn prepare_worker(
+    app: &str,
+    cwd: &str,
+    arguments: &str,
+    exit_hook: ExitHookEnv<'_>,
+) -> Result<WorkerLaunch, String> {
+    let resolved = resolve(app, cwd, arguments)?;
+    let mut environment: BTreeMap<String, String> =
+        BTreeMap::from([("PATH".to_string(), resolved.path)]);
+    if let Some((key, value)) = resolved.custom {
+        environment.insert(key.into(), value);
+    }
+    environment.insert(
+        crate::exit_hook::JOURNAL_ENV.into(),
+        exit_hook.journal.to_string_lossy().into_owned(),
+    );
+    environment.insert(
+        crate::exit_hook::TERMINAL_ENV.into(),
+        exit_hook.terminal_id.into(),
+    );
+    environment.insert(crate::exit_hook::APP_ENV.into(), app.into());
+    let mut argv = vec!["/usr/bin/env".to_string()];
+    argv.extend(
+        environment
+            .iter()
+            .map(|(key, value)| format!("{key}={value}")),
+    );
+    argv.push("/bin/sh".into());
+    argv.push("-c".into());
+    argv.push(WORKER_SUPERVISOR.into());
+    argv.push("phi-worker".into());
+    argv.push(resolved.executable.to_string_lossy().into_owned());
+    argv.extend(resolved.args);
+    Ok(WorkerLaunch {
+        argv,
+        cwd: resolved.cwd,
+    })
+}
+
+/// 直接跑一条 argv（查看器：把 `zellij attach` 挂进 phi 自己的终端）。
+/// 与 CLI 启动不同，这里没有 CLI 白名单，所以只接受绝对路径的 program。
+#[cfg(target_os = "macos")]
+pub fn prepare_raw(
+    cwd: &str,
+    argv: &[String],
+    environment: BTreeMap<String, String>,
+) -> Result<LaunchPlan, String> {
+    validate_directory(cwd)?;
+    let (program, args) = argv.split_first().ok_or("invalid-arguments")?;
+    if program.contains('\0') || !PathBuf::from(program).is_absolute() {
+        return Err("invalid-arguments".into());
+    }
+    let command = session_command(&crate::commands::misc::get_user_shell(), program, args);
+    Ok(LaunchPlan {
+        command,
+        cwd: PathBuf::from(cwd),
         environment,
     })
 }
@@ -241,6 +344,57 @@ mod tests {
         expected.push_str("\0SHELL_READY:-il");
         assert_eq!(result.stdout, expected.as_bytes());
     }
+    /// worker 的监督脚本只有两个职责：记账、把退出码原样交回去。
+    /// 少了后者，pane 会被判成「成功退出」，一次真实的失败就变成了「完成」。
+    #[test]
+    #[cfg(unix)]
+    fn worker_supervisor_records_the_exit_code_and_hands_it_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join("journal.log");
+        let output = std::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                WORKER_SUPERVISOR,
+                "phi-worker",
+                "/bin/sh",
+                "-c",
+                "exit 7",
+            ])
+            .env("PHI_BATON_JOURNAL", &journal)
+            .env("PHI_BATON_ID", "session-1")
+            .env("PHI_BATON_APP", "codex")
+            .env("PHI_BATON_WORKER_IGNORED", "1")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(7));
+        let line = std::fs::read_to_string(&journal).unwrap();
+        let fields: Vec<&str> = line.trim_end().split('\t').collect();
+        assert_eq!(fields[0], "session-1");
+        assert_eq!(fields[1], "7");
+        assert_eq!(fields[3], "codex");
+    }
+
+    /// 没有记账环境变量时不写文件、也不改变退出码：手动开的标签页不走这条路。
+    #[test]
+    #[cfg(unix)]
+    fn worker_supervisor_is_inert_without_the_journal_contract() {
+        let output = std::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                WORKER_SUPERVISOR,
+                "phi-worker",
+                "/bin/sh",
+                "-c",
+                "exit 3",
+            ])
+            .env_remove("PHI_BATON_JOURNAL")
+            .env_remove("PHI_BATON_ID")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(3));
+        assert!(output.stdout.is_empty());
+    }
+
     #[test]
     fn shell_tokens_are_literal() {
         #[cfg(unix)]
