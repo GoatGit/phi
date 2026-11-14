@@ -100,6 +100,7 @@ function renderPage(
       terminalApps={["claude"]}
       onStartSession={vi.fn()}
       onOpenSession={vi.fn()}
+      onOpenWorker={vi.fn()}
       liveSessionIds={[]}
       {...props}
     />,

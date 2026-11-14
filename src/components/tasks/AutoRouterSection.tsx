@@ -19,10 +19,13 @@ interface AutoRouterSectionProps {
   onPause: () => void;
   onResume: () => void;
   onResolve: (decision: RouterHumanDecision) => void;
-  /** 后端还持有这张卡的 worker 会话（应用重启后就不是了） */
-  sessionLive?: boolean;
-  /** 打开 worker 的终端会话：后台派发的进程不会自己出现在界面上 */
-  onOpenSession?: () => void;
+  /**
+   * 打开 worker 的终端：后台派发的进程不会自己出现在界面上。
+   *
+   * 两个后端的说法不一样（托管终端 / zellij pane），归一放在上层：
+   * 这里只负责把「想看它」这件事交出去。
+   */
+  onOpenWorker?: () => void;
 }
 
 const STATE_DOT: Record<string, string> = {
@@ -50,8 +53,7 @@ export function AutoRouterSection({
   onPause,
   onResume,
   onResolve,
-  sessionLive = false,
-  onOpenSession,
+  onOpenWorker,
 }: AutoRouterSectionProps) {
   const { t } = useTranslation();
   const [decision, setDecision] = useState<RouterHumanDecision>("continue");
@@ -99,20 +101,15 @@ export function AutoRouterSection({
         </p>
       ) : null}
 
-      {/* worker 跑在 phi 自己的 PTY 里：不切过去就完全看不到它在干什么，
-          这一行是「显示运行中但找不到终端」的出口。 */}
-      {running && !sessionLive ? (
-        <p className="m-0 text-caption text-fg-3">
-          {t("tasks.router.sessionGone")}
-        </p>
-      ) : null}
-      {sessionLive && onOpenSession ? (
+      {/* worker 不在 phi 自己的终端表里（zellij 里跑着的），不切过去就完全
+          看不到它在干什么。这一行是「显示运行中但找不到终端」的出口。 */}
+      {onOpenWorker ? (
         <div>
           <Button
             variant="neutral"
             size="compact"
             disabled={busy}
-            onClick={onOpenSession}
+            onClick={onOpenWorker}
           >
             <SquareTerminal
               data-icon

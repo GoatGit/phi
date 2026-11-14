@@ -6207,8 +6207,7 @@
       "confirmDecision": "下一步怎么处理？",
       "confirmContinue": "继续执行（重新排队）",
       "confirmComplete": "确认完成（移到 Done）",
-      "confirmSubmit": "提交确认",
-      "sessionGone": "这次运行是在之前那次应用启动里派发的，终端会话已经不在，没法再打开。"
+      "confirmSubmit": "提交确认"
     },
     "errors": {
       "noBacklog": "这个目录里没有 backlog/config.yml",
@@ -6223,6 +6222,6 @@
     },
     "openSession": "打开终端",
     "sessionEnded": "会话已结束",
-    "sessionClosed": "这个会话已经结束：应用重启后终端会话不会保留，重新开始一次就会开新会话。"
+    "sessionClosed": "接不上这次运行的终端了：它可能已经结束，或者运行它的 zellij 会话被清理过。重新开始一次会开新的会话。"
   }
 }

@@ -134,6 +134,7 @@ import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
 import { SwitchModePanel } from "@/components/providers/mode/SwitchModePanel";
 import { DesktopAccessBar } from "@/components/providers/mode/DesktopAccessBar";
 import { proxyApi } from "@/lib/api/proxy";
+import { superAgentApi } from "@/lib/api/superAgent";
 import type { AppMode, StartupAttachFailure } from "@/types/proxy";
 import UsageScriptModal from "@/components/UsageScriptModal";
 import { PROMPT_APP_IDS } from "@/lib/query/prompts";
@@ -1893,6 +1894,17 @@ function App() {
         const opened = await terminals.openSession(appId as AppId, sessionId);
         if (opened) selectApp(appId as AppId);
         return opened;
+      },
+      // worker 可能跑在 zellij 里，那就没有一个「已存在的 phi 会话」可打开：
+      // 后端会给它现开一个查看器，关掉只是断开查看，worker 继续跑。
+      onOpenWorker: async (root: string, taskId: string) => {
+        const opened = await superAgentApi.openWorker(root, taskId);
+        const shown = await terminals.openSession(
+          opened.appId as AppId,
+          opened.sessionId,
+        );
+        if (shown) selectApp(opened.appId as AppId);
+        return shown;
       },
       liveSessionIds: terminals.sessions.map((session) => session.id),
     };

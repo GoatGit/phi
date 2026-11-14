@@ -98,6 +98,7 @@ function renderBoard() {
       terminalApps={["ghostty"]}
       onStartSession={vi.fn()}
       onOpenSession={vi.fn()}
+      onOpenWorker={vi.fn().mockResolvedValue(true)}
       liveSessionIds={[]}
     />,
   );
@@ -207,6 +208,7 @@ describe("TaskBoardPage — 开始会话", () => {
         terminalApps={["codex"]}
         onStartSession={onStartSession}
         onOpenSession={vi.fn()}
+        onOpenWorker={vi.fn().mockResolvedValue(true)}
         liveSessionIds={[]}
       />,
     );
@@ -288,6 +290,7 @@ describe("TaskBoardPage — 派发后打开会话", () => {
         terminalApps={["codex"]}
         onStartSession={vi.fn()}
         onOpenSession={onOpenSession}
+        onOpenWorker={vi.fn().mockResolvedValue(true)}
         liveSessionIds={[]}
       />,
     );
@@ -317,6 +320,7 @@ describe("TaskBoardPage — 版心与列宽", () => {
         terminalApps={["ghostty"]}
         onStartSession={vi.fn()}
         onOpenSession={vi.fn()}
+        onOpenWorker={vi.fn().mockResolvedValue(true)}
         liveSessionIds={[]}
       />,
     );

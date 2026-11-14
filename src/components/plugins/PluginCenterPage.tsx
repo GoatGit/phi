@@ -53,6 +53,8 @@ interface PluginCenterPageProps {
   ) => Promise<string>;
   /** 打开一个已经存在的会话（后台派发的会话不会自己出现在界面上） */
   onOpenSession: (appId: string, sessionId: string) => Promise<boolean>;
+  /** 打开这次运行的 worker（zellij 里跑的 worker 不在会话链接里） */
+  onOpenWorker: (root: string, taskId: string) => Promise<boolean>;
   /** 后端当前确实持有的会话 id；不在其中的链接表示会话已结束 */
   liveSessionIds: string[];
 }
@@ -73,6 +75,7 @@ export function PluginCenterPage({
   terminalApps,
   onStartSession,
   onOpenSession,
+  onOpenWorker,
   liveSessionIds,
 }: PluginCenterPageProps) {
   const { t } = useTranslation();
@@ -151,6 +154,7 @@ export function PluginCenterPage({
               terminalApps={terminalApps}
               onStartSession={onStartSession}
               onOpenSession={onOpenSession}
+              onOpenWorker={onOpenWorker}
               liveSessionIds={liveSessionIds}
             />
           ) : (
@@ -172,6 +176,7 @@ function PluginPage({
   terminalApps,
   onStartSession,
   onOpenSession,
+  onOpenWorker,
   liveSessionIds,
 }: {
   entry: PluginCenterEntry | null;
@@ -182,6 +187,7 @@ function PluginPage({
     argumentsText?: string,
   ) => Promise<string>;
   onOpenSession: (appId: string, sessionId: string) => Promise<boolean>;
+  onOpenWorker: (root: string, taskId: string) => Promise<boolean>;
   liveSessionIds: string[];
 }) {
   const { t } = useTranslation();
@@ -208,6 +214,7 @@ function PluginPage({
         terminalApps={terminalApps}
         onStartSession={onStartSession}
         onOpenSession={onOpenSession}
+        onOpenWorker={onOpenWorker}
         liveSessionIds={liveSessionIds}
       />
     );

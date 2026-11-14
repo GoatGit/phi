@@ -6207,8 +6207,7 @@
       "confirmDecision": "次の操作を選択",
       "confirmContinue": "続行（再キュー）",
       "confirmComplete": "完了を確認（Done に移動）",
-      "confirmSubmit": "決定を送信",
-      "sessionGone": "この実行は前回のアプリ起動時に開始されたため、ターミナルセッションは残っていません。"
+      "confirmSubmit": "決定を送信"
     },
     "errors": {
       "noBacklog": "このフォルダに backlog/config.yml がありません",
@@ -6223,6 +6222,6 @@
     },
     "openSession": "ターミナルを開く",
     "sessionEnded": "セッション終了",
-    "sessionClosed": "このセッションは終了しています。アプリを再起動するとターミナルセッションは残りません。もう一度開始すると新しいセッションが開きます。"
+    "sessionClosed": "この実行のターミナルに接続できません。すでに終了しているか、実行していた zellij セッションが片付けられた可能性があります。もう一度開始すると新しいセッションが開きます。"
   }
 }

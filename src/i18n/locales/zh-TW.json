@@ -6207,8 +6207,7 @@
       "confirmDecision": "接下來如何處理？",
       "confirmContinue": "繼續執行（重新排隊）",
       "confirmComplete": "確認完成（移到 Done）",
-      "confirmSubmit": "提交確認",
-      "sessionGone": "這次執行是在先前那次應用啟動裡派發的，終端工作階段已經不在了，無法再開啟。"
+      "confirmSubmit": "提交確認"
     },
     "errors": {
       "noBacklog": "這個目錄裡沒有 backlog/config.yml",
@@ -6223,6 +6222,6 @@
     },
     "openSession": "開啟終端",
     "sessionEnded": "工作階段已結束",
-    "sessionClosed": "這個工作階段已經結束：應用重新啟動後終端工作階段不會保留，重新開始一次就會開新的工作階段。"
+    "sessionClosed": "接不上這次執行的終端了：它可能已經結束，或執行它的 zellij 工作階段被清理過。重新開始一次會開新的工作階段。"
   }
 }

@@ -131,6 +131,18 @@ export interface RouterPlanNode {
   state: string;
 }
 
+/**
+ * 「打开 worker 的终端」的结果。
+ *
+ * 两个后端说法不同：托管终端的 worker 本身就是 phi 的一个会话，直接交回 id；
+ * 跑在 zellij 里的 worker 不在终端表里，后端会现开一个查看器窗格挂上去。
+ * `appId` 是应该切到哪个应用页签（就是 worker 自己那个 CLI）。
+ */
+export interface OpenedWorker {
+  sessionId: string;
+  appId: string;
+}
+
 export const superAgentApi = {
   settings: () => invoke<RouterSettings>("router_settings"),
   saveSettings: (settings: RouterSettings) =>
@@ -150,9 +162,28 @@ export const superAgentApi = {
     invoke<void>("router_pause_task", { root, taskId }),
   resume: (root: string, taskId: string) =>
     invoke<void>("router_resume_task", { root, taskId }),
-  resolve: (root: string, taskId: string, decision: RouterHumanDecision, expectedUpdatedAt: number, fingerprint: string) =>
-    invoke<void>("router_resolve_task", { root, taskId, decision, expectedUpdatedAt, fingerprint }),
+  resolve: (
+    root: string,
+    taskId: string,
+    decision: RouterHumanDecision,
+    expectedUpdatedAt: number,
+    fingerprint: string,
+  ) =>
+    invoke<void>("router_resolve_task", {
+      root,
+      taskId,
+      decision,
+      expectedUpdatedAt,
+      fingerprint,
+    }),
   /** 立刻开始：跳过冷却与配额，仍受 worker 白名单与租约约束。 */
   start: (root: string, taskId: string) =>
     invoke<void>("router_start_task", { root, taskId }),
+  /**
+   * 打开这次运行的 worker。
+   *
+   * 关掉打开的终端只是断开查看：worker 跑在 zellij 里，不会跟着退出。
+   */
+  openWorker: (root: string, taskId: string) =>
+    invoke<OpenedWorker>("task_open_worker", { root, taskId }),
 };

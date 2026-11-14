@@ -76,6 +76,13 @@ interface TaskBoardPageProps {
   embedded?: boolean;
   /** 打开一个已经存在的会话；后台派发的 worker 不会自己出现在界面上 */
   onOpenSession: (appId: string, sessionId: string) => Promise<boolean>;
+  /**
+   * 打开这次运行的 worker。
+   *
+   * 与 `onOpenSession` 分开是因为 worker 不一定在 phi 的终端表里：跑在 zellij
+   * 里的 worker 要现开一个查看器挂上去，跑完了也还能看。返回 false 表示接不上。
+   */
+  onOpenWorker: (root: string, taskId: string) => Promise<boolean>;
   /** 后端当前确实持有的会话 id，用来区分「还能打开」与「会话已结束」 */
   liveSessionIds: string[];
 }
@@ -99,6 +106,7 @@ export function TaskBoardPage({
   terminalApps,
   embedded = false,
   onOpenSession,
+  onOpenWorker,
   liveSessionIds,
 }: TaskBoardPageProps) {
   const { t } = useTranslation();
@@ -487,6 +495,15 @@ export function TaskBoardPage({
     if (!opened) toast.info(t("tasks.sessionClosed"));
   };
 
+  /** 打开这次运行的 worker：后端决定是接回已有终端还是现开一个查看器。 */
+  const handleOpenWorker = async () => {
+    if (!activeRoot || !detail) return;
+    const opened = await onOpenWorker(activeRoot, detail.task.id).catch(
+      () => false,
+    );
+    if (!opened) toast.info(t("tasks.sessionClosed"));
+  };
+
   const handleAutoStart = () => {
     if (!activeRoot || !detail) return;
     const taskId = detail.task.id;
@@ -650,6 +667,7 @@ export function TaskBoardPage({
         onOpenSession={(appId, sessionId) =>
           void handleOpenSession(appId, sessionId)
         }
+        onOpenWorker={() => void handleOpenWorker()}
         onAutoStart={handleAutoStart}
         onAutoPause={handleAutoPause}
         onAutoResume={handleAutoResume}

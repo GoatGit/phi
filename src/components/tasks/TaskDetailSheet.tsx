@@ -40,6 +40,8 @@ interface TaskDetailSheetProps {
   liveSessionIds?: ReadonlySet<string>;
   /** 打开一条已有关联会话（后台派发的 worker 不会自己出现在界面上） */
   onOpenSession?: (appId: string, sessionId: string) => void;
+  /** 打开这次运行的 worker：跑在 zellij 里的 worker 不在会话链接里 */
+  onOpenWorker?: () => void;
   onClose: () => void;
   onAutoStart: () => void;
   onAutoPause: () => void;
@@ -68,6 +70,7 @@ export function TaskDetailSheet({
   plan,
   liveSessionIds,
   onOpenSession,
+  onOpenWorker,
   onClose,
   onSetStatus,
   onArchive,
@@ -209,14 +212,8 @@ export function TaskDetailSheet({
                 onPause={onAutoPause}
                 onResume={onAutoResume}
                 onResolve={onResolve}
-                sessionLive={
-                  Boolean(run?.sessionId) &&
-                  (!liveSessionIds || liveSessionIds.has(run!.sessionId!))
-                }
-                onOpenSession={
-                  onOpenSession && run?.sessionId && run.workerApp
-                    ? () => onOpenSession(run.workerApp!, run.sessionId!)
-                    : undefined
+                onOpenWorker={
+                  onOpenWorker && run?.sessionId ? onOpenWorker : undefined
                 }
               />
 

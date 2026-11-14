@@ -146,23 +146,26 @@ describe("AutoRouterSection", () => {
 });
 
 describe("AutoRouterSection — 会话入口", () => {
-  it("会话还在时给「打开终端」，点了把请求交给上层", async () => {
+  it("有 worker 就「打开终端」，点了把请求交给上层", async () => {
     const user = userEvent.setup();
-    const onOpenSession = vi.fn();
-    renderSection({ sessionLive: true, onOpenSession });
+    const onOpenWorker = vi.fn();
+    renderSection({ onOpenWorker });
 
     await user.click(
       screen.getByRole("button", { name: zh.tasks.openSession }),
     );
-    expect(onOpenSession).toHaveBeenCalledTimes(1);
+    expect(onOpenWorker).toHaveBeenCalledTimes(1);
   });
 
-  it("应用重启后会话已经不在了，说清原因而不是留一个打不开的按钮", () => {
-    renderSection({ sessionLive: false, onOpenSession: vi.fn() });
+  it("还没有派发过 worker 时不给一个打不开的按钮", () => {
+    // 没有 sessionId 的卡（还没跑过）不该出现「打开终端」。
+    renderSection({
+      onOpenWorker: undefined,
+      run: { ...run, sessionId: null },
+    });
 
     expect(
       screen.queryByRole("button", { name: zh.tasks.openSession }),
     ).toBeNull();
-    expect(screen.getByText(zh.tasks.router.sessionGone)).toBeInTheDocument();
   });
 });

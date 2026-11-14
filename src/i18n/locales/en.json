@@ -6207,8 +6207,7 @@
       "confirmDecision": "What should happen next?",
       "confirmContinue": "Continue (queue again)",
       "confirmComplete": "Confirm completed (move to Done)",
-      "confirmSubmit": "Submit decision",
-      "sessionGone": "This run was dispatched before the last app restart, so its terminal session is gone."
+      "confirmSubmit": "Submit decision"
     },
     "errors": {
       "noBacklog": "There is no backlog/config.yml in this folder",
@@ -6223,6 +6222,6 @@
     },
     "openSession": "Open terminal",
     "sessionEnded": "Session ended",
-    "sessionClosed": "This session has ended: terminal sessions do not survive an app restart. Starting again opens a new one."
+    "sessionClosed": "This run's terminal is unreachable: it may have finished, or its zellij session was cleaned up. Starting again opens a new one."
   }
 }
