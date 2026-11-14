@@ -7,12 +7,12 @@
     position: relative;
     display: grid;
     /* 四列节点，列间留出画线空间；连线由 JS 实测位置后绝对定位绘制。 */
-    grid-template-columns: minmax(128px, 0.9fr) 152px minmax(150px, 1fr) minmax(
-        240px,
-        1.5fr
-      );
+    grid-template-columns:
+      minmax(150px, 1fr) 184px minmax(150px, 0.95fr)
+      minmax(220px, 1.15fr);
     column-gap: 44px;
-    align-items: center;
+    /* 拉伸而不是居中：四列的列名才能落在同一条基线上。列内内容各自居中。 */
+    align-items: stretch;
     min-width: 720px;
     padding-block: 12px;
   }
@@ -21,25 +21,39 @@
   @media (max-width: 1100px) {
     .phi-flow-stage {
       grid-template-columns:
-        minmax(104px, 0.9fr) 104px minmax(120px, 1fr)
+        minmax(104px, 0.9fr) 120px minmax(120px, 1fr)
         minmax(190px, 1.45fr);
       column-gap: 22px;
       min-width: 0;
     }
   }
   .phi-flow-col {
+    position: relative;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 16px;
+    gap: 12px;
     min-width: 0;
+    /* 列名是绝对定位的一行，内容整体让出这一行的高度。 */
+    padding-block-start: 22px;
     margin: 0;
-    padding: 0;
     list-style: none;
+  }
+  /* 列名。应用列本来就有一行工具（列名 + 挑选），中间与右侧两列没有，
+     标题就真空了一行：加上同一套列名后，四列的节点第一行才能对齐。 */
+  .phi-flow-col-label {
+    position: absolute;
+    top: 0;
+    inset-inline: 2px;
+    margin: 0;
+    color: var(--text-3);
+    font-size: 11px;
+    font-weight: 500;
   }
   .phi-flow-hub-wrap {
     align-items: center;
     justify-content: center;
+    gap: 6px;
   }
   /* 应用列：节点列表 + 折叠开关。列本身不参与滚动，高度由可见节点决定。 */
   .phi-flow-app-col {
@@ -49,20 +63,31 @@
     display: flex;
     min-width: 0;
     flex-direction: column;
-    justify-content: center;
-    gap: 16px;
+    justify-content: flex-start;
+    gap: 12px;
     margin: 0;
     padding: 0;
     list-style: none;
   }
+  /* 展开后应用会多到一屏放不下。让列表自己滚，图的高度就有上限：
+     以前整列撑高，另外三列被挤到屏幕外，连线全变成贴边的竖线。 */
+  .phi-flow-app-list[data-scroll="true"] {
+    max-height: 560px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-inline-end: 2px;
+    scrollbar-width: thin;
+  }
   /* 应用列标题：列名 + 挑选按钮。列名本身读屏与视觉都用得到，所以是真实文本，
      只是小一号、弱一档，不抢节点。 */
   .phi-flow-app-tools {
+    position: absolute;
+    top: 0;
+    inset-inline: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 6px;
-    padding-inline: 2px;
     color: var(--text-3);
     font-size: 11px;
     font-weight: 500;
@@ -95,12 +120,12 @@
   }
   .phi-flow-more {
     display: flex;
-    min-height: 34px;
+    min-height: 26px;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    border: 1px dashed var(--border-strong);
-    border-radius: 14px;
+    gap: 4px;
+    border: 0;
+    border-radius: 8px;
     background: transparent;
     color: var(--text-2);
     font-size: 12px;
@@ -125,25 +150,41 @@
     position: relative;
     display: flex;
     min-width: 0;
-    min-height: 64px;
+    min-height: 52px;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 2px;
     border: 1px solid hsl(var(--border));
-    border-radius: 14px;
-    padding: 10px 8px;
+    border-radius: 12px;
+    padding: 8px 10px;
     background: var(--bg-card);
     text-align: center;
     transition:
       opacity 0.2s ease,
-      border-color 0.2s ease;
+      border-color 0.2s ease,
+      background-color 0.15s ease;
+  }
+  /* 应用节点是列表：左对齐才能让 5 行名称、状态各自成一条竖线。
+     以前整块居中，每行起点都不一样，看着像随手摆的。 */
+  .phi-flow-node[data-kind="app"] {
+    align-items: stretch;
+    text-align: start;
+  }
+  /* 可点节点给一个悬停反馈，否则只有光标变手型，用户不知道能点。 */
+  .phi-flow-node[data-kind="app"]:hover,
+  .phi-flow-node[data-kind="group"]:hover,
+  .phi-flow-node[data-kind="model"]:hover {
+    border-color: var(--border-strong);
+  }
+  .phi-flow-node[data-kind="app"]:hover {
+    background: var(--bg-subtle);
   }
   /* 节点右上角的轻量动作：应用设置路由、路由组编辑。 */
   .phi-flow-action {
     position: absolute;
-    inset-inline-end: 5px;
-    top: 5px;
+    inset-inline-end: 4px;
+    top: 4px;
     display: inline-flex;
     width: 22px;
     height: 22px;
@@ -153,9 +194,15 @@
     border-radius: 6px;
     background: transparent;
     color: var(--text-3);
+    opacity: 0;
     transition:
+      opacity 0.15s ease,
       color 0.15s ease,
       background-color 0.15s ease;
+  }
+  .phi-flow-node:hover .phi-flow-action,
+  .phi-flow-node:focus-within .phi-flow-action {
+    opacity: 1;
   }
   .phi-flow-action:hover {
     background: var(--bg-subtle);
@@ -183,7 +230,7 @@
     min-width: 0;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
   }
   .phi-flow-node[data-disabled="true"] {
     opacity: 0.6;
@@ -233,12 +280,15 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* 回放里「还没轮到」的节点：只降透明，不改成虚线——虚线已经被
+     「配置存在但没流量」占用了，两件事不该长成一个样子。 */
   .phi-flow-node[data-state="dimmed"] {
-    border-style: dashed;
-    opacity: 0.4;
+    opacity: 0.55;
   }
+  /* 没有流量的节点不再整体降透明：卡片一灰，未接入的几个应用会连成一片
+     脏底，而且文字对比度跟着掉。状态交给「未接入路由组」这行字和色条的有无。 */
   .phi-flow-node[data-state="idle"] {
-    opacity: 0.75;
+    background: var(--bg-card);
   }
   /* 仅存在于配置中的节点（无流量）：虚线边框区分。 */
   .phi-flow-node[data-static="true"] {
@@ -249,16 +299,21 @@
   }
   .phi-flow-hub {
     width: 100%;
-    min-height: 72px;
+    min-height: 60px;
     border-color: var(--border-strong);
   }
   .phi-flow-address {
+    display: flex;
+    width: 100%;
+    min-width: 0;
     max-width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
     /* 地址是让用户照着抄的：宁可省略号截断，也不要在中间硬折行，否则
        `http://` 会被拆到另一行，看起来像缺了协议头。完整值见 title 与
        点击复制的内容。 */
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
     background: none;
     border: 0;
@@ -276,26 +331,99 @@
     color: var(--text-1);
     text-decoration: underline;
   }
+  .phi-flow-address-text {
+    display: flex;
+    min-width: 0;
+    justify-content: center;
+    flex-wrap: nowrap;
+  }
+  .phi-flow-address-origin,
+  .phi-flow-address-path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .phi-flow-address-icon {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    opacity: 0.65;
+  }
+  .phi-flow-address:hover .phi-flow-address-icon,
+  .phi-flow-address:focus-visible .phi-flow-address-icon {
+    opacity: 1;
+  }
+  /* 窄窗列宽压到 120px 时装不下完整地址：让它往两侧的列间距里借 12px，
+     同时收一点字号。地址必须整段可读——它就是让人照抄的。
+     必须写在基础样式之后：同权重时后出现的规则才生效。 */
+  @media (max-width: 1100px) {
+    /* 列宽 120px 装不下 21 个字符的地址：往两侧列间距借 16px、字号收到 9px，
+       并去掉复制图标，换完整的一行地址。 */
+    .phi-flow-address {
+      width: calc(100% + 32px);
+      /* 基础样式里的 max-width:100% 会把借来的宽度又截回去。 */
+      max-width: calc(100% + 32px);
+      margin-inline: -16px;
+      font-size: 9px;
+    }
+    .phi-flow-address-icon {
+      display: none;
+    }
+    /* 一行装不下：允许在「主机」和「路径」之间折行，两段各自完整。 */
+    .phi-flow-address-text {
+      flex-wrap: wrap;
+    }
+  }
+  /* 图例里「每个应用一种线色」的样例：一小段多色条，比列五个应用名短得多。 */
+  .phi-flow-lane-bar-sample {
+    width: 3px;
+    height: 14px;
+    border-radius: 2px;
+    background: linear-gradient(to bottom, #3b82f6, #f97316 50%, #10b981);
+  }
   .phi-flow-hit {
     display: flex;
     width: 100%;
     min-width: 0;
     flex-direction: column;
-    align-items: center;
-    gap: 4px;
+    align-items: stretch;
+    gap: 2px;
     background: none;
     border: 0;
     padding: 0;
     font: inherit;
     color: inherit;
+    text-align: start;
     cursor: pointer;
   }
-  /* 应用图标与名称同一行：节点高度不变，连线位置也不受影响。 */
+  /* 应用卡第一行：图标 + 名称。两者必须同行，卡片才能压到两行高。 */
+  .phi-flow-app-row {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+  }
+  .phi-flow-app-row strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .phi-flow-app-icon {
-    width: 18px;
-    height: 18px;
-    margin-inline-end: 6px;
-    vertical-align: -4px;
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
+  /* 有流量的应用在左缘带一条自己的线色：图例就不用再列一遍应用名了。 */
+  .phi-flow-lane-bar {
+    position: absolute;
+    inset-block: 9px;
+    inset-inline-start: -1px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    pointer-events: none;
   }
   .phi-flow-hit:focus-visible {
     outline: 2px solid var(--action-text);
@@ -345,32 +473,55 @@
       stroke-dashoffset: -24;
     }
   }
+  .phi-flow-outlets {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
   .phi-flow-outlets .phi-flow-node {
     flex-direction: row;
     align-items: center;
-    gap: 10px;
-    padding: 12px;
+    gap: 8px;
+    /* 固定高度：出口数量少时右列被拉开成一大把高卡片，和图里左边的紧凑节点
+       不成比例，也让连线弧度夸张。 */
+    min-height: 52px;
+    padding: 8px 12px;
     text-align: start;
   }
-  .phi-flow-dot {
+  /* 出口状态只出现一次，而且固定在右端：以前左边一个色点、右边一句「失败」，
+     同一件事说了两遍，还在卡片两端各占一块。 */
+  .phi-flow-status {
     flex: none;
-    width: 8px;
-    height: 8px;
-    border: 1.5px solid currentColor;
-    border-radius: 50%;
-    color: var(--text-3);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-size: 11px;
+    line-height: 16px;
+    white-space: nowrap;
   }
-  .phi-flow-node[data-state="active"] .phi-flow-dot {
+  .phi-flow-status[data-state="active"] {
+    background: var(--action-soft);
     color: var(--action-text);
-    background: currentColor;
   }
-  .phi-flow-node[data-state="completed"] .phi-flow-dot {
+  .phi-flow-status[data-state="failed"] {
+    /* 用语义文字色而不是 --destructive：后者在深色主题里是「按钮底色」那种
+       暗红，当文字色用在深底上几乎看不见。 */
+    background: hsl(var(--destructive) / 0.12);
+    color: var(--danger-text);
+  }
+  .phi-flow-status[data-state="unknown"] {
+    background: var(--bg-subtle);
+    color: var(--text-2);
+  }
+  .phi-flow-status-icon[data-state="completed"] {
+    flex: none;
     color: var(--success-text);
-    background: currentColor;
-  }
-  .phi-flow-node[data-state="failed"] .phi-flow-dot {
-    color: hsl(var(--destructive));
-    background: currentColor;
   }
   .phi-flow-key {
     display: inline-flex;
@@ -577,6 +728,12 @@
       0 4px 12px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.06);
     --shadow-lg:
       0 20px 40px rgba(16, 24, 40, 0.16), 0 4px 12px rgba(16, 24, 40, 0.08);
+    /* 浮起的卡片：kanban 卡片这类压在有色底上的对象。
+       单层 1px 太轻，压不出高度；两层一起用——近处一层收边，远处一层给厚度。 */
+    --shadow-card:
+      0 1px 2px rgba(16, 24, 40, 0.06), 0 3px 8px rgba(16, 24, 40, 0.07);
+    --shadow-card-hover:
+      0 2px 4px rgba(16, 24, 40, 0.08), 0 8px 18px rgba(16, 24, 40, 0.1);
   }
 
   .dark {
@@ -658,6 +815,11 @@
       0 0 0 1px rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4);
+    /* 深色底上投影不显眼，靠两层更实的黑影表达高度；边缘另有 border 兜住 */
+    --shadow-card:
+      0 2px 4px rgba(0, 0, 0, 0.38), 0 6px 14px rgba(0, 0, 0, 0.26);
+    --shadow-card-hover:
+      0 3px 6px rgba(0, 0, 0, 0.44), 0 12px 24px rgba(0, 0, 0, 0.38);
   }
 }
 

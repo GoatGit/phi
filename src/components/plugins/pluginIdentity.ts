@@ -4,6 +4,7 @@ import {
   BookOpenCheck,
   ClipboardList,
   Columns3,
+  FileCode2,
   HandHeart,
   Network,
   ShieldCheck,
@@ -54,6 +55,12 @@ const IDENTITY: Record<string, PluginIdentity> = {
     icon: Columns3,
     tint: "bg-direct-soft",
     ink: "text-direct-text",
+  },
+  // 协议页不是功能，是写给插件作者的说明：中性底色，不抢功能卡片的颜色。
+  "plugin-protocol": {
+    icon: FileCode2,
+    tint: "bg-subtle",
+    ink: "text-fg-1",
   },
 };
 

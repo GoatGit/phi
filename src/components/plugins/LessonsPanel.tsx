@@ -28,7 +28,7 @@ import {
 import { toast } from "@/lib/toast";
 import { SettingsCard } from "@/components/settings/SettingsLayout";
 import { cn } from "@/lib/utils";
-import { pluginPageClass } from "./pluginPage";
+import { pluginCardPageClass, pluginPageClass } from "./pluginPage";
 import { PluginGuide } from "./PluginGlyph";
 import { PluginEmpty, PluginLede } from "./pluginSection";
 
@@ -185,7 +185,7 @@ export function LessonsPanel() {
     .join(" · ");
 
   return (
-    <div className={cn(pluginPageClass, "space-y-5")}>
+    <div className={cn(pluginCardPageClass, "space-y-5")}>
       <PluginLede hint={t("pluginCenter.lessons.sourceHint")}>
         {t("pluginCenter.lessons.intro")}
       </PluginLede>

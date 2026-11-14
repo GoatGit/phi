@@ -1,5 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { ArrowUpRight, Pin, PinOff, Plus, RefreshCw } from "lucide-react";
+import {
+  ArrowUpRight,
+  FileCode2,
+  Pin,
+  PinOff,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
 import { Button } from "@/components/ui/button";
@@ -18,7 +25,8 @@ import { LessonsPanel } from "./LessonsPanel";
 import { McpRouterPanel } from "./McpRouterPanel";
 import { PluginDetailPage } from "./PluginDetailPage";
 import { PluginGlyph } from "./PluginGlyph";
-import { pluginPageClass } from "./pluginPage";
+import { pluginCardPageClass, pluginPageClass } from "./pluginPage";
+import { PluginProtocolPage } from "./PluginProtocolPage";
 import { PrivacyPanel } from "./PrivacyPanel";
 
 // 主页页签用插件 id 不可能出现的字符，避免和某个叫 "home" 的插件撞名。
@@ -37,7 +45,16 @@ interface PluginCenterPageProps {
   onTogglePin: (pluginId: string) => void;
   /** 任务看板要能开终端会话，靠的是宿主这份终端能力 */
   terminalApps: string[];
-  onStartSession: (root: string, appId: string) => Promise<string>;
+  /** `argumentsText` 是交给 CLI 的初始指令（已转义），没有它就只是个空会话 */
+  onStartSession: (
+    root: string,
+    appId: string,
+    argumentsText?: string,
+  ) => Promise<string>;
+  /** 打开一个已经存在的会话（后台派发的会话不会自己出现在界面上） */
+  onOpenSession: (appId: string, sessionId: string) => Promise<boolean>;
+  /** 后端当前确实持有的会话 id；不在其中的链接表示会话已结束 */
+  liveSessionIds: string[];
 }
 
 /**
@@ -55,6 +72,8 @@ export function PluginCenterPage({
   onTogglePin,
   terminalApps,
   onStartSession,
+  onOpenSession,
+  liveSessionIds,
 }: PluginCenterPageProps) {
   const { t } = useTranslation();
   const entries = usePluginCenterEntries();
@@ -131,6 +150,8 @@ export function PluginCenterPage({
               entry={activeEntry}
               terminalApps={terminalApps}
               onStartSession={onStartSession}
+              onOpenSession={onOpenSession}
+              liveSessionIds={liveSessionIds}
             />
           ) : (
             <PluginHomePage
@@ -150,10 +171,18 @@ function PluginPage({
   entry,
   terminalApps,
   onStartSession,
+  onOpenSession,
+  liveSessionIds,
 }: {
   entry: PluginCenterEntry | null;
   terminalApps: string[];
-  onStartSession: (root: string, appId: string) => Promise<string>;
+  onStartSession: (
+    root: string,
+    appId: string,
+    argumentsText?: string,
+  ) => Promise<string>;
+  onOpenSession: (appId: string, sessionId: string) => Promise<boolean>;
+  liveSessionIds: string[];
 }) {
   const { t } = useTranslation();
   if (!entry) {
@@ -167,6 +196,7 @@ function PluginPage({
     if (entry.id === "privacy") return <PrivacyPanel />;
     if (entry.id === "mcp-router") return <McpRouterPanel />;
     if (entry.id === "lessons") return <LessonsPanel />;
+    if (entry.id === "plugin-protocol") return <PluginProtocolPage />;
   }
   if (entry.kind === "panel" && entry.id === "report-card") {
     return <ReportCardPage embedded />;
@@ -177,6 +207,8 @@ function PluginPage({
         embedded
         terminalApps={terminalApps}
         onStartSession={onStartSession}
+        onOpenSession={onOpenSession}
+        liveSessionIds={liveSessionIds}
       />
     );
   }
@@ -201,7 +233,7 @@ function PluginHomePage({
   const busy = isLoading || isFetching;
 
   return (
-    <div className={cn(pluginPageClass, "space-y-4")}>
+    <div className={cn(pluginCardPageClass, "space-y-4")}>
       {errorMessage && (
         <Notice
           tone="danger"
@@ -239,14 +271,14 @@ function PluginHomePage({
             />
           </li>
         ))}
-        <li>
-          <AddPluginSlot
-            root={root}
-            busy={busy}
-            onRefresh={() => void refetch()}
-          />
-        </li>
       </ul>
+
+      <AddPluginSlot
+        root={root}
+        busy={busy}
+        onRefresh={() => void refetch()}
+        onOpenProtocol={() => onOpen("plugin-protocol")}
+      />
     </div>
   );
 }
@@ -261,8 +293,21 @@ function PluginCard({
   onOpen: () => void;
 }) {
   const { t } = useTranslation();
-  // 只有「停用」值得单独说一句：其余状态是默认值，写在每张卡片上只是噪音。
-  const disabled = entry.status === "disabled";
+  // 状态放在卡片底部：不用点进去也能分清「能用」「已停用」「宿主自带」。
+  const statusLabel =
+    entry.status === "disabled"
+      ? t("pluginCenter.home.disabled")
+      : entry.status === "enabled"
+        ? t("pluginCenter.home.enabled")
+        : entry.status === "always-on"
+          ? t("pluginCenter.home.alwaysOn")
+          : null;
+  const statusDot =
+    entry.status === "enabled"
+      ? "bg-success-text"
+      : entry.status === "disabled"
+        ? "bg-fg-3"
+        : "bg-border-strong";
 
   return (
     <button
@@ -282,11 +327,6 @@ function PluginCard({
             aria-label={t("pluginCenter.home.pinned")}
           />
         )}
-        {disabled && (
-          <span className="shrink-0 rounded-full bg-subtle px-1.5 py-px text-badge text-fg-3">
-            {t("pluginCenter.home.disabled")}
-          </span>
-        )}
         <ArrowUpRight
           aria-hidden="true"
           className="h-4 w-4 shrink-0 text-fg-3 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -294,50 +334,67 @@ function PluginCard({
       </span>
       {entry.description && (
         <p
-          className="line-clamp-2 text-body text-fg-2"
+          className="line-clamp-3 text-body text-fg-2"
           title={entry.description}
         >
           {entry.description}
         </p>
       )}
+      {statusLabel && (
+        <span className="mt-auto flex items-center gap-1.5 pt-0.5 text-caption text-fg-3">
+          <span
+            aria-hidden="true"
+            className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusDot)}
+          />
+          {statusLabel}
+        </span>
+      )}
     </button>
   );
 }
 
-/** 卡片末尾的一格空位：告诉人插件从哪来，刷新的入口也在这里。 */
+/** 卡片网格下方的一条说明：插件从哪来，刷新的入口也在这里。 */
 function AddPluginSlot({
   root,
   busy,
   onRefresh,
+  onOpenProtocol,
 }: {
   root: string | null;
   busy: boolean;
   onRefresh: () => void;
+  onOpenProtocol: () => void;
 }) {
   const { t } = useTranslation();
 
   return (
-    <div className="flex h-full flex-col gap-2 rounded-panel border border-dashed border-border p-4">
-      <span className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-subtle text-fg-2">
-          <Plus className="h-4 w-4" />
-        </span>
-        <span className="text-strong text-fg-2">
+    <div className="flex flex-wrap items-center gap-3 rounded-panel border border-dashed border-border px-4 py-3">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-subtle text-fg-2">
+        <Plus className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-strong text-fg-2">
           {t("pluginCenter.home.addPlugin.title")}
         </span>
+        <span className="block text-caption text-fg-3">
+          {t("pluginCenter.home.addPlugin.body")}
+        </span>
       </span>
-      <p className="text-caption text-fg-3">
-        {t("pluginCenter.home.addPlugin.body")}
-      </p>
       {root && (
-        <p className="truncate font-mono text-caption text-fg-3" title={root}>
+        <span
+          className="hidden max-w-[280px] truncate font-mono text-caption text-fg-3 md:block"
+          title={root}
+        >
           {root}
-        </p>
+        </span>
       )}
+      <Button variant="ghost" size="compact" onClick={onOpenProtocol}>
+        <FileCode2 className="me-1.5 h-3.5 w-3.5" />
+        {t("pluginCenter.home.addPlugin.protocol")}
+      </Button>
       <Button
         variant="ghost"
         size="compact"
-        className="mt-auto self-start"
         onClick={onRefresh}
         disabled={busy}
       >

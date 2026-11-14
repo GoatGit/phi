@@ -25,16 +25,17 @@ function plugin(overrides: Partial<PluginSummary> = {}): PluginSummary {
 }
 
 describe("pluginCenterEntries", () => {
-  it("keeps the six fixed cards in order and marks host panels always-on", () => {
+  it("keeps the seven fixed cards in order and marks host panels always-on", () => {
     const entries = pluginCenterEntries([plugin()], t);
 
-    expect(entries.slice(0, 6).map((entry) => entry.id)).toEqual([
+    expect(entries.slice(0, 7).map((entry) => entry.id)).toEqual([
       "report-card",
       "task-board",
       "session-baton",
       "privacy",
       "mcp-router",
       "lessons",
+      "plugin-protocol",
     ]);
     // 成绩单与任务看板都是宿主面板：能打开、能钉在侧栏，但没有单独的启停开关
     expect(entries[0].status).toBe("always-on");
@@ -100,6 +101,7 @@ describe("pluginCenterEntries", () => {
           "privacy",
           "mcp-router",
           "lessons",
+          "plugin-protocol",
         ].includes(entry.id),
     );
     expect(discovered).toHaveLength(1);

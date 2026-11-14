@@ -108,10 +108,15 @@ export function AppPageHeader({
           {titleExtra}
         </div>
       )}
+      {/*
+        页签后面那条占位必须能撑开：操作区永远贴页头最右端。
+        只给了固定宽度时，操作按钮会紧挨着页签停在左侧（钉住按钮就是这么跑偏的）；
+        只有「有页签、没有操作」时留一条窄缝，不把页签行拉满。
+      */}
       {!truncateTitle && (
         <div
           {...DRAG_REGION_ATTR}
-          className={tabs ? "w-5 shrink-0" : "flex-1"}
+          className={tabs && !actions ? "w-5 shrink-0" : "flex-1"}
         />
       )}
       {actions && (

@@ -7,6 +7,7 @@ import {
   BookOpenCheck,
   ClipboardList,
   Columns3,
+  FileCode2,
   HandHeart,
   Network,
   ShieldCheck,
@@ -28,6 +29,8 @@ import { pluginsApi, type PluginSummary } from "@/lib/api/plugins";
 
 export const pluginKeys = {
   list: ["plugins", "list"] as const,
+  /** 协议只在换构建时才变，读到一次就不用再取。 */
+  protocol: ["plugins", "protocol"] as const,
 };
 
 export type PluginEntryKind = "panel" | "plugin" | "config";
@@ -112,6 +115,14 @@ const CARD_DEFINITIONS: CardDefinition[] = [
     order: 50,
     kind: "config",
   },
+  {
+    id: "plugin-protocol",
+    titleKey: "pluginCenter.cards.protocol.title",
+    descriptionKey: "pluginCenter.cards.protocol.description",
+    icon: FileCode2,
+    order: 60,
+    kind: "config",
+  },
 ];
 
 /** 磁盘插件的卡片排在固定卡片之后，按名字稳定排序。 */
@@ -185,6 +196,15 @@ export function usePluginSummaries() {
     queryKey: pluginKeys.list,
     queryFn: pluginsApi.list,
     staleTime: 30_000,
+  });
+}
+
+/** 插件协议快照：当前这次构建的清单版本、钩子、内置面板与各项上限。 */
+export function usePluginProtocol() {
+  return useQuery({
+    queryKey: pluginKeys.protocol,
+    queryFn: pluginsApi.protocol,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }
 

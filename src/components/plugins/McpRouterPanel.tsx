@@ -309,10 +309,17 @@ export function McpRouterPanel() {
                     />
                   </PluginField>
                   <PluginField
-                    label={t("pluginCenter.router.namespacePlaceholder")}
+                    label={
+                      route.alias
+                        ? t("pluginCenter.router.namespaceWithAliasLabel")
+                        : t("pluginCenter.router.namespacePlaceholder")
+                    }
                   >
                     <Input
                       value={route.namespace ?? ""}
+                      placeholder={t(
+                        "pluginCenter.router.namespaceInputPlaceholder",
+                      )}
                       disabled={Boolean(route.alias)}
                       onChange={(event) =>
                         patchRoute(index, {
