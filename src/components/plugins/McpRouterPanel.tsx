@@ -26,6 +26,7 @@ import {
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { pluginPageClass } from "./pluginPage";
+import { McpRouterGuide } from "./pluginGuides";
 
 function blankRoute(serverId: string): McpRoute {
   return {
@@ -158,10 +159,13 @@ export function McpRouterPanel() {
 
   return (
     <div className={cn(pluginPageClass, "space-y-5")}>
-      <p className="text-body text-fg-2">{t("pluginCenter.router.intro")}</p>
+      <p className="text-caption text-fg-3">{t("pluginCenter.router.intro")}</p>
 
-      <section className="divide-y divide-border overflow-hidden rounded-panel border border-border">
-        <div className="flex items-start justify-between gap-4 bg-surface px-4 py-3">
+      <section
+        aria-label={t("pluginCenter.router.enabled")}
+        className="divide-y divide-border overflow-hidden rounded-panel border border-border"
+      >
+        <div className="flex items-start justify-between gap-4 bg-surface px-4 py-2.5">
           <div className="min-w-0 space-y-0.5">
             <p className="text-strong text-fg-1">
               {t("pluginCenter.router.enabled")}
@@ -176,7 +180,7 @@ export function McpRouterPanel() {
             onCheckedChange={(enabled) => patch({ enabled })}
           />
         </div>
-        <div className="flex items-start justify-between gap-4 bg-surface px-4 py-3">
+        <div className="flex items-start justify-between gap-4 bg-surface px-4 py-2.5">
           <div className="min-w-0 space-y-0.5">
             <p className="text-strong text-fg-1">
               {t("pluginCenter.router.separator")}
@@ -227,54 +231,78 @@ export function McpRouterPanel() {
             {draft.routes.map((route, index) => (
               <li
                 key={`${route.serverId}-${index}`}
-                className="space-y-2.5 rounded-panel border border-border bg-surface px-3 py-3"
+                className="space-y-3 rounded-panel border border-border bg-surface px-3 py-3"
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value={route.serverId}
-                    onValueChange={(serverId) =>
-                      patchRoute(index, { serverId })
-                    }
-                  >
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue
-                        placeholder={t("pluginCenter.router.serverPlaceholder")}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {servers.map((entry) => (
-                        <SelectItem key={entry.serverId} value={entry.serverId}>
-                          {entry.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {/* 每个输入上面带一个小标题，不再靠占位字兼顾说明与提示：
+                    占位字会写成长句然后被输入框裁掉。 */}
+                <div className="grid grid-cols-[minmax(140px,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_76px_auto_auto] items-end gap-2">
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="text-badge text-fg-3">
+                      {t("pluginCenter.router.serverLabel")}
+                    </span>
+                    <Select
+                      value={route.serverId}
+                      onValueChange={(serverId) =>
+                        patchRoute(index, { serverId })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue
+                          placeholder={t(
+                            "pluginCenter.router.serverPlaceholder",
+                          )}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {servers.map((entry) => (
+                          <SelectItem
+                            key={entry.serverId}
+                            value={entry.serverId}
+                          >
+                            {entry.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </label>
 
-                  <Input
-                    className="w-[160px]"
-                    value={route.alias ?? ""}
-                    placeholder={t("pluginCenter.router.aliasPlaceholder")}
-                    onChange={(event) =>
-                      patchRoute(index, {
-                        alias: event.target.value || null,
-                      })
-                    }
-                  />
-                  <Input
-                    className="w-[160px]"
-                    value={route.namespace ?? ""}
-                    placeholder={t("pluginCenter.router.namespacePlaceholder")}
-                    disabled={Boolean(route.alias)}
-                    onChange={(event) =>
-                      patchRoute(index, {
-                        namespace: event.target.value || null,
-                      })
-                    }
-                  />
-                  <label className="flex items-center gap-1.5 text-caption text-fg-2">
-                    {t("pluginCenter.router.priority")}
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="text-badge text-fg-3">
+                      {t("pluginCenter.router.aliasLabel")}
+                    </span>
                     <Input
-                      className="w-16 text-center"
+                      value={route.alias ?? ""}
+                      placeholder={t("pluginCenter.router.aliasExample")}
+                      onChange={(event) =>
+                        patchRoute(index, {
+                          alias: event.target.value || null,
+                        })
+                      }
+                    />
+                  </label>
+
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="text-badge text-fg-3">
+                      {t("pluginCenter.router.namespaceLabel")}
+                    </span>
+                    <Input
+                      value={route.namespace ?? ""}
+                      placeholder={t("pluginCenter.router.namespaceExample")}
+                      disabled={Boolean(route.alias)}
+                      onChange={(event) =>
+                        patchRoute(index, {
+                          namespace: event.target.value || null,
+                        })
+                      }
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1">
+                    <span className="text-badge text-fg-3">
+                      {t("pluginCenter.router.priority")}
+                    </span>
+                    <Input
+                      className="text-center tabular-nums"
                       type="number"
                       value={route.priority}
                       onChange={(event) =>
@@ -284,17 +312,25 @@ export function McpRouterPanel() {
                       }
                     />
                   </label>
-                  <Switch
-                    size="sm"
-                    checked={route.enabled}
-                    aria-label={serverName(route.serverId)}
-                    onCheckedChange={(enabled) =>
-                      patchRoute(index, { enabled })
-                    }
-                  />
+
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-badge text-fg-3">
+                      {t("pluginCenter.router.enableLabel")}
+                    </span>
+                    <Switch
+                      size="sm"
+                      checked={route.enabled}
+                      aria-label={serverName(route.serverId)}
+                      onCheckedChange={(enabled) =>
+                        patchRoute(index, { enabled })
+                      }
+                    />
+                  </div>
+
                   <Button
                     variant="ghost"
                     size="icon-compact"
+                    className="mb-1"
                     aria-label={t("pluginCenter.router.removeRoute")}
                     onClick={() =>
                       patch({
@@ -308,7 +344,7 @@ export function McpRouterPanel() {
                   </Button>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-2.5">
                   <span className="text-caption text-fg-3">
                     {t("pluginCenter.router.apps")}
                   </span>
@@ -344,6 +380,7 @@ export function McpRouterPanel() {
                   className="text-caption"
                   value={route.tags.join(", ")}
                   placeholder={t("pluginCenter.router.tagsPlaceholder")}
+                  aria-label={t("pluginCenter.router.tagsPlaceholder")}
                   onChange={(event) =>
                     patchRoute(index, {
                       tags: event.target.value
@@ -359,7 +396,9 @@ export function McpRouterPanel() {
         )}
       </section>
 
-      <div className="flex justify-end">
+      <McpRouterGuide />
+
+      <div className="flex items-center justify-end border-t border-border pt-4">
         <Button onClick={() => void save()} disabled={saving}>
           {saving
             ? t("pluginCenter.saving")

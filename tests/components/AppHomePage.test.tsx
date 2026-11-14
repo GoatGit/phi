@@ -36,4 +36,28 @@ describe("AppHomePage", () => {
     const { container } = render(<AppHomePage tiles={nine} />);
     expect(container.querySelectorAll("button")).toHaveLength(9);
   });
+
+  // 主宫格是这一页唯一的视觉落点：要单独排在网格之前，并带上那句说明。
+  it("lifts the primary tile out of the grid and shows its hint", () => {
+    const withPrimary: AppHomeTile[] = [
+      {
+        key: "terminal",
+        label: "打开终端",
+        icon: Home,
+        hint: "在托管终端里新开一个会话",
+        primary: true,
+        onSelect: vi.fn(),
+      },
+      ...tiles,
+    ];
+    const { container } = render(<AppHomePage tiles={withPrimary} />);
+
+    expect(screen.getByText("在托管终端里新开一个会话")).toBeInTheDocument();
+
+    const primary = screen.getByRole("button", { name: /打开终端/ });
+    const grid = container.querySelector("ul")!;
+    // 主宫格不能出现在网格里，否则又变回「等大格子」
+    expect(grid.contains(primary)).toBe(false);
+    expect(container.querySelectorAll("button")).toHaveLength(3);
+  });
 });

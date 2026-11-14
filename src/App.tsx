@@ -1583,12 +1583,14 @@ function App() {
 
     const tiles: AppHomeTile[] = [];
 
-    // 首选终端 → 终端打开：动作卡，永远放第一
+    // 首选终端 → 终端打开：动作卡，永远放第一，也是这一页唯一的主宫格
     if (terminals.supported) {
       tiles.push({
         key: "terminal",
         label: t("provider.openTerminal"),
         icon: SquareTerminal,
+        hint: t("appPage.tiles.terminal"),
+        primary: true,
         onSelect: () => terminals.newTerminal(),
       });
     }
@@ -1599,6 +1601,7 @@ function App() {
         key: "install",
         label: t("skills.install"),
         icon: Download,
+        hint: t("appPage.tiles.install"),
         onSelect: () => openSettings("apps"),
       });
     } else if (toolName && appUpdateAvailable) {
@@ -1606,6 +1609,7 @@ function App() {
         key: "update",
         label: t("skills.update"),
         icon: RefreshCw,
+        hint: t("appPage.tiles.update"),
         onSelect: () => openSettings("apps"),
       });
     }
@@ -1614,6 +1618,7 @@ function App() {
       key: "routing",
       label: t("gateway.routing"),
       icon: Route,
+      hint: t("appPage.tiles.routing"),
       onSelect: () => {
         setDrillInReturn(currentViewRef.current);
         openPage("routingOverview");
@@ -1734,6 +1739,8 @@ function App() {
         key: "install",
         label: t("skills.install"),
         icon: Download,
+        hint: t("appPage.tiles.install"),
+        primary: true,
         onSelect: () => openSettings("apps"),
       });
     } else if (toolName && appUpdateAvailable) {
@@ -1741,6 +1748,8 @@ function App() {
         key: "update",
         label: t("skills.update"),
         icon: RefreshCw,
+        hint: t("appPage.tiles.update"),
+        primary: true,
         onSelect: () => openSettings("apps"),
       });
     }
@@ -1748,6 +1757,9 @@ function App() {
       key: "routing",
       label: t("gateway.routing"),
       icon: Route,
+      hint: t("appPage.tiles.routing"),
+      // 路由类应用没有终端可开：路由就是它们唯一的主宫格
+      primary: tiles.length === 0,
       onSelect: () => openLocalAppRouting(localApp),
     });
     return tiles;

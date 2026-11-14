@@ -4639,7 +4639,23 @@
     "memory": "Memory",
     "webUi": "Web UI",
     "viewUsage": "View usage for this app",
-    "routeOnlyHint": "This app connects only through route groups. Open Routing to choose the group it uses."
+    "routeOnlyHint": "This app connects only through route groups. Open Routing to choose the group it uses.",
+    "tilesLabel": "Shortcuts for this app",
+    "tiles": {
+      "terminal": "Start a session in the managed terminal",
+      "install": "Install it on the Apps page, then open it here",
+      "update": "A newer version is available",
+      "routing": "See where this app routes its models",
+      "usage": "Usage and cost for this app",
+      "sessions": "Browse past sessions to debug and review",
+      "mcp": "Manage MCP servers in one place",
+      "skills": "Skills available to this app",
+      "prompts": "Your prompt library",
+      "config": "Open the config directory",
+      "workspace": "Workspace files and daily memory",
+      "openclawConfig": "OpenClaw runtime config",
+      "memory": "Long-term memory for this app"
+    }
   },
   "mode": {
     "tabsLabel": "Connection mode",
@@ -5696,7 +5712,7 @@
       },
       "lessons": {
         "title": "Lessons",
-        "description": "Turns failed sessions into a repository no-go list the agent reads when a session starts."
+        "description": "Remembers what already went wrong in this repository, so the next session starts with that warning."
       }
     },
     "lessons": {
@@ -5791,7 +5807,9 @@
         "creditCard": "Card number",
         "ipAddress": "IP address",
         "custom": "Custom"
-      }
+      },
+      "scope": "Scope",
+      "unsaved": "Unsaved changes — the trial still uses the last saved config"
     },
     "router": {
       "intro": "One place for how each MCP server is named and who can see it. With no routes configured, every server is passed through under its own name.",
@@ -5822,7 +5840,63 @@
       "applied": "Saved and re-applied to the clients",
       "applyFailed": "Config saved, but re-applying failed: {{message}}",
       "saveFailed": "Could not save: {{message}}",
-      "loadFailed": "Could not read the MCP routing config"
+      "loadFailed": "Could not read the MCP routing config",
+      "serverLabel": "Server",
+      "aliasLabel": "Alias",
+      "aliasExample": "Leave empty to use the namespace",
+      "namespaceLabel": "Namespace",
+      "namespaceExample": "Only used without an alias",
+      "enableLabel": "On"
+    },
+    "guide": {
+      "what": "Purpose",
+      "steps": "How to use",
+      "notes": "Notes",
+      "title": "What this plugin does"
+    },
+    "lessonsGuide": {
+      "reportCard": {
+        "what": "Shows which model fails less often on your own repositories on this machine. It is not a benchmark: the numbers come from real tool results in your sessions.",
+        "step1": "Pick a window (7 / 30 / 90 days) and read the totals and the distribution.",
+        "step2": "Sort by failure rate or cost per task to find the one or two models that lag.",
+        "step3": "Go back to your provider settings, replace the lagging ones, and compare again next week.",
+        "notes": "Only sessions recorded on this machine count. Below five tasks the page shows the sample size instead of a ratio. phi does not run your acceptance commands yet, so this measures reliability, not capability."
+      },
+      "sessionBaton": {
+        "what": "Keeps a task going when a session dies mid-run, instead of starting over.",
+        "step1": "Check the plugin is enabled and set its triggers (quota, context overflow, process exit).",
+        "step2": "Open a session and let it run in the managed terminal.",
+        "step3": "After an interruption, come back here to see what was carried over.",
+        "notes": "Only sessions phi manages can be told apart between normal exit and crash."
+      },
+      "privacy": {
+        "what": "Replaces credentials and personal data on this machine before a request ever leaves it.",
+        "step1": "Decide the scope: local error summaries only, or upstream request bodies too.",
+        "step2": "Choose what to catch in the detection rules and what text to put in its place.",
+        "step3": "Save, then paste a real sample into the trial box to confirm it works.",
+        "notes": "Rewriting request bodies changes what the model receives, so it is off by default."
+      },
+      "mcpRouter": {
+        "what": "One MCP server often has a different name in every client. This gives it a single outward name and decides who can see it.",
+        "step1": "Turn the routing centre on and confirm the namespace separator.",
+        "step2": "Add a route, pick the server, fill an alias or namespace, tick the visible clients.",
+        "step3": "Save and apply, then check the projected name of each client.",
+        "notes": "Without routes every server passes through under its own name."
+      },
+      "lessons": {
+        "what": "Records what already went wrong in a repository so the next session starts with that warning.",
+        "step1": "Pick a repository and scan its sessions.",
+        "step2": "Review the failures and dismiss stale ones with a reason.",
+        "step3": "Turn on writing into AGENTS.md when you want it persisted.",
+        "notes": "Built only from local tool errors and exit codes; no model is called."
+      },
+      "taskBoard": {
+        "what": "Puts tasks from every repository on one board, so you can see what is waiting and what is stuck.",
+        "step1": "Pick a workspace; the board lists tasks by status.",
+        "step2": "Drag a card to change status, or open it for details.",
+        "step3": "Pin the board to the sidebar if you want it always one click away.",
+        "notes": "The board only changes status, never code."
+      }
     }
   },
   "reportCard": {
@@ -5860,6 +5934,16 @@
       "syncing": "Scanning sessions…",
       "syncedRecently": "Synced just now",
       "synced": "Parsed {{count}} changed sessions this round"
+    },
+    "chart": {
+      "title": "Reliability spread",
+      "aria": "{{model}}: failure {{failure}}, interruptions {{interruption}}",
+      "scale": "Bar length is scaled to the window maximum of {{max}}; colour shows how high the failure rate is"
+    },
+    "legend": {
+      "calm": "Steady",
+      "watch": "Watch",
+      "bad": "High"
     }
   },
   "tasks": {

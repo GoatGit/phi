@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { LessonsPanel } from "./LessonsPanel";
 import { McpRouterPanel } from "./McpRouterPanel";
 import { PluginDetailPage } from "./PluginDetailPage";
+import { PluginGlyph } from "./PluginGlyph";
 import { pluginPageClass } from "./pluginPage";
 import { PrivacyPanel } from "./PrivacyPanel";
 
@@ -201,7 +202,7 @@ function PluginHomePage({
         </Notice>
       )}
 
-      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {entries.map((entry) => (
           <li key={entry.id}>
             <PluginCard
@@ -233,7 +234,6 @@ function PluginCard({
   onOpen: () => void;
 }) {
   const { t } = useTranslation();
-  const Icon = entry.icon;
   // 只有「停用」值得单独说一句：其余状态是默认值，写在每张卡片上只是噪音。
   const disabled = entry.status === "disabled";
 
@@ -241,12 +241,11 @@ function PluginCard({
     <button
       type="button"
       onClick={onOpen}
+      aria-label={entry.title}
       className="group flex h-full w-full flex-col gap-2.5 rounded-panel border border-border bg-surface p-4 text-start transition-[border-color,box-shadow] duration-150 hover:border-border-strong hover:shadow-v7-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-subtle text-fg-2 ring-1 ring-border transition-colors group-hover:text-fg-1">
-          <Icon className="h-4 w-4" />
-        </span>
+        <PluginGlyph pluginId={entry.id} />
         <span className="min-w-0 flex-1 truncate text-strong text-fg-1">
           {entry.title}
         </span>
@@ -255,6 +254,11 @@ function PluginCard({
             className="h-3 w-3 shrink-0 text-fg-3"
             aria-label={t("pluginCenter.home.pinned")}
           />
+        )}
+        {disabled && (
+          <span className="shrink-0 rounded-full bg-subtle px-1.5 py-px text-badge text-fg-3">
+            {t("pluginCenter.home.disabled")}
+          </span>
         )}
         <ArrowUpRight
           aria-hidden="true"
@@ -268,11 +272,6 @@ function PluginCard({
         >
           {entry.description}
         </p>
-      )}
-      {disabled && (
-        <span className="mt-auto pt-0.5 text-caption text-fg-3">
-          {t("pluginCenter.home.disabled")}
-        </span>
       )}
     </button>
   );
@@ -293,7 +292,7 @@ function AddPluginSlot({
   return (
     <div className="flex h-full flex-col gap-2 rounded-panel border border-dashed border-border p-4">
       <span className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-fg-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-subtle text-fg-2">
           <Plus className="h-4 w-4" />
         </span>
         <span className="text-strong text-fg-2">

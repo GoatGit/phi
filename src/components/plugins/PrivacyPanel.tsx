@@ -26,7 +26,8 @@ import {
 } from "@/lib/api/plugins";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
-import { pluginPageClass } from "./pluginPage";
+import { formPageClass } from "./pluginPage";
+import { PrivacyGuide } from "./pluginGuides";
 
 /** 检测器 → 文案键，顺序与后端 `DetectorKind` 一致。 */
 const DETECTOR_LABEL: Record<DetectorKind, string> = {
@@ -96,6 +97,11 @@ export function PrivacyPanel() {
   }, [load]);
 
   const detectors = useMemo(() => data?.detectors ?? [], [data]);
+
+  // 改动未保存时在保存栏里说一句：试跑读的是已保存的配置，不提醒就会以为规则没生效。
+  const dirty =
+    !!data && !!draft && JSON.stringify(data.config) !== JSON.stringify(draft);
+  const dirtyHint = dirty ? t("pluginCenter.privacy.unsaved") : "";
 
   const patch = useCallback((changes: Partial<PrivacyConfig>) => {
     setDraft((current) => (current ? { ...current, ...changes } : current));
@@ -167,7 +173,7 @@ export function PrivacyPanel() {
 
   if (loading) {
     return (
-      <div className={cn(pluginPageClass, "text-body text-fg-3")}>
+      <div className={cn(formPageClass, "text-body text-fg-3")}>
         {t("pluginCenter.loading")}
       </div>
     );
@@ -175,7 +181,7 @@ export function PrivacyPanel() {
 
   if (error || !draft) {
     return (
-      <div className={cn(pluginPageClass, "space-y-4")}>
+      <div className={cn(formPageClass, "space-y-4")}>
         <Notice
           tone="danger"
           title={t("pluginCenter.privacy.loadFailed")}
@@ -192,10 +198,15 @@ export function PrivacyPanel() {
   }
 
   return (
-    <div className={cn(pluginPageClass, "space-y-5")}>
-      <p className="text-body text-fg-2">{t("pluginCenter.privacy.intro")}</p>
+    <div className={cn(formPageClass, "space-y-5")}>
+      <p className="text-caption text-fg-3">
+        {t("pluginCenter.privacy.intro")}
+      </p>
 
-      <section className="divide-y divide-border overflow-hidden rounded-panel border border-border">
+      <section
+        aria-label={t("pluginCenter.privacy.scope")}
+        className="divide-y divide-border overflow-hidden rounded-panel border border-border"
+      >
         <ToggleRow
           title={t("pluginCenter.privacy.enabled")}
           hint={t("pluginCenter.privacy.enabledHint")}
@@ -238,74 +249,92 @@ export function PrivacyPanel() {
             {draft.rules.map((rule, index) => (
               <li
                 key={`${rule.detector}-${index}`}
-                className="rounded-panel border border-border bg-surface px-3 py-2.5"
+                className="space-y-2.5 rounded-panel border border-border bg-surface px-3 py-2.5"
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value={rule.detector}
-                    onValueChange={(value) => {
-                      const detector = value as DetectorKind;
-                      patchRule(index, {
-                        detector,
-                        // 切到自定义时要给一个可编辑的正则框；切回内置时清掉，
-                        // 否则后端会因为「非 custom 带了 customPattern」拒绝保存。
-                        customPattern: detector === "custom" ? "" : null,
-                      });
-                    }}
-                  >
-                    <SelectTrigger className="w-[168px]">
-                      <SelectValue
-                        placeholder={t("pluginCenter.privacy.ruleDetector")}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {detectors.map((detector) => (
-                        <SelectItem key={detector.id} value={detector.id}>
-                          {t(
-                            `pluginCenter.privacy.detectors.${DETECTOR_LABEL[detector.id]}`,
-                          )}
-                          {detector.builtin ? "" : " (regex)"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {/* 三个控件各自带一个小标题：空值时的下拉框只显示占位词，
+                    没有标题的话看起来就像没加载出来。 */}
+                <div className="grid grid-cols-[minmax(0,1fr)_112px_148px_auto] items-end gap-2">
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="text-badge text-fg-3">
+                      {t("pluginCenter.privacy.ruleDetector")}
+                    </span>
+                    <Select
+                      value={rule.detector}
+                      onValueChange={(value) => {
+                        const detector = value as DetectorKind;
+                        patchRule(index, {
+                          detector,
+                          // 切到自定义时要给一个可编辑的正则框；切回内置时清掉，
+                          // 否则后端会因为「非 custom 带了 customPattern」拒绝保存。
+                          customPattern: detector === "custom" ? "" : null,
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue
+                          placeholder={t("pluginCenter.privacy.ruleDetector")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {detectors.map((detector) => (
+                          <SelectItem key={detector.id} value={detector.id}>
+                            {t(
+                              `pluginCenter.privacy.detectors.${DETECTOR_LABEL[detector.id]}`,
+                            )}
+                            {detector.builtin ? "" : " (regex)"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </label>
 
-                  <Select
-                    value={rule.action}
-                    onValueChange={(value) =>
-                      patchRule(index, { action: value as RedactionAction })
-                    }
-                  >
-                    <SelectTrigger className="w-[112px]">
-                      <SelectValue
-                        placeholder={t("pluginCenter.privacy.ruleAction")}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ACTIONS.map((action) => (
-                        <SelectItem key={action} value={action}>
-                          {action === "mask"
-                            ? t("pluginCenter.privacy.actionMask")
-                            : t("pluginCenter.privacy.actionRemove")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-badge text-fg-3">
+                      {t("pluginCenter.privacy.ruleAction")}
+                    </span>
+                    <Select
+                      value={rule.action}
+                      onValueChange={(value) =>
+                        patchRule(index, { action: value as RedactionAction })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue
+                          placeholder={t("pluginCenter.privacy.ruleAction")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ACTIONS.map((action) => (
+                          <SelectItem key={action} value={action}>
+                            {action === "mask"
+                              ? t("pluginCenter.privacy.actionMask")
+                              : t("pluginCenter.privacy.actionRemove")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </label>
 
-                  <Input
-                    className="w-[200px]"
-                    value={rule.replacement ?? ""}
-                    placeholder={t("pluginCenter.privacy.replacement")}
-                    onChange={(event) =>
-                      patchRule(index, {
-                        replacement: event.target.value || null,
-                      })
-                    }
-                  />
+                  <label className="flex flex-col gap-1">
+                    <span className="text-badge text-fg-3">
+                      {t("pluginCenter.privacy.replacement")}
+                    </span>
+                    <Input
+                      value={rule.replacement ?? ""}
+                      placeholder="[已脱敏]"
+                      disabled={rule.action === "remove"}
+                      onChange={(event) =>
+                        patchRule(index, {
+                          replacement: event.target.value || null,
+                        })
+                      }
+                    />
+                  </label>
 
                   <Button
                     variant="ghost"
                     size="icon-compact"
+                    className="mb-1"
                     aria-label={t("pluginCenter.privacy.removeRule")}
                     onClick={() => removeRule(index)}
                   >
@@ -314,16 +343,15 @@ export function PrivacyPanel() {
                 </div>
 
                 {rule.detector === "custom" && (
-                  <div className="mt-2">
-                    <Input
-                      className="font-mono text-caption"
-                      value={rule.customPattern ?? ""}
-                      placeholder={t("pluginCenter.privacy.customPatternHint")}
-                      onChange={(event) =>
-                        patchRule(index, { customPattern: event.target.value })
-                      }
-                    />
-                  </div>
+                  <Input
+                    className="font-mono text-caption"
+                    value={rule.customPattern ?? ""}
+                    placeholder={t("pluginCenter.privacy.customPatternHint")}
+                    aria-label={t("pluginCenter.privacy.customPatternHint")}
+                    onChange={(event) =>
+                      patchRule(index, { customPattern: event.target.value })
+                    }
+                  />
                 )}
               </li>
             ))}
@@ -377,7 +405,10 @@ export function PrivacyPanel() {
         )}
       </section>
 
-      <div className="flex justify-end">
+      <PrivacyGuide />
+
+      <div className="flex items-center justify-end gap-3 border-t border-border pt-4">
+        <span className="me-auto text-caption text-fg-3">{dirtyHint}</span>
         <Button onClick={() => void save()} disabled={saving}>
           {saving ? t("pluginCenter.saving") : t("pluginCenter.save")}
         </Button>
@@ -402,7 +433,7 @@ function ToggleRow({
   onChange,
 }: ToggleRowProps) {
   return (
-    <div className="flex items-start justify-between gap-4 bg-surface px-4 py-3">
+    <div className="flex items-start justify-between gap-4 bg-surface px-4 py-2.5">
       <div className="min-w-0 space-y-0.5">
         <p className="text-strong text-fg-1">{title}</p>
         <p className="text-caption text-fg-3">{hint}</p>

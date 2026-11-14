@@ -193,4 +193,19 @@ describe("PluginCenterPage", () => {
       await screen.findByText("这个插件不存在，可能已经被卸载。"),
     ).toBeInTheDocument();
   });
+
+  // 五张卡片原来都是同一个灰图标：远处看成绩单和教训库一模一样。
+  it("gives every card its own identity glyph", async () => {
+    renderPage();
+
+    const titles = ["成绩单", "接棒", "隐私脱敏", "MCP 路由", "教训库"];
+    const tints = new Set<string>();
+    for (const title of titles) {
+      const card = (await screen.findByText(title)).closest("button")!;
+      const glyph = card.querySelector("span[aria-hidden='true']")!;
+      tints.add(glyph.className);
+    }
+    // 每张卡片的图标底色不同，才能在远处分清是谁
+    expect(tints.size).toBe(titles.length);
+  });
 });
