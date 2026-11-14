@@ -15,43 +15,30 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  Check,
+  ChevronDown,
+  FolderMinus,
   FolderPlus,
   GripVertical,
-  MoreHorizontal,
   Plus,
   RefreshCw,
+  Send,
   SquareKanban,
 } from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { HoverTip } from "@/components/ui/hover-tip";
+import { Input, fieldClass } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { orchestrationApi, type RelayView } from "@/lib/api/orchestration";
+import { PluginGuide } from "@/components/plugins/PluginGlyph";
 import { settingsApi } from "@/lib/api/settings";
 import {
   taskErrorMessage,
@@ -61,18 +48,27 @@ import {
   type TaskDetail,
   type TaskWorkspace,
 } from "@/lib/api/tasks";
+import {
+  superAgentApi,
+  type RouterPlanNode,
+  type RouterTaskRun,
+} from "@/lib/api/superAgent";
+import { useRouterStatus } from "@/hooks/useRouterStatus";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { AutoRouterPanel } from "./AutoRouterPanel";
+import { RunStateBadge } from "./RunStateBadge";
 import { TaskDetailSheet } from "./TaskDetailSheet";
 
 const ROOT_STORAGE_KEY = "phi.task.workspace";
-const PRIORITIES = ["high", "medium", "low"] as const;
 
 interface TaskBoardPageProps {
   /** 能开本地终端会话的应用（为空表示当前平台不支持） */
   terminalApps: string[];
   /** 在指定应用、指定目录开一个会话，返回会话 ID；失败时抛错 */
   onStartSession: (root: string, appId: string) => Promise<string>;
+  /** 作为插件中心的一个页签嵌入：不再画自己的页头，操作行放进内容顶部 */
+  embedded?: boolean;
 }
 
 function readStoredRoot() {
@@ -84,14 +80,16 @@ function readStoredRoot() {
 }
 
 /**
- * 侧栏一级入口「任务」：直接读仓库里的 Backlog.md 任务文件。
+ * 任务看板：直接读仓库里的 Backlog.md 任务文件。
  *
  * 阶段一只做三件事——看板、把任务变成终端会话、把会话与用量回挂到任务。
  * 任务本身永远是用户仓库里的 markdown，phi 不替它建第二份数据。
+ * 入口在插件中心（`plugin:task-board`），不再占用侧栏一级导航。
  */
 export function TaskBoardPage({
   terminalApps,
   onStartSession,
+  embedded = false,
 }: TaskBoardPageProps) {
   const { t } = useTranslation();
   const [workspaces, setWorkspaces] = useState<TaskWorkspace[]>([]);
@@ -100,15 +98,15 @@ export function TaskBoardPage({
   );
   const [board, setBoard] = useState<TaskBoard | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
-  /** 编排接力视图：跟着详情一起读，详情关掉就清 */
-  const [relay, setRelay] = useState<RelayView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
   const [initTarget, setInitTarget] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<TaskCard | null>(null);
   const [dragging, setDragging] = useState<TaskCard | null>(null);
+  /** 详情里那张卡的执行计划（规划节点，规则版调度多半为空） */
+  const [plan, setPlan] = useState<RouterPlanNode[]>([]);
+  const router = useRouterStatus(activeRoot);
 
   const active = workspaces.find((entry) => entry.root === activeRoot) ?? null;
 
@@ -153,7 +151,6 @@ export function TaskBoardPage({
   const selectWorkspace = async (root: string) => {
     setActiveRoot(root);
     setDetail(null);
-    setRelay(null);
     try {
       localStorage.setItem(ROOT_STORAGE_KEY, root);
     } catch {
@@ -167,30 +164,13 @@ export function TaskBoardPage({
     }
   };
 
-  /**
-   * 接力面板是详情页的附加视图。读不到时只报错、返回 null，
-   * 不能让整个卡片打不开（工作区没登记、卡片 frontmatter 坏了都可能命中）。
-   */
-  const readRelay = async (root: string, taskId: string) => {
-    try {
-      return await orchestrationApi.relay(root, taskId);
-    } catch (error) {
-      toast.error(taskErrorMessage(error, t));
-      return null;
-    }
-  };
-
+  /** 刷新看板；详情开着时一并重读，避免抽屉里显示旧状态。 */
   const reload = async (root: string | null = activeRoot) => {
     if (!root) return;
     try {
       await loadBoard(root);
       if (detail) {
-        const [fresh, view] = await Promise.all([
-          tasksApi.detail(root, detail.task.id),
-          readRelay(root, detail.task.id),
-        ]);
-        setDetail(fresh);
-        setRelay(view);
+        setDetail(await tasksApi.detail(root, detail.task.id));
       }
     } catch (error) {
       if (String(error) === "stale-fingerprint") {
@@ -238,7 +218,6 @@ export function TaskBoardPage({
       const next = list.find((entry) => entry.valid) ?? null;
       setBoard(null);
       setDetail(null);
-      setRelay(null);
       if (next) await selectWorkspace(next.root);
       else setActiveRoot(null);
     } catch (error) {
@@ -268,6 +247,19 @@ export function TaskBoardPage({
     }
   };
 
+  /** 快速新建：只收一个标题，状态走默认列、优先级走「中」，其余字段到详情里补。 */
+  const createTask = async (title: string) => {
+    if (!activeRoot) return false;
+    try {
+      await tasksApi.create(activeRoot, { title });
+      await loadBoard(activeRoot);
+      return true;
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      return false;
+    }
+  };
+
   const handleArchive = (task: TaskCard) => setArchiveTarget(task);
 
   const confirmArchive = async () => {
@@ -278,7 +270,6 @@ export function TaskBoardPage({
     try {
       await tasksApi.archive(activeRoot, task.id, task.fingerprint);
       setDetail((current) => (current?.task.id === task.id ? null : current));
-      setRelay(null);
       await loadBoard(activeRoot);
       toast.success(t("tasks.archived"));
     } catch (error) {
@@ -412,6 +403,10 @@ export function TaskBoardPage({
         renderEmptyState()
       );
     }
+    // 快速新建落在默认列（To Do）；默认列不在看板上时退回第一列，入口不能消失
+    const quickAddStatus =
+      board.columns.find((column) => column.status === board.defaultStatus)
+        ?.status ?? board.columns[0]?.status;
     return (
       <DndContext
         sensors={sensors}
@@ -425,14 +420,26 @@ export function TaskBoardPage({
           handleDragEnd(event);
         }}
       >
-        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto scroll-stable p-4">
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 gap-3 overflow-x-auto scroll-stable",
+            embedded ? "py-1" : "p-4",
+          )}
+        >
           {board.columns.map((column) => (
             <BoardColumnView
               key={column.status}
               status={column.status}
               tasks={column.tasks}
+              runs={router.runsByTask}
               draggingId={dragging?.id ?? null}
               onOpen={(task) => void openDetail(task)}
+              // 快速新建固定在默认列的第一条
+              onCreate={
+                column.status === quickAddStatus
+                  ? (title) => createTask(title)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -446,145 +453,191 @@ export function TaskBoardPage({
   const openDetail = async (task: TaskCard) => {
     if (!activeRoot) return;
     try {
-      const [nextDetail, nextRelay] = await Promise.all([
-        tasksApi.detail(activeRoot, task.id),
-        readRelay(activeRoot, task.id),
-      ]);
-      setDetail(nextDetail);
-      setRelay(nextRelay);
+      setDetail(await tasksApi.detail(activeRoot, task.id));
+      // 计划与运行态一起带出来：抽屉开着时不该等下一次轮询才看到状态。
+      const nodes = await superAgentApi.plan(task.id).catch(() => []);
+      setPlan(nodes);
+      void router.refresh();
     } catch (error) {
       toast.error(taskErrorMessage(error, t));
     }
   };
 
-  /** 门判定会往卡片里回写结论，所以判完必须重读详情与看板。 */
-  const handleRunGate = async (gate: 2 | 3) => {
+  /** 自动调度的三个动作：只写运行态，不改仓库里的任务文件。 */
+  const runRouterAction = async (action: () => Promise<void>) => {
+    try {
+      await action();
+    } catch (error) {
+      toast.error(
+        t("tasks.router.actionFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    } finally {
+      await router.refresh();
+      if (activeRoot && detail) {
+        const taskId = detail.task.id;
+        setDetail(
+          await tasksApi.detail(activeRoot, taskId).catch(() => detail),
+        );
+      }
+    }
+  };
+
+  const handleAutoStart = () => {
     if (!activeRoot || !detail) return;
     const taskId = detail.task.id;
-    setBusy(true);
-    try {
-      const run = await orchestrationApi.runGate(activeRoot, taskId, gate);
-      const [fresh, view] = await Promise.all([
-        tasksApi.detail(activeRoot, taskId),
-        readRelay(activeRoot, taskId),
-      ]);
-      setDetail((current) => (current?.task.id === taskId ? fresh : current));
-      setRelay(view);
+    void runRouterAction(async () => {
+      await superAgentApi.start(activeRoot, taskId);
       await loadBoard(activeRoot);
-      const status = t(`tasks.relay.status.${run.status}`, {
-        defaultValue: run.status,
-      });
-      const message = t("tasks.relay.gateDone", { gate, status });
-      if (run.status === "pass") toast.success(message);
-      else toast.info(message);
-    } catch (error) {
-      toast.error(taskErrorMessage(error, t));
-    } finally {
-      setBusy(false);
-    }
+      toast.success(t("tasks.router.started"));
+    });
   };
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <AppPageHeader
-        variant="page"
-        icon={<SquareKanban className="size-[22px]" strokeWidth={1.5} />}
-        title={t("tasks.title")}
-        titleExtra={
-          board ? (
-            <span className="rounded-full bg-subtle px-2 py-0.5 text-caption text-fg-2">
-              {board.projectName}
-            </span>
-          ) : null
-        }
-        actions={
-          workspaces.length > 0 ? (
-            <>
-              <Select
-                value={activeRoot ?? undefined}
-                onValueChange={(root) => void selectWorkspace(root)}
+  const handleAutoPause = () => {
+    if (!activeRoot || !detail) return;
+    const taskId = detail.task.id;
+    void runRouterAction(() => superAgentApi.pause(activeRoot, taskId));
+  };
+
+  const handleAutoResume = () => {
+    if (!activeRoot || !detail) return;
+    const taskId = detail.task.id;
+    void runRouterAction(() => superAgentApi.resume(activeRoot, taskId));
+  };
+
+  // 页头那排操作：独立页放在页头，嵌进插件中心时放在内容顶部。
+  // 选仓库和管仓库是一件事，合成同一个下拉：仓库列表 + 添加 + 移出。
+  const headerActions =
+    workspaces.length > 0 ? (
+      <>
+        <AutoRouterPanel
+          status={router.status}
+          statuses={board?.statuses ?? []}
+          terminalApps={terminalApps}
+          error={router.error}
+          onSave={router.saveSettings}
+          onRunNow={router.runNow}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("tasks.workspace")}
+              className={cn(
+                fieldClass,
+                "flex h-8 w-[200px] items-center justify-between gap-2 text-start data-[state=open]:border-ring data-[state=open]:ring-[3px] data-[state=open]:ring-ring/20",
+              )}
+            >
+              <span className="truncate">
+                {active
+                  ? (active.projectName ?? active.name)
+                  : t("tasks.workspace")}
+              </span>
+              <ChevronDown
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 opacity-50"
+                strokeWidth={1.5}
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[220px]">
+            {workspaces.map((entry) => (
+              <DropdownMenuItem
+                key={entry.root}
+                disabled={!entry.valid}
+                onSelect={() => void selectWorkspace(entry.root)}
               >
-                <SelectTrigger
-                  className="w-[180px]"
-                  aria-label={t("tasks.workspace")}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {workspaces.map((entry) => (
-                    <SelectItem
-                      key={entry.root}
-                      value={entry.root}
-                      disabled={!entry.valid}
-                    >
-                      {entry.projectName ?? entry.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="ghost"
-                size="icon-compact"
-                aria-label={t("tasks.refresh")}
-                title={t("tasks.refresh")}
-                onClick={() => void reload()}
-              >
-                <RefreshCw
-                  data-icon
-                  className="h-3.5 w-3.5"
-                  strokeWidth={1.5}
+                <Check
+                  aria-hidden="true"
+                  strokeWidth={2}
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0",
+                    entry.root === activeRoot ? "opacity-100" : "opacity-0",
+                  )}
                 />
-              </Button>
-              <Button
-                variant="solid"
-                size="compact"
-                disabled={!board}
-                onClick={() => setCreateOpen(true)}
-              >
-                <Plus data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
-                {t("tasks.newTask")}
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-compact"
-                    aria-label={t("tasks.moreActions")}
-                  >
-                    <MoreHorizontal
-                      data-icon
-                      className="h-3.5 w-3.5"
-                      strokeWidth={1.5}
-                    />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => void handleAddWorkspace()}>
-                    {t("tasks.addWorkspace")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={!active}
-                    onSelect={() => active && setRemoveTarget(active.root)}
-                  >
-                    {t("tasks.removeWorkspace")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          ) : null
-        }
-      />
+                <span className="truncate">
+                  {entry.projectName ?? entry.name}
+                </span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void handleAddWorkspace()}>
+              <FolderPlus
+                aria-hidden="true"
+                className="h-3.5 w-3.5 shrink-0"
+                strokeWidth={1.5}
+              />
+              {t("tasks.addWorkspace")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!active}
+              onSelect={() => active && setRemoveTarget(active.root)}
+            >
+              <FolderMinus
+                aria-hidden="true"
+                className="h-3.5 w-3.5 shrink-0"
+                strokeWidth={1.5}
+              />
+              {t("tasks.removeWorkspace")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <HoverTip content={t("tasks.refresh")}>
+          <Button
+            variant="ghost"
+            size="icon-compact"
+            aria-label={t("tasks.refresh")}
+            onClick={() => void reload()}
+          >
+            <RefreshCw data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </Button>
+        </HoverTip>
+      </>
+    ) : null;
+
+  return (
+    <div
+      className={cn(
+        "flex min-h-0 flex-col",
+        embedded ? "w-full gap-3 px-6 pb-6" : "flex-1",
+      )}
+    >
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {headerActions}
+        </div>
+      ) : (
+        <AppPageHeader
+          variant="page"
+          icon={<SquareKanban className="size-[22px]" strokeWidth={1.5} />}
+          title={t("tasks.title")}
+          actions={headerActions}
+        />
+      )}
       {renderBody()}
+
+      <div className={embedded ? "shrink-0" : "shrink-0 px-4 pb-4"}>
+        <PluginGuide
+          pluginId="task-board"
+          what={t("tasks.about.what")}
+          steps={[1, 2, 3, 4, 5].map((step) => t(`tasks.about.step${step}`))}
+          notes={t("tasks.about.note")}
+        />
+      </div>
 
       <TaskDetailSheet
         detail={detail}
-        relay={relay}
         statuses={board?.statuses ?? []}
         terminalApps={terminalApps}
         busy={busy}
+        run={detail ? router.runsByTask.get(detail.task.id) : undefined}
+        plan={plan}
+        onAutoStart={handleAutoStart}
+        onAutoPause={handleAutoPause}
+        onAutoResume={handleAutoResume}
         onClose={() => {
           setDetail(null);
-          setRelay(null);
         }}
         onSetStatus={(status) => {
           if (detail) void handleSetStatus(detail.task, status);
@@ -596,26 +649,6 @@ export function TaskBoardPage({
           if (detail) void handleStartSession(detail.task, appId);
         }}
         onUnlink={(sessionId) => void handleUnlink(sessionId)}
-        onRunGate={(gate) => void handleRunGate(gate)}
-      />
-
-      <CreateTaskDialog
-        open={createOpen}
-        statuses={board?.statuses ?? []}
-        defaultStatus={board?.defaultStatus ?? "To Do"}
-        onClose={() => setCreateOpen(false)}
-        onSubmit={async (input) => {
-          if (!activeRoot || !board) return null;
-          const created = await tasksApi.create(activeRoot, input);
-          await loadBoard(activeRoot);
-          return created;
-        }}
-        onCreated={(created) => {
-          setCreateOpen(false);
-          setDetail(created);
-          // 新卡还没读接力视图，等下次打开详情再读
-          setRelay(null);
-        }}
       />
 
       <ConfirmDialog
@@ -657,13 +690,18 @@ export function TaskBoardPage({
 function BoardColumnView({
   status,
   tasks,
+  runs,
   draggingId,
   onOpen,
+  onCreate,
 }: {
   status: string;
   tasks: TaskCard[];
+  runs: Map<string, RouterTaskRun>;
   draggingId: string | null;
   onOpen: (task: TaskCard) => void;
+  /** 只在默认列传：快速新建入口固定在该列第一条 */
+  onCreate?: (title: string) => Promise<boolean>;
 }) {
   const { t } = useTranslation();
   const { setNodeRef, isOver } = useDroppable({ id: `column:${status}` });
@@ -686,6 +724,7 @@ function BoardColumnView({
         </span>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scroll-stable px-2 pb-2">
+        {onCreate ? <NewTaskComposer onCreate={onCreate} /> : null}
         {tasks.length === 0 ? (
           <p className="m-0 px-2 py-3 text-caption text-fg-3">
             {t("tasks.columnEmpty")}
@@ -695,6 +734,7 @@ function BoardColumnView({
             <TaskCardView
               key={task.id}
               task={task}
+              run={runs.get(task.id)}
               dragging={draggingId === task.id}
               onOpen={onOpen}
             />
@@ -707,10 +747,13 @@ function BoardColumnView({
 
 function TaskCardView({
   task,
+  run,
   dragging,
   onOpen,
 }: {
   task: TaskCard;
+  /** 这张卡的自动调度运行态；没有就是还没交给调度器 */
+  run: RouterTaskRun | undefined;
   dragging: boolean;
   onOpen: (task: TaskCard) => void;
 }) {
@@ -743,6 +786,7 @@ function TaskCardView({
           {task.title}
         </span>
         <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-fg-3">
+          <RunStateBadge run={run} />
           <span className="font-mono">{task.id}</span>
           {task.priority ? (
             <span
@@ -805,156 +849,74 @@ function CardPreview({ task }: { task: TaskCard }) {
   );
 }
 
-function CreateTaskDialog({
-  open,
-  statuses,
-  defaultStatus,
-  onClose,
-  onSubmit,
-  onCreated,
+/** 默认列顶部的快速新建：只有一个输入框，回车或点发送就落成一张卡。 */
+function NewTaskComposer({
+  onCreate,
 }: {
-  open: boolean;
-  statuses: string[];
-  defaultStatus: string;
-  onClose: () => void;
-  onSubmit: (input: {
-    title: string;
-    description: string;
-    status: string;
-    priority: string;
-    acceptance: string[];
-  }) => Promise<TaskDetail | null>;
-  onCreated: (detail: TaskDetail) => void;
+  onCreate: (title: string) => Promise<boolean>;
 }) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [status, setStatus] = useState(defaultStatus);
-  const [priority, setPriority] = useState("medium");
-  const [acceptance, setAcceptance] = useState("");
   const [pending, setPending] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      setTitle("");
-      setDescription("");
-      setStatus(defaultStatus);
-      setPriority("medium");
-      setAcceptance("");
-    }
-  }, [open, defaultStatus]);
-
   const submit = async () => {
-    if (!title.trim() || pending) return;
+    const value = title.trim();
+    if (!value || pending) return;
     setPending(true);
     try {
-      const created = await onSubmit({
-        title: title.trim(),
-        description,
-        status,
-        priority,
-        acceptance: acceptance
-          .split("\n")
-          .map((line) => line.replace(/^\s*[-*]\s*\[[ xX]\]\s*/, "").trim())
-          .filter(Boolean),
-      });
-      if (created) onCreated(created);
-    } catch (error) {
-      toast.error(taskErrorMessage(error, t));
+      if (await onCreate(value)) setTitle("");
     } finally {
       setPending(false);
     }
   };
 
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center gap-1.5 rounded-control border border-dashed border-border-strong px-2.5 py-2 text-caption text-fg-3 transition-colors hover:bg-surface hover:text-fg-1"
+      >
+        <Plus aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
+        {t("tasks.newTask")}
+      </button>
+    );
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="w-[520px] max-w-[92vw]">
-        <DialogHeader>
-          <DialogTitle>{t("tasks.create.title")}</DialogTitle>
-          <DialogDescription>{t("tasks.create.description")}</DialogDescription>
-        </DialogHeader>
-        <DialogBody className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="task-title">{t("tasks.create.titleLabel")}</Label>
-            <Input
-              id="task-title"
-              autoFocus
-              value={title}
-              placeholder={t("tasks.create.titlePlaceholder")}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="task-description">
-              {t("tasks.create.descriptionLabel")}
-            </Label>
-            <Textarea
-              id="task-description"
-              rows={4}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="task-status">{t("tasks.status")}</Label>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger id="task-status" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {statuses.map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {item}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="task-priority">{t("tasks.priority")}</Label>
-              <Select value={priority} onValueChange={setPriority}>
-                <SelectTrigger id="task-priority" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRIORITIES.map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {t(`tasks.priorityLevel.${item}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="task-acceptance">
-              {t("tasks.create.acceptanceLabel")}
-            </Label>
-            <Textarea
-              id="task-acceptance"
-              rows={3}
-              value={acceptance}
-              placeholder={t("tasks.create.acceptancePlaceholder")}
-              onChange={(event) => setAcceptance(event.target.value)}
-            />
-          </div>
-          <p className="m-0 text-caption text-fg-3">{t("tasks.create.hint")}</p>
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="ghost" size="compact" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            variant="solid"
-            size="compact"
-            disabled={!title.trim() || pending}
-            onClick={() => void submit()}
-          >
-            {t("tasks.create.submit")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <div className="flex items-center gap-1.5">
+      <Input
+        autoFocus
+        value={title}
+        aria-label={t("tasks.newTask")}
+        placeholder={t("tasks.newTaskPlaceholder")}
+        onChange={(event) => setTitle(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void submit();
+          } else if (event.key === "Escape") {
+            setTitle("");
+            setOpen(false);
+          }
+        }}
+        onBlur={() => {
+          // 空输入失焦就收起；已经写了字就不丢内容
+          if (!title.trim()) setOpen(false);
+        }}
+      />
+      <HoverTip content={t("tasks.newTaskSend")}>
+        <Button
+          variant="solid"
+          size="icon-compact"
+          aria-label={t("tasks.newTaskSend")}
+          disabled={!title.trim() || pending}
+          onClick={() => void submit()}
+        >
+          <Send data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+        </Button>
+      </HoverTip>
+    </div>
   );
 }

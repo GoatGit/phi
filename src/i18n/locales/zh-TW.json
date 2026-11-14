@@ -5691,7 +5691,15 @@
       "rules": "規則數",
       "sourceDir": "來自 {{dir}}",
       "previewRequest": "試跑請求改寫",
-      "previewSessionExit": "試跑接棒決策"
+      "previewSessionExit": "試跑接棒決策",
+      "about": {
+        "whatFallback": "這個外掛住在 phi 的外掛目錄裡，按自己的鉤子參與執行。",
+        "step1": "「啟用」決定它是否參與執行；停用後清單和設定都留著，隨時能再打開。",
+        "step2": "多個同類鉤子的外掛按「優先級」升冪排隊，數字小的先給出決策。",
+        "step3": "裝了請求改寫或接棒鉤子時，用「試跑」餵一段樣本，看它怎麼判；試跑不改真實請求，也不重新啟動會話。",
+        "note": "外掛檔案放在外掛目錄裡，改完腳本重新整理外掛中心就會重新載入。"
+      },
+      "tryRun": "試跑"
     },
     "cards": {
       "reportCard": {
@@ -5713,28 +5721,39 @@
       "lessons": {
         "title": "教訓庫",
         "description": "把踩過的坑記成倉庫的禁區清單，下次工作階段開始時自動帶上。"
+      },
+      "taskBoard": {
+        "title": "任務看板",
+        "description": "把倉庫裡的 Backlog.md 變成看板：拖曳改狀態、把任務開成終端機工作階段，用量回掛到任務。"
       }
     },
     "lessons": {
+      "about": {
+        "what": "教訓庫把本機會話裡失敗過的地方整理成倉庫級的清單：哪一步炸過、下次動哪個檔案之前要小心。全程不呼叫模型，按固定範本產生。",
+        "step1": "點「掃描全部會話」，phi 會把本機所有會話涉及的倉庫都過一遍。",
+        "step2": "在某個倉庫上打開「寫進 AGENTS.md」，下次這個倉庫的會話開頭就會讀到這些教訓。",
+        "step3": "「看要寫什麼」可以先看注入的內容和佔用字數，確認之後再打開開關。",
+        "step4": "不認同的教訓刪掉並寫清理由；刪掉的會在下方單獨列出，可以隨時還原。",
+        "note": "注入只在會話開頭讀一次，不逐輪追加；字數額度滿了以後，先保留證據更硬的那幾條。"
+      },
       "intro": "把失敗會話沉澱成倉庫級的禁區清單：哪一步炸過、動哪個檔案前要小心，都在這一頁。",
       "sourceHint": "來源是本機代管的會話紀錄——工具呼叫報錯、結束碼非 0。全程不呼叫模型，依固定範本產生。",
-      "noWorkspaceTitle": "還沒有可用的倉庫",
-      "noWorkspaceBody": "教訓貼著倉庫長。先到「任務」頁登記一個倉庫，它的禁區清單就會出現在這裡。",
-      "repo": "倉庫",
-      "repoPlaceholder": "選一個倉庫",
-      "scan": "掃描會話",
+      "scan": "掃描全部會話",
       "scanning": "掃描中…",
       "loadFailed": "教訓库讀取失敗",
       "scannedAt": "上次掃描 {{time}}",
       "neverScanned": "還沒掃描過",
+      "discovered": "已發現 {{count}} 個倉庫",
       "scanSummary": "掃過 {{sessions}} 個會話，{{failures}} 處失敗",
       "pending": "還有 {{count}} 個會話待掃",
+      "lessonCount": "{{count}} 條",
       "injectionTitle": "寫進 AGENTS.md",
-      "injectionHint": "開啟後，phi 會把禁區清單寫進倉庫的 {{file}}，只維護自己那兩塊註解標記之間的內容，其他位置一字不動。",
       "injectionMeta": "{{used}}/{{budget}} 字 · lessons v{{version}}",
       "injectionStale": "檔案裡的區塊與目前教訓不一致，再掃描一次即可對齊",
       "preview": "看要寫什麼",
-      "empty": "還沒有教訓。跑幾個任務、真的失敗過，才會長出第一條。",
+      "emptyHint": "還沒掃過。點「掃描全部會話」，phi 會把本機所有會話涉及的倉庫都過一遍。",
+      "emptyScanned": "掃過的倉庫裡還沒有一條教訓。跑幾個任務、真的失敗過，才會長出第一條。",
+      "allDismissed": "這個倉庫的教訓都被刪掉了。",
       "hits": "命中 {{count}} 次",
       "dismiss": "刪掉這條",
       "dismissedTitle": "已刪掉的教訓",
@@ -5749,7 +5768,7 @@
       "cancel": "取消",
       "errors": {
         "invalidDirectory": "倉庫路徑無效",
-        "notRegistered": "這個倉庫還沒在任務頁登記",
+        "notRegistered": "這個倉庫還沒在任務看板裡登記",
         "reasonRequired": "刪除理由不能為空",
         "notFound": "這條教訓已經不在了"
       }
@@ -5770,6 +5789,14 @@
       "toggleFailed": "切換外掛失敗：{{message}}"
     },
     "privacy": {
+      "about": {
+        "what": "隱私脫敏在本機攔下憑證和個人資訊，命中的內容會被替換成佔位文字或整段刪掉。請求體預設不改寫，因為改 prompt 會改變模型看到的東西。",
+        "step1": "想讓它生效，先打開「啟用脫敏」。",
+        "step2": "在「偵測規則」裡選偵測器，再決定是替換還是刪除；替換成什麼由「佔位文字」決定。",
+        "step3": "要攔 prompt 裡的內容，才打開「改寫發往上游的請求體」；只關心本機診斷材料就保持關閉。",
+        "step4": "儲存之後去「試跑」貼一段真實文字，確認命中的位置和替換結果。",
+        "note": "試跑讀的是已儲存的設定。脫敏只作用於之後送出的請求，已經送出的內容收不回來。"
+      },
       "intro": "把憑證和容易被誤用的個人資訊在本機替換掉。請求體預設不改寫——改 prompt 是行為變化，需要你自己打開。",
       "enabled": "啟用脫敏",
       "enabledHint": "關閉後請求體與錯誤摘要都不處理",
@@ -5807,11 +5834,17 @@
         "creditCard": "信用卡號",
         "ipAddress": "IP 位址",
         "custom": "自訂"
-      },
-      "scope": "脫敏範圍",
-      "unsaved": "有改動還沒儲存，試跑用的仍是上次儲存的設定"
+      }
     },
     "router": {
+      "about": {
+        "what": "MCP 路由決定每個 MCP 伺服器寫進客戶端設定時叫什麼名字、對哪些客戶端可見。它不改伺服器本身，只改名字和可見性。",
+        "step1": "「啟用路由中心」關掉時，所有伺服器按原名直通，下面配好的規則保留但不生效。",
+        "step2": "點「新增路由」選一個伺服器。想換名字就填別名；想加統一前綴就填命名空間。",
+        "step3": "在「可見客戶端」裡勾選放行的客戶端；一個都不勾表示全部客戶端都能用。",
+        "step4": "點「儲存並套用」寫回各客戶端設定，再到「投影預覽」核對實際生效的名字。",
+        "note": "路由只能收窄不能放寬：伺服器本身沒勾某個客戶端，這裡勾了也不會出現。預覽讀的也是已儲存的設定。"
+      },
       "intro": "同一個 MCP 伺服器在不同客戶端裡的名字與可見性在這裡統一。沒有設定路由時，所有伺服器按原名直通。",
       "enabled": "啟用路由中心",
       "enabledHint": "關閉時所有伺服器按原名直通",
@@ -5822,12 +5855,15 @@
       "addRoute": "新增路由",
       "removeRoute": "刪除這條路由",
       "serverPlaceholder": "選擇伺服器",
+      "server": "伺服器",
+      "alias": "別名",
       "aliasPlaceholder": "別名（留空則用命名空間）",
       "namespacePlaceholder": "命名空間",
       "priority": "撞名優先級",
       "apps": "可見客戶端",
       "appsHint": "都不勾 = 全部客戶端",
       "tagsPlaceholder": "標籤，用逗號分隔",
+      "tags": "標籤",
       "catalog": "投影預覽",
       "catalogEmpty": "還沒有 MCP 伺服器",
       "catalogAll": "全部客戶端",
@@ -5840,13 +5876,7 @@
       "applied": "已儲存，並重新投影到客戶端",
       "applyFailed": "設定已儲存，但重新投影失敗：{{message}}",
       "saveFailed": "儲存失敗：{{message}}",
-      "loadFailed": "MCP 路由設定讀取失敗",
-      "serverLabel": "伺服器",
-      "aliasLabel": "別名",
-      "aliasExample": "留空則用命名空間",
-      "namespaceLabel": "命名空間",
-      "namespaceExample": "僅在沒有別名時生效",
-      "enableLabel": "啟用"
+      "loadFailed": "MCP 路由設定讀取失敗"
     },
     "guide": {
       "what": "作用",
@@ -5897,7 +5927,8 @@
         "step3": "需要在側欄隨時進入時，把看板釘到側欄。",
         "notes": "看板只改狀態，不改程式碼。"
       }
-    }
+    },
+    "unsaved": "有未儲存的變更"
   },
   "reportCard": {
     "title": "成績單",
@@ -5938,58 +5969,45 @@
     "chart": {
       "title": "可靠性分布",
       "aria": "{{model}}：失敗率 {{failure}}，中斷率 {{interruption}}",
-      "scale": "條長按本視窗最大 {{max}} 歸一，顏色深淺表示失敗率高低"
+      "scale": "條長按本視窗最大 {{max}} 歸一，顏色深淺表示失敗率高低",
+      "ok": "成功",
+      "failed": "失敗",
+      "interrupted": "中斷",
+      "calls": "呼叫",
+      "empty": "還沒有可畫的工具呼叫樣本，先看下面的表格。",
+      "tooFewSamples": "樣本不足",
+      "omitted": "另有 {{count}} 個模型還沒有工具呼叫樣本，只在下面的表格裡列出。"
     },
     "legend": {
       "calm": "穩定",
       "watch": "需關注",
       "bad": "明顯偏高"
+    },
+    "about": {
+      "what": "成績單只看可靠性：工具呼叫失敗率、被中斷率、空交付率、單步耗時和單任務成本。資料來自你自己倉庫裡的會話，不是 benchmark 排名。",
+      "step1": "先選統計視窗：7 天看最近，30 天和 90 天看趨勢。",
+      "step2": "先看上面的彙總和圖找異常，再到表格裡追到具體數字。",
+      "step3": "樣本不足的格子只給樣本量、不給百分比——不到 5 個樣本，任何比率都不可信。",
+      "step4": "點「重新掃描」重新解析會話；平時打開頁面會自己同步。",
+      "note": "沒有驗收指令和返工資料，所以這裡只比「誰更少翻車」，不判「誰更管用」。資料都留在本機。"
     }
   },
   "tasks": {
-    "relay": {
-      "title": "編排接力",
-      "gate2": "門 2 · 實作成立",
-      "gate3": "門 3 · 複查成立",
-      "notRun": "未跑",
-      "runGate2": "跑門 2",
-      "runGate3": "跑門 3",
-      "runGate2Hint": "執行卡片裡的驗收指令，並核對改動有沒有越界",
-      "runGate3Hint": "核對複查意見裡的證據錨點能不能對上原始碼",
-      "noAccept": "卡片沒有 phi.accept，門 2 沒有可執行的驗收指令",
-      "noContract": "這張卡沒有 phi 契約：補上 phi 區塊（accept / touched / role）之後，門 2 與門 3 才有可判定的東西。",
-      "verdictAt": "最近判定",
-      "role": "接力角色",
-      "touched": "允許改動",
-      "forbidden": "禁止改動",
-      "changed": "目前改動",
-      "changedCount": "{{value}} 個檔案",
-      "claims": "證據錨點",
-      "claimCount": "{{value}} 條",
-      "budget": "預算",
-      "tokens": "{{value}} tokens",
-      "minutes": "{{value}} 分鐘",
-      "accept": "驗收",
-      "timeout": "逾時",
-      "exitCode": "結束碼 {{code}}（期望 {{expect}}）",
-      "latest": "最近一次判定：門 {{gate}}，耗時 {{ms}}ms",
-      "emptyHistory": "還沒跑過門判定。",
-      "gateDone": "門 {{gate}} 判定：{{status}}",
-      "rule": {
-        "forbidden": "禁止改動",
-        "out-of-scope": "越界"
-      },
-      "status": {
-        "pass": "通過",
-        "fail": "未通過",
-        "invalid": "證據不成立"
-      }
+    "about": {
+      "what": "任務看板把倉庫裡的 backlog 目錄讀成看板。任務仍然是普通的 markdown 檔案，backlog 命令列和其他 agent 照樣能讀寫。",
+      "step1": "先選一個倉庫；目錄裡還沒有 backlog 時，點「初始化 backlog」建出 config.yml 和 tasks/。",
+      "step2": "在 To Do 欄頂端點「新增任務」，一句話就變成一張卡片；卡片可以直接拖曳改狀態。",
+      "step3": "點開卡片看詳情：正文、相依與關聯會話；卡片仍然是倉庫裡的 markdown 檔案。",
+      "step4": "在詳情裡「開始會話」，會話記錄和用量會回掛到這張卡上。",
+      "step5": "右上角「自動調度」開啟後，卡片拖進「進行中」就交給選定的應用，跑完自動結算；先開影子模式只看它判斷得對不對。",
+      "note": "看板只讀寫倉庫裡的 backlog 檔案。從看板移出倉庫不會刪除任何任務。"
     },
     "title": "任務",
     "workspace": "倉庫",
     "newTask": "新增任務",
+    "newTaskPlaceholder": "輸入標題，按 Enter 建立",
+    "newTaskSend": "建立任務",
     "refresh": "重新整理",
-    "moreActions": "更多操作",
     "addWorkspace": "新增倉庫",
     "removeWorkspace": "移出看板",
     "removeWorkspaceMessage": "只從 phi 的看板移除這個倉庫，倉庫裡的任務檔案不會被更動。",
@@ -6025,6 +6043,67 @@
     "archiveTitle": "封存這個任務？",
     "archiveMessage": "任務檔案會被移到 backlog/archive/tasks/，內容不變。",
     "archived": "已封存",
+    "router": {
+      "button": "自動調度",
+      "title": "自動調度",
+      "loading": "正在讀取調度狀態…",
+      "loadFailed": "讀不到調度狀態：{{error}}",
+      "modeOff": "已關閉",
+      "modeShadow": "影子模式",
+      "modeOn": "已開啟",
+      "enabled": "自動派活",
+      "enabledHint": "卡片進入觸發欄就交給選定的應用，跑完自動結算。",
+      "shadow": "影子模式",
+      "shadowHint": "照常判斷並記錄，但不派發。先跑幾輪看判斷對不對。",
+      "triggerStatus": "觸發欄",
+      "concurrency": "同時最多",
+      "concurrencyUnit": "{{count}} 個",
+      "workers": "派給",
+      "noWorkers": "這台機器沒有可用終端，暫時無法自動派活。",
+      "episodeModel": "調度模型",
+      "episodeModelRules": "按規則（不用模型）",
+      "episodeModelHint": "用模型判斷該動哪張卡、派給誰。請求走 phi 自己的閘道。",
+      "episodeModelNoGroup": "還沒有包含 pi 的路由組。去「路由」把 pi 接入一個組，這裡才會出現選項。",
+      "quota": "今天已派發 {{dispatches}} 次，判官 {{judge}} 次",
+      "runNow": "跑一輪",
+      "runNowHint": "只判斷這一輪",
+      "resultDispatched": "派發 {{count}} 張：{{tasks}}",
+      "resultNeedsYou": "{{count}} 張在等你",
+      "resultNone": "這一輪沒有動作",
+      "skipped": {
+        "disabled": "自動調度是關閉的",
+        "noTasks": "沒有找到任務",
+        "noCandidates": "沒有可派的卡片",
+        "quota": "今天的派發次數用完了",
+        "concurrency": "在跑的任務已達上限",
+        "capacity": "這一輪沒有空位"
+      },
+      "state": {
+        "idle": "未開始",
+        "queued": "排隊中",
+        "dispatched": "已派發",
+        "working": "執行中",
+        "done": "已完成",
+        "failed": "上次失敗",
+        "needsYou": "等你看",
+        "paused": "已暫停",
+        "shadow": "影子"
+      },
+      "section": "自動調度",
+      "idleHint": "還沒有交給自動調度",
+      "workerLine": "由 {{app}} 執行",
+      "attempts": "第 {{count}} 次嘗試",
+      "start": "開始",
+      "pause": "暫停",
+      "resume": "恢復",
+      "startHint": "立刻派發，不等下一輪",
+      "started": "已交給自動調度",
+      "planTitle": "執行計畫",
+      "planEmpty": "這一輪沒有拆分子任務",
+      "planDeps": "依賴 {{deps}}",
+      "saveFailed": "儲存失敗：{{error}}",
+      "actionFailed": "操作失敗：{{error}}"
+    },
     "errors": {
       "noBacklog": "這個目錄裡沒有 backlog/config.yml",
       "stale": "任務檔案已被其他工具更動，已重新讀取",
@@ -6035,17 +6114,6 @@
       "emptyTitle": "標題不能為空",
       "terminalUnsupported": "目前平台不支援本機終端機",
       "invalidWorkspace": "這個倉庫的 backlog 設定讀不出來"
-    },
-    "create": {
-      "title": "新增任務",
-      "description": "會寫成一份新的 markdown 任務檔案，與 backlog 命令列同格式。",
-      "titleLabel": "標題",
-      "titlePlaceholder": "一句話說清要做什麼",
-      "descriptionLabel": "描述",
-      "acceptanceLabel": "驗收標準（一行一條）",
-      "acceptancePlaceholder": "完成時應該能被驗證的結果",
-      "submit": "建立",
-      "hint": "建立後可以在詳情裡開始會話，會話與用量會回掛到這個任務上。"
     }
   }
 }

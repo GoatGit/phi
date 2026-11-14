@@ -66,6 +66,8 @@ function renderPage(
       onSelectPlugin={onSelectPlugin}
       pinnedPluginIds={[]}
       onTogglePin={onTogglePin}
+      terminalApps={["claude"]}
+      onStartSession={vi.fn()}
       {...props}
     />,
     { wrapper },

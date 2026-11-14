@@ -5,6 +5,7 @@ import { getAppLabel, MCP_APP_IDS } from "@/config/appConfig";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { HoverTip } from "@/components/ui/hover-tip";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import {
@@ -16,6 +17,12 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
+  SettingsBlock,
+  SettingsCard,
+  SettingsRow,
+  SettingsSwitchRow,
+} from "@/components/settings/SettingsLayout";
+import {
   commandErrorMessage,
   mcpRouterApi,
   type CatalogEntry,
@@ -26,7 +33,13 @@ import {
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { pluginPageClass } from "./pluginPage";
-import { McpRouterGuide } from "./pluginGuides";
+import { PluginGuide } from "./PluginGlyph";
+import {
+  PluginEmpty,
+  PluginField,
+  PluginLede,
+  PluginSaveBar,
+} from "./pluginSection";
 
 function blankRoute(serverId: string): McpRoute {
   return {
@@ -51,6 +64,8 @@ function blankRoute(serverId: string): McpRoute {
 export function McpRouterPanel() {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<McpRouterConfig | null>(null);
+  // 已保存的那一份：用来判断页尾要不要点一句「有未保存的改动」。
+  const [saved, setSaved] = useState<McpRouterConfig | null>(null);
   const [catalog, setCatalog] = useState<RouterCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +81,7 @@ export function McpRouterPanel() {
         mcpRouterApi.catalog(),
       ]);
       setDraft(response.config);
+      setSaved(response.config);
       setCatalog(preview);
       setError(null);
     } catch (err) {
@@ -109,6 +125,7 @@ export function McpRouterPanel() {
     try {
       const response = await mcpRouterApi.save(draft);
       setDraft(response.config);
+      setSaved(response.config);
       // 保存会重投影，预览得重新算一遍才和实际一致。
       setCatalog(await mcpRouterApi.catalog());
       if (response.applied) {
@@ -157,55 +174,40 @@ export function McpRouterPanel() {
     );
   }
 
+  const dirty = saved ? JSON.stringify(saved) !== JSON.stringify(draft) : false;
+
   return (
     <div className={cn(pluginPageClass, "space-y-5")}>
-      <p className="text-caption text-fg-3">{t("pluginCenter.router.intro")}</p>
+      <PluginLede>{t("pluginCenter.router.intro")}</PluginLede>
 
-      <section
-        aria-label={t("pluginCenter.router.enabled")}
-        className="divide-y divide-border overflow-hidden rounded-panel border border-border"
-      >
-        <div className="flex items-start justify-between gap-4 bg-surface px-4 py-2.5">
-          <div className="min-w-0 space-y-0.5">
-            <p className="text-strong text-fg-1">
-              {t("pluginCenter.router.enabled")}
-            </p>
-            <p className="text-caption text-fg-3">
-              {t("pluginCenter.router.enabledHint")}
-            </p>
-          </div>
-          <Switch
-            checked={draft.enabled}
-            aria-label={t("pluginCenter.router.enabled")}
-            onCheckedChange={(enabled) => patch({ enabled })}
-          />
-        </div>
-        <div className="flex items-start justify-between gap-4 bg-surface px-4 py-2.5">
-          <div className="min-w-0 space-y-0.5">
-            <p className="text-strong text-fg-1">
-              {t("pluginCenter.router.separator")}
-            </p>
-            <p className="text-caption text-fg-3">
-              {t("pluginCenter.router.separatorHint")}
-            </p>
-          </div>
-          <Input
-            className="w-24 text-center font-mono"
-            value={draft.namespaceSeparator}
-            maxLength={4}
-            disabled={!draft.enabled}
-            onChange={(event) =>
-              patch({ namespaceSeparator: event.target.value })
-            }
-          />
-        </div>
-      </section>
+      <SettingsCard>
+        <SettingsSwitchRow
+          label={t("pluginCenter.router.enabled")}
+          description={t("pluginCenter.router.enabledHint")}
+          checked={draft.enabled}
+          onCheckedChange={(enabled) => patch({ enabled })}
+        />
+        <SettingsRow
+          label={t("pluginCenter.router.separator")}
+          description={t("pluginCenter.router.separatorHint")}
+          control={
+            <Input
+              className="w-16 text-center font-mono"
+              value={draft.namespaceSeparator}
+              maxLength={4}
+              disabled={!draft.enabled}
+              aria-label={t("pluginCenter.router.separator")}
+              onChange={(event) =>
+                patch({ namespaceSeparator: event.target.value })
+              }
+            />
+          }
+        />
+      </SettingsCard>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-strong font-medium text-fg-1">
-            {t("pluginCenter.router.routes")}
-          </h3>
+      <SettingsBlock
+        title={t("pluginCenter.router.routes")}
+        actions={
           <Button
             variant="ghost"
             size="compact"
@@ -220,33 +222,29 @@ export function McpRouterPanel() {
             <Plus className="me-1.5 h-3.5 w-3.5" />
             {t("pluginCenter.router.addRoute")}
           </Button>
-        </div>
-
+        }
+      >
         {draft.routes.length === 0 ? (
-          <div className="rounded-panel border border-dashed border-border px-4 py-6 text-center text-body text-fg-3">
-            {t("pluginCenter.router.noRoutes")}
-          </div>
+          <PluginEmpty>{t("pluginCenter.router.noRoutes")}</PluginEmpty>
         ) : (
-          <ul className="space-y-2">
+          <SettingsCard>
             {draft.routes.map((route, index) => (
-              <li
+              <div
                 key={`${route.serverId}-${index}`}
-                className="space-y-3 rounded-panel border border-border bg-surface px-3 py-3"
+                className="space-y-3 px-4 py-3"
               >
-                {/* 每个输入上面带一个小标题，不再靠占位字兼顾说明与提示：
-                    占位字会写成长句然后被输入框裁掉。 */}
-                <div className="grid grid-cols-[minmax(140px,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_76px_auto_auto] items-end gap-2">
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="text-badge text-fg-3">
-                      {t("pluginCenter.router.serverLabel")}
-                    </span>
+                <div className="flex flex-wrap items-end gap-3">
+                  <PluginField
+                    label={t("pluginCenter.router.server")}
+                    className="min-w-[180px] flex-1"
+                  >
                     <Select
                       value={route.serverId}
                       onValueChange={(serverId) =>
                         patchRoute(index, { serverId })
                       }
                     >
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger>
                         <SelectValue
                           placeholder={t(
                             "pluginCenter.router.serverPlaceholder",
@@ -264,30 +262,57 @@ export function McpRouterPanel() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </PluginField>
+
+                  <label className="flex h-8 items-center gap-2">
+                    <span className="text-caption text-fg-3">
+                      {t("pluginCenter.detail.enable")}
+                    </span>
+                    <Switch
+                      size="sm"
+                      checked={route.enabled}
+                      aria-label={serverName(route.serverId)}
+                      onCheckedChange={(enabled) =>
+                        patchRoute(index, { enabled })
+                      }
+                    />
                   </label>
 
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="text-badge text-fg-3">
-                      {t("pluginCenter.router.aliasLabel")}
-                    </span>
+                  <HoverTip content={t("pluginCenter.router.removeRoute")}>
+                    <Button
+                      variant="ghost"
+                      size="icon-compact"
+                      aria-label={t("pluginCenter.router.removeRoute")}
+                      onClick={() =>
+                        patch({
+                          routes: draft.routes.filter(
+                            (_, position) => position !== index,
+                          ),
+                        })
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </HoverTip>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <PluginField label={t("pluginCenter.router.alias")}>
                     <Input
                       value={route.alias ?? ""}
-                      placeholder={t("pluginCenter.router.aliasExample")}
+                      placeholder={t("pluginCenter.router.aliasPlaceholder")}
                       onChange={(event) =>
                         patchRoute(index, {
                           alias: event.target.value || null,
                         })
                       }
                     />
-                  </label>
-
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="text-badge text-fg-3">
-                      {t("pluginCenter.router.namespaceLabel")}
-                    </span>
+                  </PluginField>
+                  <PluginField
+                    label={t("pluginCenter.router.namespacePlaceholder")}
+                  >
                     <Input
                       value={route.namespace ?? ""}
-                      placeholder={t("pluginCenter.router.namespaceExample")}
                       disabled={Boolean(route.alias)}
                       onChange={(event) =>
                         patchRoute(index, {
@@ -295,12 +320,8 @@ export function McpRouterPanel() {
                         })
                       }
                     />
-                  </label>
-
-                  <label className="flex flex-col gap-1">
-                    <span className="text-badge text-fg-3">
-                      {t("pluginCenter.router.priority")}
-                    </span>
+                  </PluginField>
+                  <PluginField label={t("pluginCenter.router.priority")}>
                     <Input
                       className="text-center tabular-nums"
                       type="number"
@@ -311,106 +332,67 @@ export function McpRouterPanel() {
                         })
                       }
                     />
-                  </label>
-
-                  <div className="flex flex-col items-center gap-1">
-                    <span className="text-badge text-fg-3">
-                      {t("pluginCenter.router.enableLabel")}
-                    </span>
-                    <Switch
-                      size="sm"
-                      checked={route.enabled}
-                      aria-label={serverName(route.serverId)}
-                      onCheckedChange={(enabled) =>
-                        patchRoute(index, { enabled })
-                      }
-                    />
-                  </div>
-
-                  <Button
-                    variant="ghost"
-                    size="icon-compact"
-                    className="mb-1"
-                    aria-label={t("pluginCenter.router.removeRoute")}
-                    onClick={() =>
-                      patch({
-                        routes: draft.routes.filter(
-                          (_, position) => position !== index,
-                        ),
-                      })
-                    }
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  </PluginField>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-2.5">
-                  <span className="text-caption text-fg-3">
+                <div className="space-y-1.5">
+                  <span className="block text-caption text-fg-3">
                     {t("pluginCenter.router.apps")}
                   </span>
-                  {MCP_APP_IDS.map((appId) => {
-                    const checked = route.apps.includes(appId);
-                    return (
-                      <label
-                        key={appId}
-                        className="flex items-center gap-1.5 text-caption text-fg-2"
-                      >
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={(next) =>
-                            patchRoute(index, {
-                              apps: next
-                                ? [...route.apps, appId]
-                                : route.apps.filter((id) => id !== appId),
-                            })
-                          }
-                        />
-                        {getAppLabel(appId)}
-                      </label>
-                    );
-                  })}
-                  {route.apps.length === 0 && (
-                    <span className="text-caption text-fg-3">
-                      {t("pluginCenter.router.appsHint")}
-                    </span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    {MCP_APP_IDS.map((appId) => {
+                      const checked = route.apps.includes(appId);
+                      return (
+                        <label
+                          key={appId}
+                          className="flex items-center gap-1.5 text-caption text-fg-2"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(next) =>
+                              patchRoute(index, {
+                                apps: next
+                                  ? [...route.apps, appId]
+                                  : route.apps.filter((id) => id !== appId),
+                              })
+                            }
+                          />
+                          {getAppLabel(appId)}
+                        </label>
+                      );
+                    })}
+                    {route.apps.length === 0 && (
+                      <span className="text-caption text-fg-3">
+                        {t("pluginCenter.router.appsHint")}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                <Input
-                  className="text-caption"
-                  value={route.tags.join(", ")}
-                  placeholder={t("pluginCenter.router.tagsPlaceholder")}
-                  aria-label={t("pluginCenter.router.tagsPlaceholder")}
-                  onChange={(event) =>
-                    patchRoute(index, {
-                      tags: event.target.value
-                        .split(",")
-                        .map((tag) => tag.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                />
-              </li>
+                <PluginField label={t("pluginCenter.router.tags")}>
+                  <Input
+                    className="text-caption"
+                    value={route.tags.join(", ")}
+                    placeholder={t("pluginCenter.router.tagsPlaceholder")}
+                    onChange={(event) =>
+                      patchRoute(index, {
+                        tags: event.target.value
+                          .split(",")
+                          .map((tag) => tag.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                  />
+                </PluginField>
+              </div>
             ))}
-          </ul>
+          </SettingsCard>
         )}
-      </section>
+      </SettingsBlock>
 
-      <McpRouterGuide />
-
-      <div className="flex items-center justify-end border-t border-border pt-4">
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving
-            ? t("pluginCenter.saving")
-            : t("pluginCenter.router.saveAndApply")}
-        </Button>
-      </div>
-
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-strong font-medium text-fg-1">
-            {t("pluginCenter.router.catalog")}
-          </h3>
+      <SettingsBlock
+        title={t("pluginCenter.router.catalog")}
+        actions={
           <Button
             variant="ghost"
             size="compact"
@@ -420,8 +402,8 @@ export function McpRouterPanel() {
             <RefreshCw className="me-1.5 h-3.5 w-3.5" />
             {t("pluginCenter.refresh")}
           </Button>
-        </div>
-
+        }
+      >
         {catalog && catalog.conflicts.length > 0 && (
           <Notice tone="warning" title={t("pluginCenter.router.conflicts")}>
             <ul className="space-y-0.5">
@@ -439,17 +421,33 @@ export function McpRouterPanel() {
         )}
 
         {servers.length === 0 ? (
-          <div className="rounded-panel border border-dashed border-border px-4 py-6 text-center text-body text-fg-3">
-            {t("pluginCenter.router.catalogEmpty")}
-          </div>
+          <PluginEmpty>{t("pluginCenter.router.catalogEmpty")}</PluginEmpty>
         ) : (
-          <ul className="divide-y divide-border overflow-hidden rounded-panel border border-border">
+          <SettingsCard>
             {servers.map((entry) => (
               <CatalogRow key={entry.serverId} entry={entry} />
             ))}
-          </ul>
+          </SettingsCard>
         )}
-      </section>
+      </SettingsBlock>
+
+      <PluginGuide
+        pluginId="mcp-router"
+        what={t("pluginCenter.router.about.what")}
+        steps={[1, 2, 3, 4].map((step) =>
+          t(`pluginCenter.router.about.step${step}`),
+        )}
+        notes={t("pluginCenter.router.about.note")}
+      />
+
+      <PluginSaveBar
+        onSave={() => void save()}
+        label={t("pluginCenter.router.saveAndApply")}
+        savingLabel={t("pluginCenter.saving")}
+        saving={saving}
+        dirty={dirty}
+        dirtyLabel={t("pluginCenter.unsaved")}
+      />
     </div>
   );
 }
@@ -462,13 +460,16 @@ function CatalogRow({ entry }: { entry: CatalogEntry }) {
       : entry.routedApps.map((appId) => getAppLabel(appId)).join("、");
 
   return (
-    <li
-      className={cn(
-        "flex flex-wrap items-center gap-x-3 gap-y-1 bg-surface px-4 py-2.5",
-        !entry.enabled && "opacity-60",
-      )}
-    >
-      <span className="min-w-[140px] text-body text-fg-1">{entry.name}</span>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
+      <span
+        className={cn(
+          "min-w-[140px] text-body",
+          // 隐藏的服务器只把名字降一级，徽章照样可读，不用整行透明度糊掉
+          entry.enabled ? "text-fg-1" : "text-fg-2",
+        )}
+      >
+        {entry.name}
+      </span>
       <span className="font-mono text-caption text-fg-2">
         {entry.exposedId}
       </span>
@@ -488,6 +489,6 @@ function CatalogRow({ entry }: { entry: CatalogEntry }) {
         </span>
       )}
       <span className="ms-auto text-caption text-fg-3">{clients}</span>
-    </li>
+    </div>
   );
 }

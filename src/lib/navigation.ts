@@ -5,15 +5,51 @@ import type { AppId } from "@/lib/api";
  * 设置是侧栏一级入口，分区是页内标签，高级分区由「专家模式」唤出。
  *
  * - 应用页：首页（home）、供应商页；OpenClaw 还有工作区页，Hermes 有记忆页。
- * - 全局页：路由（供应商与路由总览是它的两个页签）、用量统计、MCP、
- *   Skills、提示词、会话、插件中心。插件中心是主页（卡片列表），
- *   `plugin:<id>` 是某个插件在插件中心里的页签，也可以钉在侧栏一级导航。
+ * - 全局页：路由（供应商与路由总览是它的两个页签）、用量统计、插件中心、
+ *   工具箱（MCP / Skills / 提示词 / 会话 是它的四个页签，视图 `toolbox:<tab>`）。
+ *   插件中心是主页（卡片列表），`plugin:<id>` 是某个插件在插件中心里的页签，
+ *   也可以钉在侧栏一级导航。任务看板不再是独立的一级页，而是插件中心里的
+ *   `plugin:task-board`。
  * - 设置：侧栏里的一个一级入口，分区（通用/应用/网关/数据/关于）
  *   是设置页内的标签，不再单独跳转。
  *   授权中心已取消：订阅型账号统一在「供应商 → 订阅」里登录与管理。
  */
 
 export type AppPage = "home" | "providers" | "workspace" | "hermesMemory";
+
+/**
+ * 工具箱里的页签：MCP / Skills / 提示词 / 会话。
+ *
+ * 侧栏只留一个「工具箱」入口，这四项在页面里是页签。把「开的是哪个页签」
+ * 编码进视图本身（和 `plugin:<id>` 同一套做法），侧栏高亮、重启后的上次位置
+ * 就共用同一份状态，不需要再维护第二份「当前页签」。
+ */
+export const TOOLBOX_VIEW_PREFIX = "toolbox:";
+
+export const TOOLBOX_TABS = ["mcp", "skills", "prompts", "sessions"] as const;
+
+export type ToolboxTab = (typeof TOOLBOX_TABS)[number];
+
+export type ToolboxView = `${typeof TOOLBOX_VIEW_PREFIX}${ToolboxTab}`;
+
+/** 还没有记住过页签时，侧栏「工具箱」落在哪一页。 */
+export const DEFAULT_TOOLBOX_TAB: ToolboxTab = "mcp";
+
+/** 页签 → 工具箱视图。 */
+export function toolboxView(tab: ToolboxTab): ToolboxView {
+  return `${TOOLBOX_VIEW_PREFIX}${tab}`;
+}
+
+/** 工具箱视图 → 页签；不是工具箱页时返回 null。 */
+export function toolboxTabFromView(
+  view: string | null | undefined,
+): ToolboxTab | null {
+  if (!view || !view.startsWith(TOOLBOX_VIEW_PREFIX)) return null;
+  const tab = view.slice(TOOLBOX_VIEW_PREFIX.length);
+  return (TOOLBOX_TABS as readonly string[]).includes(tab)
+    ? (tab as ToolboxTab)
+    : null;
+}
 
 /**
  * 插件中心里的插件页：`plugin:<id>`。
@@ -28,14 +64,9 @@ export type PluginView = `${typeof PLUGIN_VIEW_PREFIX}${string}`;
 
 export type GlobalPage =
   | "routingOverview"
-  | "tasks"
   | "plugins"
   | "usage"
-  | "mcp"
-  | "skills"
-  | "skillsDiscovery"
-  | "prompts"
-  | "sessions"
+  | ToolboxView
   | PluginView;
 
 export type View = AppPage | GlobalPage | "settings";
@@ -92,16 +123,10 @@ export function visibleSettingsSections(
 
 const APP_PAGES: AppPage[] = ["home", "providers", "workspace", "hermesMemory"];
 
-const GLOBAL_PAGES: Exclude<GlobalPage, PluginView>[] = [
+const GLOBAL_PAGES: Exclude<GlobalPage, PluginView | ToolboxView>[] = [
   "routingOverview",
-  "tasks",
   "plugins",
   "usage",
-  "mcp",
-  "skills",
-  "skillsDiscovery",
-  "prompts",
-  "sessions",
 ];
 
 export const VIEW_STORAGE_KEY = "phi-last-view";
@@ -122,6 +147,15 @@ const LEGACY_VIEWS: Record<string, View> = {
   appConfig: "settings",
   // 成绩单曾经是侧栏一级页，现在是插件中心里的一张卡片。
   reportCard: pluginView("report-card"),
+  // 任务看板同理：旧链接与上次停留的 "tasks" 落到插件中心的任务看板页签。
+  tasks: pluginView("task-board"),
+  // 工具箱的四个子菜单收进了同一个页面：旧视图名落到对应的页签。
+  mcp: toolboxView("mcp"),
+  skills: toolboxView("skills"),
+  // 「发现」是 Skills 页签里的二级页签，旧链接只能落到 Skills 页签。
+  skillsDiscovery: toolboxView("skills"),
+  prompts: toolboxView("prompts"),
+  sessions: toolboxView("sessions"),
 };
 
 export function isAppPage(view: View): view is AppPage {
@@ -130,7 +164,9 @@ export function isAppPage(view: View): view is AppPage {
 
 export function isGlobalPage(view: View): view is GlobalPage {
   return (
-    pluginIdFromView(view) !== null || (GLOBAL_PAGES as string[]).includes(view)
+    pluginIdFromView(view) !== null ||
+    toolboxTabFromView(view) !== null ||
+    (GLOBAL_PAGES as string[]).includes(view)
   );
 }
 
@@ -140,6 +176,8 @@ export function parseView(value: string | null | undefined): View | null {
   if (value === "settings") return "settings";
   if ((APP_PAGES as string[]).includes(value)) return value as AppPage;
   if ((GLOBAL_PAGES as string[]).includes(value)) return value as GlobalPage;
+  const toolboxTab = toolboxTabFromView(value);
+  if (toolboxTab) return toolboxView(toolboxTab);
   const pluginId = pluginIdFromView(value);
   if (pluginId) return pluginView(pluginId);
   return null;
@@ -171,6 +209,28 @@ export function storeView(view: View) {
     localStorage.setItem(VIEW_STORAGE_KEY, view);
   } catch {
     // 存不了就算了：下次启动回到供应商页
+  }
+}
+
+const TOOLBOX_TAB_STORAGE_KEY = "phi-toolbox-tab";
+
+/** 侧栏「工具箱」从别处点回来时落在上次那个页签，没记过就用默认页签。 */
+export function readStoredToolboxTab(): ToolboxTab {
+  try {
+    const tab = localStorage.getItem(TOOLBOX_TAB_STORAGE_KEY);
+    return tab && (TOOLBOX_TABS as readonly string[]).includes(tab)
+      ? (tab as ToolboxTab)
+      : DEFAULT_TOOLBOX_TAB;
+  } catch {
+    return DEFAULT_TOOLBOX_TAB;
+  }
+}
+
+export function storeToolboxTab(tab: ToolboxTab) {
+  try {
+    localStorage.setItem(TOOLBOX_TAB_STORAGE_KEY, tab);
+  } catch {
+    // 存不了就算了：下次点「工具箱」回到默认页签
   }
 }
 

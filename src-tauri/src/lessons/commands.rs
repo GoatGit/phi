@@ -1,11 +1,15 @@
 //! 教训库的 Tauri 命令层。
 //!
-//! 作用域是「任务看板登记过的仓库」：教训贴着仓库长，不跟着 phi 的全局设置走，
-//! 所以这里复用同一张工作区登记表，前端也就不必再发明第二套目录选择。
+//! 教训贴仓库长，但仓库不需要人工登记：扫一遍本机会话，会话 cwd 所在的仓库（向上找
+//! 最近的 `.git`）就自动成为一份禁区清单的归属地。任务页登记过的仓库仍然可用，
+//! 只是不再是「能不能扫」的前提。
 
 use crate::error::AppError;
-use crate::lessons::model::{InjectionPreview, InjectionState, Lesson, LessonState};
+use crate::lessons::model::{
+    InjectionPreview, InjectionState, Lesson, LessonOverview, LessonProject, LessonState,
+};
 use crate::lessons::{detect, inject, render, store};
+use crate::session_manager::SessionMeta;
 use crate::store::AppState;
 use crate::Database;
 use std::path::{Path, PathBuf};
@@ -18,18 +22,35 @@ fn err(error: AppError) -> String {
     error.to_string()
 }
 
-fn workspace_path(state: &AppState, root: &str) -> Result<PathBuf, String> {
+/// 可操作的目录：任务页登记过的仓库，或上一次扫描从会话里发现的仓库。
+///
+/// 后者是自动发现的落点：会话里出现过这个目录，就已经足够当教训的归属地，
+/// 不必再去任务页登记一次。
+fn known_workspace(state: &AppState, root: &str) -> Result<PathBuf, String> {
     let path = Path::new(root)
         .canonicalize()
         .map_err(|_| "invalid-directory".to_string())?;
     if !path.is_dir() {
         return Err("invalid-directory".into());
     }
-    let roots = state.db.task_workspaces().map_err(err)?;
-    if !roots.iter().any(|entry| Path::new(entry) == path) {
-        return Err("workspace-not-registered".into());
+    let key = path.to_string_lossy().into_owned();
+    let registered = state
+        .db
+        .task_workspaces()
+        .map_err(err)?
+        .iter()
+        .any(|entry| Path::new(entry) == path);
+    if registered || state.db.lesson_root_known(&key).map_err(err)? {
+        return Ok(path);
     }
-    Ok(path)
+    Err("workspace-not-registered".into())
+}
+
+/// 目录名：给人看的短名字（路径本身另外显示一行）。
+fn project_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
 fn active_lessons(lessons: &[Lesson]) -> Vec<Lesson> {
@@ -148,12 +169,16 @@ fn sync_injection(db: &Database, key: &str, workspace: &Path) -> Result<(), Stri
 }
 
 /// 扫一遍会话，把失败沉淀成教训。纯增量：已经扫过的会话不再重扫。
-fn refresh(db: &Database, key: &str, workspace: &Path) -> Result<LessonState, String> {
+fn refresh_with(
+    db: &Database,
+    key: &str,
+    workspace: &Path,
+    sessions: &[SessionMeta],
+) -> Result<LessonState, String> {
     let mut settings = db.lesson_settings(key).map_err(err)?;
-    let sessions = crate::session_manager::scan_sessions();
     let collected = detect::collect(
         workspace,
-        &sessions,
+        sessions,
         settings.scanned_through,
         detect::SCAN_LIMIT,
     );
@@ -210,9 +235,112 @@ fn refresh(db: &Database, key: &str, workspace: &Path) -> Result<LessonState, St
 
 #[tauri::command]
 pub fn lesson_state(state: State<'_, AppState>, root: String) -> Result<LessonState, String> {
-    let path = workspace_path(&state, &root)?;
+    let path = known_workspace(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
     state_of(&state.db, &key, &path)
+}
+
+/// 已经扫出来的仓库状态（不重新扫，只读库）。
+fn overview_of(db: &Database) -> Result<LessonOverview, String> {
+    let mut projects = Vec::new();
+    let mut last_scan_at: Option<i64> = None;
+    for key in db.lesson_roots().map_err(err)? {
+        let path = PathBuf::from(&key);
+        if !path.is_dir() {
+            // 仓库目录被删了或挪了：库里的教训留着，但不再占一个位置
+            continue;
+        }
+        let state = state_of(db, &key, &path)?;
+        last_scan_at = last_scan_at.max(state.last_scan_at);
+        projects.push(LessonProject {
+            root: key,
+            name: project_name(&path),
+            state,
+        });
+    }
+    sort_projects(&mut projects);
+    Ok(LessonOverview {
+        scanned_projects: projects.len(),
+        projects,
+        scanned_sessions: 0,
+        pending_sessions: 0,
+        failures: 0,
+        last_scan_at,
+    })
+}
+
+/// 有教训的排前面，其次按名字：扫完一眼就能看到哪里真的炸过。
+fn sort_projects(projects: &mut [LessonProject]) {
+    projects.sort_by(|a, b| {
+        let active = |project: &LessonProject| {
+            project
+                .state
+                .lessons
+                .iter()
+                .filter(|lesson| !lesson.dismissed)
+                .count()
+        };
+        active(b)
+            .cmp(&active(a))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            .then_with(|| a.root.cmp(&b.root))
+    });
+}
+
+/// 扫一遍本机所有会话，把涉及的每个仓库都跑出来。
+///
+/// 一次只读一遍会话列表（九个应用的扫描并行跑在内里），再按仓库归组分别增量扫描，
+/// 所以仓库多也不会把会话读成 N 倍。
+fn scan_all(db: &Database) -> Result<LessonOverview, String> {
+    let sessions = crate::session_manager::scan_sessions();
+    let roots = detect::projects(&sessions);
+    let mut projects = Vec::new();
+    let mut scanned_sessions = 0;
+    let mut pending_sessions = 0;
+    let mut failures = 0;
+    let mut last_scan_at: Option<i64> = None;
+
+    for workspace in roots {
+        let key = workspace.to_string_lossy().into_owned();
+        let state = refresh_with(db, &key, &workspace, &sessions)?;
+        scanned_sessions += state.scanned_sessions;
+        pending_sessions += state.pending_sessions;
+        failures += state.failures;
+        last_scan_at = last_scan_at.max(state.last_scan_at);
+        projects.push(LessonProject {
+            root: key,
+            name: project_name(&workspace),
+            state,
+        });
+    }
+
+    sort_projects(&mut projects);
+    Ok(LessonOverview {
+        scanned_projects: projects.len(),
+        projects,
+        scanned_sessions,
+        pending_sessions,
+        failures,
+        last_scan_at,
+    })
+}
+
+/// 页面打开时：库里已经发现过的仓库直接给出去，不偷偷扫。
+#[tauri::command]
+pub async fn lesson_overview(state: State<'_, AppState>) -> Result<LessonOverview, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || overview_of(&db))
+        .await
+        .map_err(|e| format!("lesson overview failed: {e}"))?
+}
+
+/// 「扫描会话」：不看仓库选择器，把本机会话涉及的所有仓库都扫一遍。
+#[tauri::command]
+pub async fn lesson_scan(state: State<'_, AppState>) -> Result<LessonOverview, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || scan_all(&db))
+        .await
+        .map_err(|e| format!("lesson scan failed: {e}"))?
 }
 
 #[tauri::command]
@@ -220,12 +348,15 @@ pub async fn lesson_refresh(
     state: State<'_, AppState>,
     root: String,
 ) -> Result<LessonState, String> {
-    let path = workspace_path(&state, &root)?;
+    let path = known_workspace(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
     let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || refresh(&db, &key, &path))
-        .await
-        .map_err(|e| format!("lesson refresh failed: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let sessions = crate::session_manager::scan_sessions();
+        refresh_with(&db, &key, &path, &sessions)
+    })
+    .await
+    .map_err(|e| format!("lesson refresh failed: {e}"))?
 }
 
 /// 阀一：这次要动的路径命中了哪些禁区。
@@ -235,7 +366,7 @@ pub fn lesson_matches(
     root: String,
     paths: Vec<String>,
 ) -> Result<Vec<Lesson>, String> {
-    let path = workspace_path(&state, &root)?;
+    let path = known_workspace(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
     let lessons = state.db.lessons(&key).map_err(err)?;
     Ok(active_lessons(&lessons)
@@ -261,7 +392,7 @@ pub fn lesson_dismiss(
     if reason.is_empty() {
         return Err("reason-required".into());
     }
-    let path = workspace_path(&state, &root)?;
+    let path = known_workspace(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
     dismiss_lesson(&state.db, &key, &path, &id, reason)?;
     state_of(&state.db, &key, &path)
@@ -273,7 +404,7 @@ pub fn lesson_restore(
     root: String,
     id: String,
 ) -> Result<LessonState, String> {
-    let path = workspace_path(&state, &root)?;
+    let path = known_workspace(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
     restore_lesson(&state.db, &key, &path, &id)?;
     state_of(&state.db, &key, &path)
@@ -284,7 +415,7 @@ pub fn lesson_injection_preview(
     state: State<'_, AppState>,
     root: String,
 ) -> Result<InjectionPreview, String> {
-    let path = workspace_path(&state, &root)?;
+    let path = known_workspace(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
     preview_of(&state.db, &key, &path)
 }
@@ -296,7 +427,7 @@ pub fn lesson_set_injection(
     root: String,
     enabled: bool,
 ) -> Result<InjectionPreview, String> {
-    let path = workspace_path(&state, &root)?;
+    let path = known_workspace(&state, &root)?;
     let key = path.to_string_lossy().into_owned();
     let db = &state.db;
     let mut settings = db.lesson_settings(&key).map_err(err)?;
@@ -327,6 +458,46 @@ mod tests {
     use super::*;
     use crate::lessons::model::Lesson;
     use crate::lessons::store::Settings;
+
+    /// 手工验证：在本机真实会话上跑一遍全量扫描，看仓库是不是真的都被发现了。
+    ///
+    /// 依赖本机的会话文件，所以不进 CI；跑法：
+    /// `cargo test --lib lessons::commands::tests::scan -- --ignored --nocapture`。
+    /// 用的是内存库，不碰真实教训库，也不会写任何 `AGENTS.md`。
+    #[test]
+    #[ignore = "扫描本机真实会话，只在手工验证时跑"]
+    fn scan_finds_every_repository_this_machine_has_sessions_in() {
+        let db = Database::memory().expect("memory db");
+        let overview = scan_all(&db).expect("scan");
+        println!(
+            "projects={} sessions={} failures={} pending={}",
+            overview.scanned_projects,
+            overview.scanned_sessions,
+            overview.failures,
+            overview.pending_sessions
+        );
+        for project in overview.projects.iter().take(20) {
+            println!(
+                "- {} {:?} lessons={} sessions={}",
+                project.name,
+                project.root,
+                project.state.lessons.len(),
+                project.state.scanned_sessions
+            );
+        }
+        assert!(!overview.projects.is_empty());
+        // 页面打开（不重扫）时应当能把这些仓库原样读回来
+        let listed = overview_of(&db).expect("overview");
+        assert_eq!(listed.projects.len(), overview.projects.len());
+        assert_eq!(listed.scanned_projects, overview.scanned_projects);
+        // 有教训的排前面
+        let counts: Vec<usize> = listed
+            .projects
+            .iter()
+            .map(|project| project.state.lessons.len())
+            .collect();
+        assert!(counts.windows(2).all(|pair| pair[0] >= pair[1]));
+    }
 
     fn lesson(id: &str, path: &str) -> Lesson {
         Lesson {

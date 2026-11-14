@@ -224,6 +224,33 @@ impl Database {
         Ok(changed > 0)
     }
 
+    /// 已经被扫描发现过的所有仓库根（含只从会话里发现、没在任务页登记过的）。
+    /// 排序按根路径，前端再按教训数排。
+    pub fn lesson_roots(&self) -> Result<Vec<String>, AppError> {
+        let conn = lock_conn!(self.conn);
+        let mut statement = conn
+            .prepare("SELECT root FROM lesson_settings ORDER BY root")
+            .map_err(error)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(error)
+    }
+
+    /// 这个目录是否已经作为仓库被扫描发现过。
+    pub(crate) fn lesson_root_known(&self, root: &str) -> Result<bool, AppError> {
+        let conn = lock_conn!(self.conn);
+        let found = conn
+            .query_row(
+                "SELECT 1 FROM lesson_settings WHERE root = ?1",
+                params![root],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(error)?;
+        Ok(found.is_some())
+    }
+
     pub(crate) fn lesson_settings(&self, root: &str) -> Result<Settings, AppError> {
         let conn = lock_conn!(self.conn);
         let row = conn

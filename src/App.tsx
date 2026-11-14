@@ -75,7 +75,6 @@ import {
   extractErrorMessage,
   translatePiProviderMutationError,
 } from "@/utils/errorUtils";
-import { isTextEditableTarget } from "@/utils/domUtils";
 import { deepClone } from "@/utils/deepClone";
 import { isLinux, isMac, isWindows } from "@/lib/platform";
 import {
@@ -86,7 +85,10 @@ import {
   pluginView,
   readStoredView,
   sharedFeatureAppOf,
+  storeToolboxTab,
   storeView,
+  toolboxTabFromView,
+  toolboxView,
   type AppPage,
   type GlobalPage,
   type SettingsSection,
@@ -115,6 +117,7 @@ import {
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { discardUnsavedChanges, hasUnsavedChanges } from "@/lib/unsavedChanges";
+import { releaseStuckPointerLock } from "@/lib/modalPointerLock";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import {
   checkToolUpdatesInBackground,
@@ -124,6 +127,7 @@ import {
   useToolUpdatesAvailable,
 } from "@/components/apps/useToolManagement";
 import { UsagePage } from "@/components/usage/UsagePage";
+import { ToolboxPage } from "@/components/toolbox/ToolboxPage";
 import { GatewayPage } from "@/components/gateway/GatewayPages";
 import type { RouteAppRequest } from "@/components/gateway/routingFlowModel";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
@@ -132,10 +136,7 @@ import { DesktopAccessBar } from "@/components/providers/mode/DesktopAccessBar";
 import { proxyApi } from "@/lib/api/proxy";
 import type { AppMode, StartupAttachFailure } from "@/types/proxy";
 import UsageScriptModal from "@/components/UsageScriptModal";
-import UnifiedMcpPanel from "@/components/mcp/UnifiedMcpPanel";
-import PromptPanel from "@/components/prompts/PromptPanel";
 import { PROMPT_APP_IDS } from "@/lib/query/prompts";
-import UnifiedSkillsPanel from "@/components/skills/UnifiedSkillsPanel";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { Button } from "@/components/ui/button";
@@ -156,8 +157,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
-import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
 import { PluginCenterPage } from "@/components/plugins/PluginCenterPage";
 import {
   readPinnedPlugins,
@@ -262,6 +261,9 @@ function App() {
 
   useEffect(() => {
     storeView(currentView);
+    // 侧栏「工具箱」下次从别处点回来时回到同一个页签
+    const toolboxTab = toolboxTabFromView(currentView);
+    if (toolboxTab) storeToolboxTab(toolboxTab);
   }, [currentView]);
 
   useEffect(() => {
@@ -687,6 +689,16 @@ function App() {
     currentViewRef.current = currentView;
   }, [currentView]);
 
+  // 切页后解除可能残留的全局点击封锁（见 lib/modalPointerLock）。
+  // 任务看板「开始会话」这类「模态层还没收完就整页换走」的路径最容易留下它：
+  // 页面正常、无障碍树完整，但 WebView 里点哪儿都没反应，原生终端照常能用。
+  useEffect(() => {
+    releaseStuckPointerLock();
+    // 模态层是等退出动画跑完才真正卸载的，可能晚于本次切页提交；再补一次。
+    const timer = window.setTimeout(() => releaseStuckPointerLock(), 600);
+    return () => window.clearTimeout(timer);
+  }, [currentView, activeApp]);
+
   // ─── 导航 ───────────────────────────────────────────────────────────────
   // MCP / Skills / 提示词在进行中的操作会锁住导航（卸载面板会丢掉进行中的状态）
 
@@ -784,7 +796,10 @@ function App() {
     setActiveRoutingApp(null);
     setActiveLocalApp(null);
     setRouteAppRequest(null);
-    if (page === "prompts" && currentViewRef.current !== "prompts") {
+    if (
+      page === toolboxView("prompts") &&
+      currentViewRef.current !== toolboxView("prompts")
+    ) {
       // 提示词页默认选中侧栏里最后选的那个应用
       setPromptsApp(
         PROMPT_APP_IDS.includes(sharedFeatureApp) ? sharedFeatureApp : "claude",
@@ -850,18 +865,6 @@ function App() {
       if (mod && event.key === ",") {
         event.preventDefault();
         openSettingsRef.current("general");
-        return;
-      }
-
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (document.body.style.overflow === "hidden") return;
-      if (managementBusyRef.current) return;
-      if (isTextEditableTarget(event.target)) return;
-
-      const view = currentViewRef.current;
-      if (view === "skillsDiscovery") {
-        event.preventDefault();
-        setCurrentView("skills");
       }
     };
 
@@ -1298,7 +1301,7 @@ function App() {
         <DropdownMenuItem
           onSelect={() => {
             setDrillInReturn(currentViewRef.current);
-            openPage("sessions");
+            openPage(toolboxView("sessions"));
           }}
         >
           {t("appPage.viewSessions")}
@@ -1667,7 +1670,7 @@ function App() {
       icon: History,
       onSelect: () => {
         setDrillInReturn(currentViewRef.current);
-        openPage("sessions");
+        openPage(toolboxView("sessions"));
       },
     });
     if ((MCP_APP_IDS as string[]).includes(activeApp)) {
@@ -1677,7 +1680,7 @@ function App() {
         icon: Server,
         onSelect: () => {
           setDrillInReturn(currentViewRef.current);
-          openPage("mcp");
+          openPage(toolboxView("mcp"));
         },
       });
     }
@@ -1688,7 +1691,7 @@ function App() {
         icon: SkillsIcon,
         onSelect: () => {
           setDrillInReturn(currentViewRef.current);
-          openPage("skills");
+          openPage(toolboxView("skills"));
         },
       });
     }
@@ -1699,7 +1702,7 @@ function App() {
         icon: BookOpen,
         onSelect: () => {
           setDrillInReturn(currentViewRef.current);
-          openPage("prompts");
+          openPage(toolboxView("prompts"));
         },
       });
     }
@@ -1865,6 +1868,14 @@ function App() {
       onSelectPlugin: selectPlugin,
       pinnedPluginIds: pinnedPlugins,
       onTogglePin: togglePluginPin,
+      // 任务看板把任务开成终端会话，靠的是宿主这份终端能力；
+      // 页面本身已经搬进插件中心，不再单独占一个侧栏一级入口。
+      terminalApps: terminals.supportedApps,
+      onStartSession: async (root: string, appId: string) => {
+        const session = await terminals.launchSession(appId as AppId, root);
+        selectApp(appId as AppId);
+        return session.id;
+      },
     };
     const activePluginId = pluginIdFromView(currentView);
     if (activePluginId) {
@@ -1872,6 +1883,33 @@ function App() {
         <PluginCenterPage
           {...pluginPageProps}
           activePluginId={activePluginId}
+        />
+      );
+    }
+
+    // 工具箱：MCP / Skills / 提示词 / 会话是同一个页面里的页签，
+    // 页签切的是视图（toolbox:<tab>），所以高亮、上次位置、回来时的页签共用一份状态。
+    const toolboxTab = toolboxTabFromView(currentView);
+    if (toolboxTab) {
+      return (
+        <ToolboxPage
+          tab={toolboxTab}
+          onSelectTab={(next) => openPage(toolboxView(next))}
+          onBack={drillInReturn ? exitDrillIn : undefined}
+          sessionApp={sharedFeatureApp}
+          fromApp={activeApp}
+          onOpenTerminalSettings={() => openSettings("general")}
+          promptsApp={promptsApp}
+          promptApps={PROMPT_APP_IDS.filter(
+            (app) =>
+              visibleApps[app] ||
+              (app === "claude" && visibleApps["claude-desktop"]) ||
+              app === promptsApp,
+          )}
+          onPromptAppChange={setPromptsApp}
+          onMcpBusyChange={setMcpManagementBusy}
+          onSkillsBusyChange={setSkillsNavigationBusy}
+          onPromptsBusyChange={setPromptNavigationBusy}
         />
       );
     }
@@ -1893,67 +1931,6 @@ function App() {
         return (
           <UsagePage
             initialAppType={usageAppFilter}
-            onBack={drillInReturn ? exitDrillIn : undefined}
-          />
-        );
-      case "tasks":
-        return (
-          <TaskBoardPage
-            terminalApps={terminals.supportedApps}
-            onStartSession={async (root, appId) => {
-              const session = await terminals.launchSession(
-                appId as AppId,
-                root,
-              );
-              selectApp(appId as AppId);
-              return session.id;
-            }}
-          />
-        );
-      case "mcp":
-        return (
-          <UnifiedMcpPanel
-            onBack={drillInReturn ? exitDrillIn : undefined}
-            onInteractionBlockedChange={setMcpManagementBusy}
-          />
-        );
-      case "skills":
-      case "skillsDiscovery":
-        // 「已安装 / 发现」合成一页；旧的 skillsDiscovery 视图直接打开「发现」段
-        return (
-          <UnifiedSkillsPanel
-            onBack={drillInReturn ? exitDrillIn : undefined}
-            initialView={
-              currentView === "skillsDiscovery" ? "discover" : "installed"
-            }
-            onNavigationBlockedChange={setSkillsNavigationBusy}
-          />
-        );
-      case "prompts":
-        return (
-          <div id="main-content" className="flex min-h-0 flex-1 flex-col">
-            <PromptPanel
-              onBack={drillInReturn ? exitDrillIn : undefined}
-              appId={promptsApp}
-              apps={PROMPT_APP_IDS.filter(
-                (app) =>
-                  visibleApps[app] ||
-                  (app === "claude" && visibleApps["claude-desktop"]) ||
-                  app === promptsApp,
-              )}
-              onAppChange={setPromptsApp}
-              onNavigationBlockedChange={setPromptNavigationBusy}
-            />
-          </div>
-        );
-      case "sessions":
-        // 页头（含 ⋯ 菜单）由会话页自己画：菜单里的操作都在页面状态里
-        return (
-          <SessionManagerPage
-            key={sharedFeatureApp}
-            appId={sharedFeatureApp}
-            fromApp={activeApp}
-            onOpenTerminalSettings={() => openSettings("general")}
             onBack={drillInReturn ? exitDrillIn : undefined}
           />
         );

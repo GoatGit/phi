@@ -13,6 +13,7 @@ import {
 } from "@/hooks/usePluginCatalog";
 import { commandErrorMessage } from "@/lib/api/plugins";
 import { cn } from "@/lib/utils";
+import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
 import { LessonsPanel } from "./LessonsPanel";
 import { McpRouterPanel } from "./McpRouterPanel";
 import { PluginDetailPage } from "./PluginDetailPage";
@@ -34,6 +35,9 @@ interface PluginCenterPageProps {
   pinnedPluginIds: string[];
   /** 插件页右上角的钉住按钮 */
   onTogglePin: (pluginId: string) => void;
+  /** 任务看板要能开终端会话，靠的是宿主这份终端能力 */
+  terminalApps: string[];
+  onStartSession: (root: string, appId: string) => Promise<string>;
 }
 
 /**
@@ -49,6 +53,8 @@ export function PluginCenterPage({
   onSelectPlugin,
   pinnedPluginIds,
   onTogglePin,
+  terminalApps,
+  onStartSession,
 }: PluginCenterPageProps) {
   const { t } = useTranslation();
   const entries = usePluginCenterEntries();
@@ -121,7 +127,11 @@ export function PluginCenterPage({
           aria-labelledby={`plugin-center-tab-${activePluginId ?? HOME_TAB}`}
         >
           {activePluginId ? (
-            <PluginPage entry={activeEntry} />
+            <PluginPage
+              entry={activeEntry}
+              terminalApps={terminalApps}
+              onStartSession={onStartSession}
+            />
           ) : (
             <PluginHomePage
               entries={entries}
@@ -136,7 +146,15 @@ export function PluginCenterPage({
 }
 
 /** 插件主页：按 id 分派到具体面板；未知插件给一句可恢复的提示。 */
-function PluginPage({ entry }: { entry: PluginCenterEntry | null }) {
+function PluginPage({
+  entry,
+  terminalApps,
+  onStartSession,
+}: {
+  entry: PluginCenterEntry | null;
+  terminalApps: string[];
+  onStartSession: (root: string, appId: string) => Promise<string>;
+}) {
   const { t } = useTranslation();
   if (!entry) {
     return (
@@ -152,6 +170,15 @@ function PluginPage({ entry }: { entry: PluginCenterEntry | null }) {
   }
   if (entry.kind === "panel" && entry.id === "report-card") {
     return <ReportCardPage embedded />;
+  }
+  if (entry.kind === "panel" && entry.id === "task-board") {
+    return (
+      <TaskBoardPage
+        embedded
+        terminalApps={terminalApps}
+        onStartSession={onStartSession}
+      />
+    );
   }
   return <PluginDetailPage entry={entry} />;
 }

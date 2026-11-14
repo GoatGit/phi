@@ -152,6 +152,21 @@ export interface GatewayIntentRule {
   memberId: string;
   enabled: boolean;
 }
+/**
+ * 路由组对外暴露的模型名：`group/<组名>`。
+ *
+ * 与后端 `gateway::routing::group_alias` 同一套规则：组名里的空白、`/`、`\\`
+ * 会被客户端当成路径分隔，统一换成 `-`。两边改一个就得改另一个。
+ */
+export function groupModelAlias(group: GatewayRouteGroup): string {
+  const normalized = group.name
+    .trim()
+    .replace(/[\s/\\]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized ? `group/${normalized}` : `group/${group.id}`;
+}
+
 export interface GatewayRouteGroup {
   id: string;
   name: string;

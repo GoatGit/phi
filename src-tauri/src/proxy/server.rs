@@ -153,6 +153,12 @@ async fn run_listener(
     }
 }
 
+/// 进程内调用入口：借一份 ProxyState，不监听端口。
+/// 判官（System One）走这里，因此与普通代理请求共用同一套路由、故障转移与记账。
+pub(crate) fn in_process_state(db: Arc<Database>) -> ProxyState {
+    ProxyServer::new(ProxyConfig::default(), db, None).state
+}
+
 impl ProxyServer {
     pub fn new(
         config: ProxyConfig,
