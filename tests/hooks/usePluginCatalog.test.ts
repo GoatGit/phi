@@ -25,22 +25,26 @@ function plugin(overrides: Partial<PluginSummary> = {}): PluginSummary {
 }
 
 describe("pluginCenterEntries", () => {
-  it("keeps the five fixed cards in order and marks config ones always-on", () => {
+  it("keeps the six fixed cards in order and marks host panels always-on", () => {
     const entries = pluginCenterEntries([plugin()], t);
 
-    expect(entries.slice(0, 5).map((entry) => entry.id)).toEqual([
+    expect(entries.slice(0, 6).map((entry) => entry.id)).toEqual([
       "report-card",
+      "task-board",
       "session-baton",
       "privacy",
       "mcp-router",
       "lessons",
     ]);
+    // 成绩单与任务看板都是宿主面板：能打开、能钉在侧栏，但没有单独的启停开关
     expect(entries[0].status).toBe("always-on");
     expect(entries[0].toggleable).toBe(false);
-    expect(entries[1].status).toBe("unknown");
+    expect(entries[1].status).toBe("always-on");
     expect(entries[1].toggleable).toBe(false);
-    expect(entries[2].status).toBe("always-on");
+    expect(entries[2].status).toBe("unknown");
     expect(entries[2].toggleable).toBe(false);
+    expect(entries[3].status).toBe("always-on");
+    expect(entries[3].toggleable).toBe(false);
   });
 
   it("reflects the plugin registry state for the cards backed by manifests", () => {
@@ -91,6 +95,7 @@ describe("pluginCenterEntries", () => {
       (entry) =>
         ![
           "report-card",
+          "task-board",
           "session-baton",
           "privacy",
           "mcp-router",

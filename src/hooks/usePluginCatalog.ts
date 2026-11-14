@@ -6,6 +6,7 @@ import {
   Blocks,
   BookOpenCheck,
   ClipboardList,
+  Columns3,
   HandHeart,
   Network,
   ShieldCheck,
@@ -69,6 +70,14 @@ const CARD_DEFINITIONS: CardDefinition[] = [
     descriptionKey: "pluginCenter.cards.reportCard.description",
     icon: ClipboardList,
     order: 10,
+    kind: "panel",
+  },
+  {
+    id: "task-board",
+    titleKey: "pluginCenter.cards.taskBoard.title",
+    descriptionKey: "pluginCenter.cards.taskBoard.description",
+    icon: Columns3,
+    order: 15,
     kind: "panel",
   },
   {
