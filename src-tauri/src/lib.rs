@@ -1627,6 +1627,7 @@ pub fn run() {
             commands::resync_mcp_to_apps,
             // Plugin system: request-body stages discovered from <config>/plugins
             commands::list_plugins,
+            commands::get_plugin_protocol,
             commands::set_plugin_enabled,
             commands::preview_plugin_request,
             // Privacy redaction: request-body stage + error-log scrubbing

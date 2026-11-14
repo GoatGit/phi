@@ -30,6 +30,7 @@
 //! [`PluginRuntime::summary`](runtime::PluginRuntime::summary) 暴露给 UI。
 
 pub mod manifest;
+pub mod protocol;
 pub mod registry;
 pub mod rules;
 pub mod runtime;
@@ -41,6 +42,7 @@ pub use manifest::{
     DeclarativeOp, DeclarativeRule, PanelDeclaration, PluginHook, PluginKind, PluginManifest,
     PluginValidationError, BUILTIN_PANELS,
 };
+pub use protocol::{protocol, PluginProtocol, ProtocolLimits, ProtocolSandbox};
 pub use registry::{
     LoadedPlugin, PluginLoadError, PluginOverrides, PluginRegistry, PluginSummary, STATE_FILE,
 };

@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "id": "baton-policy",
+  "name": "只在上下文超限时接棒",
+  "version": "1.0.0",
+  "description": "上下文超限就换一条新会话接着跑，其他失败交给内置策略。",
+  "author": "example",
+  "kind": "script",
+  "hooks": ["session-exit"],
+  "entry": "main.js",
+  "priority": 100,
+  "enabled_by_default": false
+}

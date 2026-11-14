@@ -27,7 +27,8 @@ const MAX_NAME_CHARS: usize = 128;
 const MAX_VERSION_CHARS: usize = 32;
 const MAX_DESCRIPTION_CHARS: usize = 512;
 const MAX_AUTHOR_CHARS: usize = 128;
-const MAX_RULES: usize = 32;
+/// 单个插件最多能带的声明式规则数。
+pub const MAX_RULES: usize = 32;
 const MAX_RULE_PATH_SEGMENTS: usize = 32;
 const MAX_RULE_PATH_CHARS: usize = 256;
 const MAX_PATTERN_CHARS: usize = 512;
