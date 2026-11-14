@@ -136,7 +136,15 @@ impl Database {
             .optional()
             .map_err(error)?;
         match raw {
-            Some(raw) => Ok(serde_json::from_str(&raw).unwrap_or_default()),
+            // 存过的设置解释不了（字段类型被手改过、旧版本写的值）：退回默认值，
+            // 但必须留一句日志——默默把开关关掉会让人以为是自己关的。
+            Some(raw) => match serde_json::from_str(&raw) {
+                Ok(settings) => Ok(settings),
+                Err(error) => {
+                    log::warn!("router settings unreadable, falling back to defaults: {error}");
+                    Ok(RouterSettings::default())
+                }
+            },
             None => Ok(RouterSettings::default()),
         }
     }

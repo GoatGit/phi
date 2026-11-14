@@ -106,6 +106,10 @@ export const handlers = [
     return success(body.settings ?? defaultRouterSettings);
   }),
   http.post(`${TAURI_ENDPOINT}/router_plan`, () => success([])),
+  // 手动「开始会话」的指令由 Rust 侧生成；这里给一个已转义的样例。
+  http.post(`${TAURI_ENDPOINT}/task_session_arguments`, () =>
+    success("'读 backlog/tasks/TASK-1.md 这张任务卡，完成任务。'"),
+  ),
   // 调度模型的下拉要读网关目录；默认给一份空目录，组件测试想验选项时再覆盖。
   http.post(`${TAURI_ENDPOINT}/get_gateway_catalog`, () =>
     success({ revision: 0, suppliers: [], policies: [], groups: [] }),

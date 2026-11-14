@@ -45,6 +45,16 @@ impl Dispatcher for TerminalDispatcher {
             None,
             None,
         )?;
+        let state = self.app.state::<crate::store::AppState>();
+        if let Err(error) =
+            state
+                .db
+                .link_task_session(&spec.root, &spec.task_id, &snapshot.id, &spec.app_id)
+        {
+            log::error!("router session link failed task={}: {error}", spec.task_id);
+            let _ = crate::terminal::close_by_id(&snapshot.id);
+            return Err(format!("session-link-failed:{error}"));
+        }
         Ok(DispatchOutcome {
             session_id: snapshot.id,
         })

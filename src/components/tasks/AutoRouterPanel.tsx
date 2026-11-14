@@ -111,6 +111,12 @@ export function AutoRouterPanel({
   const settings = status?.settings ?? null;
   const enabled = settings?.enabled ?? false;
   const shadow = settings?.shadow ?? true;
+  // 保存过的触发列可能已经不在看板上（列被改名或删掉）。这时要把这一项照实
+  // 补进下拉里：退回显示第一列会让人以为触发列已经换了，而实际派发一直不发生。
+  const columnOptions =
+    settings && !statuses.includes(settings.triggerStatus)
+      ? [...statuses, settings.triggerStatus]
+      : statuses;
   const modeLabel = !enabled
     ? t("tasks.router.modeOff")
     : shadow
@@ -173,6 +179,13 @@ export function AutoRouterPanel({
         >
           <Zap aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
           <span>{t("tasks.router.button")}</span>
+          {/* 影子模式开着时，只有「启用」是不会真的派活的。把这件事写在按钮上，
+              不让人靠展开面板再琢磨一遍状态标签。 */}
+          {enabled && shadow ? (
+            <span className="text-warning-text">
+              {t("tasks.router.modeShadow")}
+            </span>
+          ) : null}
           <span
             aria-hidden="true"
             className={cn(
@@ -252,21 +265,20 @@ export function AutoRouterPanel({
                     {t("tasks.router.triggerStatus")}
                   </span>
                   <Select
-                    value={
-                      statuses.includes(settings.triggerStatus)
-                        ? settings.triggerStatus
-                        : statuses[0]
-                    }
-                    disabled={busy || statuses.length === 0}
+                    value={settings.triggerStatus}
+                    disabled={busy || columnOptions.length === 0}
                     onValueChange={(value) =>
                       void patch({ triggerStatus: value })
                     }
                   >
-                    <SelectTrigger className="h-7 w-[132px] text-caption">
+                    <SelectTrigger
+                      className="h-7 w-[132px] text-caption"
+                      aria-label={t("tasks.router.triggerStatus")}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {statuses.map((column) => (
+                      {columnOptions.map((column) => (
                         <SelectItem key={column} value={column}>
                           {column}
                         </SelectItem>

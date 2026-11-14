@@ -1,8 +1,13 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pause, Play, RotateCcw } from "lucide-react";
+import { Pause, Play, RotateCcw, SquareTerminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getAppDisplayName } from "@/components/shell/AppGlyph";
-import type { RouterPlanNode, RouterTaskRun } from "@/lib/api/superAgent";
+import type {
+  RouterHumanDecision,
+  RouterPlanNode,
+  RouterTaskRun,
+} from "@/lib/api/superAgent";
 import { cn } from "@/lib/utils";
 import { runStateKey } from "./RunStateBadge";
 
@@ -13,6 +18,11 @@ interface AutoRouterSectionProps {
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
+  onResolve: (decision: RouterHumanDecision) => void;
+  /** 后端还持有这张卡的 worker 会话（应用重启后就不是了） */
+  sessionLive?: boolean;
+  /** 打开 worker 的终端会话：后台派发的进程不会自己出现在界面上 */
+  onOpenSession?: () => void;
 }
 
 const STATE_DOT: Record<string, string> = {
@@ -39,8 +49,12 @@ export function AutoRouterSection({
   onStart,
   onPause,
   onResume,
+  onResolve,
+  sessionLive = false,
+  onOpenSession,
 }: AutoRouterSectionProps) {
   const { t } = useTranslation();
+  const [decision, setDecision] = useState<RouterHumanDecision>("continue");
   const state = run?.state ?? "idle";
   const key = runStateKey(state);
   const running = state === "dispatched" || state === "working";
@@ -85,42 +99,100 @@ export function AutoRouterSection({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        {running ? (
+      {/* worker 跑在 phi 自己的 PTY 里：不切过去就完全看不到它在干什么，
+          这一行是「显示运行中但找不到终端」的出口。 */}
+      {running && !sessionLive ? (
+        <p className="m-0 text-caption text-fg-3">
+          {t("tasks.router.sessionGone")}
+        </p>
+      ) : null}
+      {sessionLive && onOpenSession ? (
+        <div>
           <Button
             variant="neutral"
             size="compact"
             disabled={busy}
-            onClick={onPause}
+            onClick={onOpenSession}
           >
-            <Pause data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
-            {t("tasks.router.pause")}
+            <SquareTerminal
+              data-icon
+              className="h-3.5 w-3.5"
+              strokeWidth={1.5}
+            />
+            {t("tasks.openSession")}
           </Button>
-        ) : state === "paused" ? (
-          <Button
-            variant="neutral"
-            size="compact"
-            disabled={busy}
-            onClick={onResume}
-          >
-            <RotateCcw data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
-            {t("tasks.router.resume")}
+        </div>
+      ) : null}
+
+      {state === "needs-you" ? (
+        <form
+          className="space-y-2 rounded-control border border-border p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onResolve(decision);
+          }}
+        >
+          <label className="block text-caption text-fg-1">
+            {t("tasks.router.confirmDecision")}
+            <select
+              className="mt-2 block w-full rounded-control border border-border bg-surface p-2"
+              value={decision}
+              disabled={busy}
+              onChange={(event) =>
+                setDecision(event.target.value as RouterHumanDecision)
+              }
+            >
+              <option value="continue">
+                {t("tasks.router.confirmContinue")}
+              </option>
+              <option value="complete">
+                {t("tasks.router.confirmComplete")}
+              </option>
+              <option value="pause">{t("tasks.router.pause")}</option>
+            </select>
+          </label>
+          <Button type="submit" variant="solid" size="compact" disabled={busy}>
+            {t("tasks.router.confirmSubmit")}
           </Button>
-        ) : (
-          <Button
-            variant="neutral"
-            size="compact"
-            disabled={busy}
-            onClick={onStart}
-          >
-            <Play data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
-            {t("tasks.router.start")}
-          </Button>
-        )}
-        <span className="text-caption text-fg-3">
-          {t("tasks.router.startHint")}
-        </span>
-      </div>
+        </form>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          {running || state === "queued" ? (
+            <Button
+              variant="neutral"
+              size="compact"
+              disabled={busy}
+              onClick={onPause}
+            >
+              <Pause data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+              {t("tasks.router.pause")}
+            </Button>
+          ) : state === "paused" ? (
+            <Button
+              variant="neutral"
+              size="compact"
+              disabled={busy}
+              onClick={onResume}
+            >
+              <RotateCcw data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+              {t("tasks.router.resume")}
+            </Button>
+          ) : state === "done" ? null : (
+            <Button
+              variant="neutral"
+              size="compact"
+              disabled={busy}
+              onClick={onStart}
+            >
+              <Play data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+              {t("tasks.router.start")}
+            </Button>
+          )}
+          <span className="text-caption text-fg-3">
+            {t("tasks.router.startHint")}
+          </span>
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <h4 className="m-0 text-caption font-medium text-fg-2">

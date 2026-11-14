@@ -35,45 +35,86 @@ const detail: TaskDetail = {
   links: [],
 };
 
-function renderSheet() {
+function renderSheet(
+  overrides: Partial<Parameters<typeof TaskDetailSheet>[0]> = {},
+) {
   const onClose = vi.fn();
-  const onStartSession = vi.fn();
+  const onAutoStart = vi.fn();
   render(
     <TaskDetailSheet
       detail={detail}
       statuses={["To Do", "In Progress", "Done"]}
-      terminalApps={["codex"]}
       busy={false}
       run={undefined}
       plan={[]}
       onClose={onClose}
-      onAutoStart={vi.fn()}
+      onAutoStart={onAutoStart}
       onAutoPause={vi.fn()}
       onAutoResume={vi.fn()}
       onSetStatus={vi.fn()}
       onArchive={vi.fn()}
-      onStartSession={onStartSession}
+      onResolve={vi.fn()}
       onUnlink={vi.fn()}
+      {...overrides}
     />,
   );
-  return { onClose, onStartSession };
+  return { onClose, onAutoStart };
 }
 
-describe("TaskDetailSheet — 开始会话", () => {
-  it("先收起抽屉再开终端，避免两层模态和整页替换同时卸载", async () => {
+describe("TaskDetailSheet — 统一启动", () => {
+  it("只保留调度开始入口，不再提供绕过运行态的开始会话", async () => {
     const user = userEvent.setup();
-    const { onClose, onStartSession } = renderSheet();
+    const { onAutoStart } = renderSheet();
 
     await user.click(
-      await screen.findByRole("button", { name: zh.tasks.startSession }),
+      await screen.findByRole("button", { name: zh.tasks.router.start }),
     );
-    const item = await screen.findByRole("menuitem", { name: "Codex" });
-    await user.click(item);
+    expect(onAutoStart).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: zh.tasks.startSession }),
+    ).toBeNull();
+  });
+});
 
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(onStartSession).toHaveBeenCalledWith("codex");
-    expect(onClose.mock.invocationCallOrder[0]).toBeLessThan(
-      onStartSession.mock.invocationCallOrder[0],
+describe("TaskDetailSheet — 跳转到终端会话", () => {
+  const linked = (): TaskDetail => ({
+    ...detail,
+    links: [
+      {
+        sessionId: "s-live",
+        appId: "codex",
+        createdAt: 0,
+        costUsd: 0,
+        requests: 3,
+      },
+    ],
+  });
+
+  it("后台派发的会话能从这里打开终端", async () => {
+    const user = userEvent.setup();
+    const onOpenSession = vi.fn();
+    renderSheet({
+      detail: linked(),
+      liveSessionIds: new Set(["s-live"]),
+      onOpenSession,
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: zh.tasks.openSession }),
     );
+    expect(onOpenSession).toHaveBeenCalledWith("codex", "s-live");
+  });
+
+  it("应用重启后会话不在了，如实写「会话已结束」而不是给一个打不开的按钮", () => {
+    renderSheet({
+      detail: linked(),
+      liveSessionIds: new Set<string>(),
+      onOpenSession: vi.fn(),
+    });
+
+    expect(
+      screen.queryByRole("button", { name: zh.tasks.openSession }),
+    ).toBeNull();
+    expect(screen.getByText(zh.tasks.sessionEnded)).toBeTruthy();
   });
 });

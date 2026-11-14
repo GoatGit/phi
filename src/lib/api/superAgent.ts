@@ -57,6 +57,9 @@ export interface RouterTaskRun {
   updatedAt: number;
 }
 
+/** 人工确认：继续排队、确认完成或暂停；后端校验运行版本和卡片指纹。 */
+export type RouterHumanDecision = "continue" | "complete" | "pause";
+
 export type RouterAction = "dispatch" | "ask" | "skip";
 
 export interface RouterDecision {
@@ -91,7 +94,7 @@ export interface RouterTickReport {
   traceId: string;
   at: number;
   trigger: string;
-  /** 空跑原因：disabled / no-tasks / no-candidates / dispatch-quota-used / concurrency-full */
+  /** 空跑原因：disabled / no-tasks / no-candidates / dispatch-quota-used / concurrency-full / no-capacity */
   skipped: string | null;
   scanned: number;
   candidates: number;
@@ -137,10 +140,18 @@ export const superAgentApi = {
   tick: (trigger?: string) =>
     invoke<RouterTickReport>("router_tick", { trigger: trigger ?? null }),
   plan: (taskId: string) => invoke<RouterPlanNode[]>("router_plan", { taskId }),
+  /**
+   * 手动「开始会话」要交给 CLI 的参数：与自动派发同一句指令，且已由 Rust 侧转义。
+   * 前端不自己拼任务描述，否则两条入口的说法迟早会分叉。
+   */
+  sessionArguments: (root: string, taskId: string) =>
+    invoke<string>("task_session_arguments", { root, taskId }),
   pause: (root: string, taskId: string) =>
     invoke<void>("router_pause_task", { root, taskId }),
   resume: (root: string, taskId: string) =>
     invoke<void>("router_resume_task", { root, taskId }),
+  resolve: (root: string, taskId: string, decision: RouterHumanDecision, expectedUpdatedAt: number, fingerprint: string) =>
+    invoke<void>("router_resolve_task", { root, taskId, decision, expectedUpdatedAt, fingerprint }),
   /** 立刻开始：跳过冷却与配额，仍受 worker 白名单与租约约束。 */
   start: (root: string, taskId: string) =>
     invoke<void>("router_start_task", { root, taskId }),

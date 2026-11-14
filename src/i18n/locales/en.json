@@ -198,7 +198,8 @@
       "clearFilter": "Reset filters",
       "attempts": "{{count}} attempts",
       "latestOutlet": "Latest outlet",
-      "usageCost": "Usage / est. cost"
+      "usageCost": "Usage / est. cost",
+      "toggleHint": "{{count}} total · expand to see each request's path and latency"
     },
     "errors": {
       "generic": "Action failed: {{detail}}",
@@ -413,6 +414,7 @@
       "empty": "No requests yet — each app's latest route appears once requests arrive",
       "pause": "Pause replay",
       "replay": "Replay",
+      "resume": "Resume",
       "showAll": "Show full trace",
       "step": "Step {{current}} / {{total}}",
       "diagram": "Each app's latest request flowing through PHI and route groups to models",
@@ -433,6 +435,7 @@
       "lineUnknown": "Dotted = unconfirmed",
       "idle": "Idle",
       "noGroup": "No route group",
+      "connected": "Route group connected",
       "laneCount": "{{count}} app lines",
       "legacyPolicy": "Legacy policy",
       "focusApp": "Highlight {{app}}'s flow line",
@@ -452,6 +455,7 @@
       }
     },
     "routingStatus": {
+      "filtered": "Filtered: {{summary}}",
       "title": "Routing status",
       "description": "Auto-refreshes every 5 s",
       "filter": "Filter",
@@ -5676,8 +5680,11 @@
       "loadFailures": "Some plugins failed to load",
       "addPlugin": {
         "title": "Add a plugin",
-        "body": "Drop a folder with a plugin.json into the plugin directory, then refresh."
-      }
+        "body": "Drop a folder with a plugin.json into the plugin directory, then refresh.",
+        "protocol": "Protocol & SDK"
+      },
+      "enabled": "Enabled",
+      "alwaysOn": "Built in"
     },
     "pin": {
       "pin": "Pin to sidebar",
@@ -5725,6 +5732,10 @@
       "taskBoard": {
         "title": "Task board",
         "description": "Turn the repository's Backlog.md into a board: drag to change status, open a task as a terminal session, and link usage back to it."
+      },
+      "protocol": {
+        "title": "Plugin protocol",
+        "description": "Everything you need to write a third-party plugin: folder layout, manifest fields, the script SDK, and the install steps."
       }
     },
     "lessons": {
@@ -5797,11 +5808,11 @@
         "step4": "Save, then use “Try it” with a real sample to confirm what matches and what comes back.",
         "note": "Try it reads the saved config. Redaction applies to requests sent afterwards; anything already sent cannot be recalled."
       },
-      "intro": "Replaces credentials and easy-to-misuse personal data on this machine. Request bodies are left alone by default: rewriting a prompt changes behaviour, so it is opt-in.",
+      "intro": "Before anything leaves your machine, credentials and easy-to-misuse personal data are swapped for placeholders. Request-body rewriting stays off by default: it changes what the model sees, so turn it on deliberately.",
       "enabled": "Redaction on",
       "enabledHint": "Turning this off skips both request bodies and error summaries",
       "body": "Rewrite the outgoing request body",
-      "bodyHint": "Matches inside the prompt are replaced with placeholder text",
+      "bodyHint": "Matches in outbound content are replaced with the placeholder text below",
       "logs": "Redact local error summaries",
       "logsHint": "Only affects local diagnostics, never a feature",
       "rules": "Detectors",
@@ -5857,7 +5868,7 @@
       "serverPlaceholder": "Pick a server",
       "server": "Server",
       "alias": "Alias",
-      "aliasPlaceholder": "Alias (falls back to the namespace)",
+      "aliasPlaceholder": "e.g. desktop-control",
       "namespacePlaceholder": "Namespace",
       "priority": "Conflict priority",
       "apps": "Visible to",
@@ -5876,7 +5887,9 @@
       "applied": "Saved and re-applied to the clients",
       "applyFailed": "Config saved, but re-applying failed: {{message}}",
       "saveFailed": "Could not save: {{message}}",
-      "loadFailed": "Could not read the MCP routing config"
+      "loadFailed": "Could not read the MCP routing config",
+      "namespaceInputPlaceholder": "e.g. fs",
+      "namespaceWithAliasLabel": "Namespace (unused when an alias is set)"
     },
     "guide": {
       "what": "Purpose",
@@ -5928,7 +5941,95 @@
         "notes": "The board only changes status, never code."
       }
     },
-    "unsaved": "Unsaved changes"
+    "unsaved": "Unsaved changes",
+    "protocol": {
+      "lede": "A third-party plugin is a folder plus one plugin.json. Add declarative rules or a script to change requests; point at a built-in panel to put a page in the interface.",
+      "hint": "The numbers below come from this build: manifest v{{version}}, up to {{maxPlugins}} plugins.",
+      "loadFailed": "Could not load the plugin protocol",
+      "copy": "Copy",
+      "copied": "Copied",
+      "layout": {
+        "title": "A plugin is just a folder",
+        "note": "A folder without plugin.json is skipped. An id is accepted once; later duplicates are reported as load errors."
+      },
+      "manifest": {
+        "title": "plugin.json",
+        "field": "Field",
+        "requiredColumn": "Required",
+        "meaning": "Meaning",
+        "note": "Unknown fields are rejected on purpose: a misspelled key that got ignored would leave you with a plugin that is installed and does nothing. Manifests are capped at {{kb}} KB and scripts at {{scriptKb}} KB."
+      },
+      "required": {
+        "yes": "Yes",
+        "no": "No",
+        "script": "Script only",
+        "rules": "Rules only",
+        "feature": "Feature only"
+      },
+      "fields": {
+        "manifestVersion": "Manifest schema version; omitted means the current one (v{{version}}).",
+        "id": "Stable id: starts with a lowercase letter or digit; only lowercase letters, digits, - _ . are allowed.",
+        "name": "Display name used on the card and the tab.",
+        "version": "The plugin's own version; anything you like.",
+        "description": "One sentence about what it does; shown on the card.",
+        "author": "Shown on the plugin's detail page.",
+        "kind": "rules (default) / script / feature — see the next section.",
+        "hooks": "Which hooks it joins ({{hooks}}); an empty array means it never runs.",
+        "priority": "Queue order; lower runs first, ties break by id.",
+        "enabledByDefault": "The switch value until the user changes it.",
+        "entry": "Script entry, relative to the plugin folder and ending in .js.",
+        "rules": "Declarative rules, at most {{maxRules}}.",
+        "panel": "Which built-in panel a feature plugin hosts: {{panels}}."
+      },
+      "kinds": {
+        "title": "Three kinds of plugin",
+        "kind": "Kind",
+        "hooks": "Hooks it can join",
+        "how": "How it works",
+        "rules": {
+          "how": "Rules live in the manifest; the host compiles and runs them, no code involved."
+        },
+        "script": {
+          "how": "Runs the script at entry in the sandbox; export onRequest or onSessionExit."
+        },
+        "feature": {
+          "how": "Adds one host-built panel to the interface; no requests, no frontend code of its own."
+        },
+        "note": "The hook decides when a plugin is called; the kind decides how it answers. The manifest validator enforces the combinations: rules plugins cannot declare session-exit, script plugins cannot carry rules, and feature plugins can only declare panel. Enabled request plugins run in priority order on every request that goes through the proxy."
+      },
+      "rules": {
+        "title": "Declarative rules",
+        "note": "Paths are dot-separated; * matches both object keys and array elements, and numeric segments index arrays (messages.0.content). mask only rewrites strings; remove deletes a key or element and takes no pattern."
+      },
+      "script": {
+        "title": "Script SDK",
+        "note": "The sandbox injects no runtime: no require / import, no network, no files, and no app id or endpoint. A script only reads its input, returns a result, or returns null to leave things alone or abstain.",
+        "requestTitle": "Rewrite the request (onRequest)",
+        "requestNote": "It only receives the request body; return a new object to replace it. Returning the input unchanged counts as no change.",
+        "exitTitle": "Handoff decision (onSessionExit)",
+        "decisionField": "Field",
+        "decisionValue": "Values",
+        "decision": {
+          "action": "resume to hand off, record to only log; required.",
+          "mode": "same-session resumes the original session, fresh-session starts a new one; omit to use the built-in choice.",
+          "reason": "One sentence; required; truncated past 200 characters."
+        },
+        "eventNote": "The event carries app, cwd, exitCode, failureKind (quota / context / provider / crash), reason, hasTarget, attempts, lastKind, maxAttempts, autoResume, evidence and successes. Fields are only ever added, so read them by name.",
+        "limitsNote": "Sandbox limits: {{timeout}} ms per run, {{memory}} MB heap, {{stack}} KB stack, {{payload}}K characters in and out. Every run gets a fresh runtime. A timeout, a thrown error or non-JSON output only makes that one run a no-op."
+      },
+      "install": {
+        "title": "Install a third-party plugin",
+        "step1": "Create a folder inside the plugin directory; name it after the id:",
+        "step2": "Add a plugin.json; for scripts also add main.js and point entry at it.",
+        "step3": "Back in the plugin center, hit Refresh. The card appears and you can open, enable and dry-run it.",
+        "step4": "To remove it, delete the folder. Enabling only writes {{stateFile}}; your files are left alone.",
+        "sdkNote": "The repo's plugins-sdk/ has the type declarations (phi-plugin.d.ts) and two copy-ready examples (mask-emails, baton-policy). They are for your editor only; the sandbox never loads them."
+      },
+      "fails": {
+        "title": "What happens when it fails",
+        "note": "Plugins are an enhancement, not a dependency: a load failure, an invalid regex, a thrown error or a timeout only skips that one run and the request still goes upstream. Errors show at the top of the plugin center. Plugins get no host capabilities either — restarting sessions and writing files stays with the host."
+      }
+    }
   },
   "reportCard": {
     "title": "Report card",
@@ -6005,7 +6106,7 @@
     "title": "Tasks",
     "workspace": "Repository",
     "newTask": "New task",
-    "newTaskPlaceholder": "Type a title, press Enter",
+    "newTaskPlaceholder": "Task title · Ctrl+Enter to create",
     "newTaskSend": "Create task",
     "refresh": "Refresh",
     "addWorkspace": "Add repository",
@@ -6102,7 +6203,12 @@
       "planEmpty": "No sub-tasks were split out this round",
       "planDeps": "Depends on {{deps}}",
       "saveFailed": "Could not save: {{error}}",
-      "actionFailed": "Action failed: {{error}}"
+      "actionFailed": "Action failed: {{error}}",
+      "confirmDecision": "What should happen next?",
+      "confirmContinue": "Continue (queue again)",
+      "confirmComplete": "Confirm completed (move to Done)",
+      "confirmSubmit": "Submit decision",
+      "sessionGone": "This run was dispatched before the last app restart, so its terminal session is gone."
     },
     "errors": {
       "noBacklog": "There is no backlog/config.yml in this folder",
@@ -6114,6 +6220,9 @@
       "emptyTitle": "A title is required",
       "terminalUnsupported": "Local terminals are not available on this platform",
       "invalidWorkspace": "The backlog config in this repository cannot be read"
-    }
+    },
+    "openSession": "Open terminal",
+    "sessionEnded": "Session ended",
+    "sessionClosed": "This session has ended: terminal sessions do not survive an app restart. Starting again opens a new one."
   }
 }

@@ -38,7 +38,7 @@ pub struct RouterSettings {
     pub worker_apps: Vec<String>,
     /// 连续失败多少次之后转人工。
     pub max_attempts: u32,
-    /// 是否把「退出码 0 且卡片被改过」判为完成。关掉之后一律转人工确认。
+    /// 是否自动结算退出码 0：Done 判完成，触发列未完成则按退避重试；关闭时转人工。
     pub trust_exit_zero: bool,
     /// 租约有效期（秒）。过期后下一次 tick 自动回收，避免任务永远停在 dispatched。
     pub lease_seconds: i64,
@@ -348,12 +348,20 @@ pub struct DispatchSpec {
 impl DispatchSpec {
     /// 交给 CLI 的初始指令。一句话，不做花活：worker 自己会读卡片。
     pub fn prompt(&self) -> String {
-        format!(
-            "读 {} 这张任务卡，完成任务。改完在卡片正文里补一句结论（改了什么、验证了什么）；\
-             如果缺只有人才能给的信息，不要猜，把问题写进正文并停下。",
-            self.file
-        )
+        task_prompt(&self.file)
     }
+}
+
+/// 交给 CLI 的初始指令。
+///
+/// 自动派发与看板上手动「开始会话」必须说同一句话：两条入口各写一份，
+/// 迟早会出现「机器派活知道读哪张卡、人点的会话两眼一抹黑」。
+/// 路径是相对仓库根的，而两种入口都以仓库根当 cwd，所以这里不需要绝对路径。
+pub fn task_prompt(file: &str) -> String {
+    format!(
+        "读 {file} 这张任务卡，完成任务。改完在卡片正文里补一句结论（改了什么、验证了什么）；\
+         如果缺只有人才能给的信息，不要猜，把问题写进正文并停下。"
+    )
 }
 
 /// 派发结果：成功时带会话 id，失败时带原因。

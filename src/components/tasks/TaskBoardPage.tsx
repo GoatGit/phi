@@ -39,6 +39,7 @@ import { Input, fieldClass } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PluginGuide } from "@/components/plugins/PluginGlyph";
+import { pluginCardPageClass } from "@/components/plugins/pluginPage";
 import { settingsApi } from "@/lib/api/settings";
 import {
   taskErrorMessage,
@@ -65,10 +66,18 @@ const ROOT_STORAGE_KEY = "phi.task.workspace";
 interface TaskBoardPageProps {
   /** 能开本地终端会话的应用（为空表示当前平台不支持） */
   terminalApps: string[];
-  /** 在指定应用、指定目录开一个会话，返回会话 ID；失败时抛错 */
-  onStartSession: (root: string, appId: string) => Promise<string>;
+  /** 在指定应用、指定目录开一个会话，返回会话 ID；`argumentsText` 是已转义的初始指令 */
+  onStartSession: (
+    root: string,
+    appId: string,
+    argumentsText?: string,
+  ) => Promise<string>;
   /** 作为插件中心的一个页签嵌入：不再画自己的页头，操作行放进内容顶部 */
   embedded?: boolean;
+  /** 打开一个已经存在的会话；后台派发的 worker 不会自己出现在界面上 */
+  onOpenSession: (appId: string, sessionId: string) => Promise<boolean>;
+  /** 后端当前确实持有的会话 id，用来区分「还能打开」与「会话已结束」 */
+  liveSessionIds: string[];
 }
 
 function readStoredRoot() {
@@ -88,8 +97,9 @@ function readStoredRoot() {
  */
 export function TaskBoardPage({
   terminalApps,
-  onStartSession,
   embedded = false,
+  onOpenSession,
+  liveSessionIds,
 }: TaskBoardPageProps) {
   const { t } = useTranslation();
   const [workspaces, setWorkspaces] = useState<TaskWorkspace[]>([]);
@@ -107,6 +117,7 @@ export function TaskBoardPage({
   /** 详情里那张卡的执行计划（规划节点，规则版调度多半为空） */
   const [plan, setPlan] = useState<RouterPlanNode[]>([]);
   const router = useRouterStatus(activeRoot);
+  const liveSessions = useMemo(() => new Set(liveSessionIds), [liveSessionIds]);
 
   const active = workspaces.find((entry) => entry.root === activeRoot) ?? null;
 
@@ -280,23 +291,6 @@ export function TaskBoardPage({
     }
   };
 
-  const handleStartSession = async (task: TaskCard, appId: string) => {
-    if (!activeRoot) return;
-    setBusy(true);
-    try {
-      const sessionId = await onStartSession(activeRoot, appId);
-      await tasksApi.linkSession(activeRoot, task.id, sessionId, appId);
-      const fresh = await tasksApi.detail(activeRoot, task.id);
-      setDetail((current) =>
-        current && current.task.id === task.id ? fresh : current,
-      );
-    } catch (error) {
-      toast.error(taskErrorMessage(error, t));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleUnlink = async (sessionId: string) => {
     if (!activeRoot || !detail) return;
     setBusy(true);
@@ -463,8 +457,10 @@ export function TaskBoardPage({
     }
   };
 
-  /** 自动调度的三个动作：只写运行态，不改仓库里的任务文件。 */
+  /** 调度动作统一反馈；开始/确认完成可能同步更新任务列。 */
   const runRouterAction = async (action: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
     try {
       await action();
     } catch (error) {
@@ -474,6 +470,7 @@ export function TaskBoardPage({
         }),
       );
     } finally {
+      setBusy(false);
       await router.refresh();
       if (activeRoot && detail) {
         const taskId = detail.task.id;
@@ -484,13 +481,28 @@ export function TaskBoardPage({
     }
   };
 
+  /** 打开一条已有关联会话。后端已经不持有它时说明应用重启过了，如实告知。 */
+  const handleOpenSession = async (appId: string, sessionId: string) => {
+    const opened = await onOpenSession(appId, sessionId).catch(() => false);
+    if (!opened) toast.info(t("tasks.sessionClosed"));
+  };
+
   const handleAutoStart = () => {
     if (!activeRoot || !detail) return;
     const taskId = detail.task.id;
+    const root = activeRoot;
     void runRouterAction(async () => {
-      await superAgentApi.start(activeRoot, taskId);
-      await loadBoard(activeRoot);
+      await superAgentApi.start(root, taskId);
+      await loadBoard(root);
       toast.success(t("tasks.router.started"));
+      // 派发成功就把人带到那张卡的会话上：worker 跑在自己的 PTY 里，界面不切过去
+      // 就一点痕迹都没有，看起来完全是「显示运行中、却看不到终端」。
+      const status = await superAgentApi.status().catch(() => null);
+      const started = status?.runs.find(
+        (entry) => entry.taskId === taskId && entry.root === root,
+      );
+      if (started?.sessionId && started.workerApp)
+        await handleOpenSession(started.workerApp, started.sessionId);
     });
   };
 
@@ -600,7 +612,8 @@ export function TaskBoardPage({
     <div
       className={cn(
         "flex min-h-0 flex-col",
-        embedded ? "w-full gap-3 px-6 pb-6" : "flex-1",
+        // 嵌进插件中心时用与其它插件页同一个版心：切页签时左右边缘不跳。
+        embedded ? cn(pluginCardPageClass, "gap-3") : "flex-1",
       )}
     >
       {embedded ? (
@@ -627,15 +640,34 @@ export function TaskBoardPage({
       </div>
 
       <TaskDetailSheet
+        key={detail?.task.id ?? "closed"}
         detail={detail}
         statuses={board?.statuses ?? []}
-        terminalApps={terminalApps}
         busy={busy}
         run={detail ? router.runsByTask.get(detail.task.id) : undefined}
         plan={plan}
+        liveSessionIds={liveSessions}
+        onOpenSession={(appId, sessionId) =>
+          void handleOpenSession(appId, sessionId)
+        }
         onAutoStart={handleAutoStart}
         onAutoPause={handleAutoPause}
         onAutoResume={handleAutoResume}
+        onResolve={(decision) => {
+          if (!activeRoot || !detail) return;
+          const run = router.runsByTask.get(detail.task.id);
+          if (!run) return;
+          void runRouterAction(async () => {
+            await superAgentApi.resolve(
+              activeRoot,
+              detail.task.id,
+              decision,
+              run.updatedAt,
+              detail.task.fingerprint,
+            );
+            await loadBoard(activeRoot);
+          });
+        }}
         onClose={() => {
           setDetail(null);
         }}
@@ -644,9 +676,6 @@ export function TaskBoardPage({
         }}
         onArchive={() => {
           if (detail) handleArchive(detail.task);
-        }}
-        onStartSession={(appId) => {
-          if (detail) void handleStartSession(detail.task, appId);
         }}
         onUnlink={(sessionId) => void handleUnlink(sessionId)}
       />
@@ -711,11 +740,19 @@ function BoardColumnView({
       ref={setNodeRef}
       aria-label={status}
       className={cn(
-        "flex w-[300px] shrink-0 flex-col rounded-panel border border-border bg-subtle/40 transition-colors",
-        isOver && "border-border-strong bg-selected/40",
+        // 列平分看板宽度，而不是各占 300 固定宽：这样整块的左右边缘与
+        // 上方工具栏、下方说明块落在同一条线上，右侧不再空出一条。
+        // 列是「托盘」：满色 bg-subtle、不描边。卡片要压在它上面，托盘自己不该带边框，
+        // 否则两个有边的盒子叠在一起，谁在上看不出来。
+        // 列多到放不下时（min-w 撑住）仍然走横向滚动。
+        "flex min-w-[240px] flex-1 basis-0 flex-col rounded-panel bg-subtle transition-colors",
+        // 拖动悬停：整列压深一档。注意不能用 bg-selected/70 这类透明度写法——
+        // 主题色是 var(--bg-*) 形式，Tailwind 生成不出带 alpha 的类，会静默失效。
+        isOver && "bg-selected",
       )}
     >
-      <header className="flex h-9 shrink-0 items-center gap-2 px-3">
+      {/* 内边距与卡片列表一致（px-2.5），列名和卡片左边缘才对得齐；也让卡片投影有地方落 */}
+      <header className="flex h-9 shrink-0 items-center gap-2 px-2.5">
         <h2 className="m-0 truncate text-body font-medium text-fg-1">
           {status}
         </h2>
@@ -723,7 +760,7 @@ function BoardColumnView({
           {tasks.length}
         </span>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scroll-stable px-2 pb-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scroll-stable px-2.5 pb-2.5">
         {onCreate ? <NewTaskComposer onCreate={onCreate} /> : null}
         {tasks.length === 0 ? (
           <p className="m-0 px-2 py-3 text-caption text-fg-3">
@@ -772,7 +809,7 @@ function TaskCardView({
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform) }}
       className={cn(
-        "group relative rounded-control border border-border bg-surface transition-shadow hover:shadow-v7-sm",
+        "group relative rounded-control border border-border bg-surface shadow-v7-card transition-shadow hover:shadow-v7-card-hover",
         (isDragging || dragging) && "opacity-40",
       )}
     >
@@ -838,7 +875,7 @@ function TaskCardView({
 /** 拖拽时跟随指针的卡片副本：列本身是滚动容器，不套 DragOverlay 会被裁掉。 */
 function CardPreview({ task }: { task: TaskCard }) {
   return (
-    <div className="w-[284px] rounded-control border border-border bg-surface p-2.5 shadow-v7-md">
+    <div className="w-[284px] rounded-control border border-border bg-surface p-2.5 shadow-v7-lg">
       <span className="block text-caption font-medium leading-snug text-fg-1 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] overflow-hidden">
         {task.title}
       </span>
@@ -849,7 +886,7 @@ function CardPreview({ task }: { task: TaskCard }) {
   );
 }
 
-/** 默认列顶部的快速新建：只有一个输入框，回车或点发送就落成一张卡。 */
+/** 默认列顶部的快速新建：Ctrl+Enter 或点发送才提交，避免输入法误发。 */
 function NewTaskComposer({
   onCreate,
 }: {
@@ -876,7 +913,7 @@ function NewTaskComposer({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-1.5 rounded-control border border-dashed border-border-strong px-2.5 py-2 text-caption text-fg-3 transition-colors hover:bg-surface hover:text-fg-1"
+        className="flex w-full items-center gap-1.5 rounded-control border border-dashed border-border-strong px-2.5 py-2 text-caption text-fg-3 transition-[color,background-color,box-shadow] hover:bg-surface hover:text-fg-1 hover:shadow-v7-sm"
       >
         <Plus aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
         {t("tasks.newTask")}
@@ -893,7 +930,11 @@ function NewTaskComposer({
         placeholder={t("tasks.newTaskPlaceholder")}
         onChange={(event) => setTitle(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter") {
+          if (
+            event.key === "Enter" &&
+            event.ctrlKey &&
+            !event.nativeEvent.isComposing
+          ) {
             event.preventDefault();
             void submit();
           } else if (event.key === "Escape") {

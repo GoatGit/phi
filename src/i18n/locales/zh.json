@@ -198,7 +198,8 @@
       "clearFilter": "重置筛选",
       "attempts": "{{count}} 次尝试",
       "latestOutlet": "最近出口",
-      "usageCost": "用量 / 估算费用"
+      "usageCost": "用量 / 估算费用",
+      "toggleHint": "共 {{count}} 条，展开查看每次请求的选路与耗时"
     },
     "errors": {
       "generic": "操作失败：{{detail}}",
@@ -413,6 +414,7 @@
       "empty": "暂无请求，到达后展示各应用最近请求的实际调用路径",
       "pause": "暂停回放",
       "replay": "回放",
+      "resume": "继续回放",
       "showAll": "显示完整轨迹",
       "step": "第 {{current}} / {{total}} 步",
       "diagram": "各应用最近请求经过 PHI 与路由组到达模型的路由流转图",
@@ -433,6 +435,7 @@
       "lineUnknown": "点状虚线 = 结果未确认",
       "idle": "未运行",
       "noGroup": "未接入路由组",
+      "connected": "已接入路由",
       "laneCount": "{{count}} 条应用线",
       "legacyPolicy": "历史策略",
       "focusApp": "高亮 {{app}} 的流转线",
@@ -452,6 +455,7 @@
       }
     },
     "routingStatus": {
+      "filtered": "已筛选 {{summary}}",
       "title": "路由状态",
       "description": "每 5 秒自动刷新",
       "filter": "筛选",
@@ -5676,8 +5680,11 @@
       "loadFailures": "这些插件没能加载",
       "addPlugin": {
         "title": "添加插件",
-        "body": "把带 plugin.json 的文件夹放进插件目录，再刷新一次。"
-      }
+        "body": "把带 plugin.json 的文件夹放进插件目录，再刷新一次。",
+        "protocol": "插件协议与 SDK"
+      },
+      "enabled": "已启用",
+      "alwaysOn": "宿主自带"
     },
     "pin": {
       "pin": "钉在侧栏",
@@ -5704,11 +5711,11 @@
     "cards": {
       "reportCard": {
         "title": "成绩单",
-        "description": "想知道哪个模型在你自己仓库上更少翻车，就看这一页：失败率、中断率、单任务成本排在一起。"
+        "description": "看每个模型在你自己仓库上的表现：失败率、中断率、单任务成本排在一起，哪个更稳一眼就能分出来。"
       },
       "sessionBaton": {
         "title": "接棒",
-        "description": "会话跑到一半断掉时自动接上：额度用完了续原会话，上下文爆了换个会话交接。"
+        "description": "会话跑到一半断了就自动接着跑：额度用完续原会话，上下文爆了开新会话并把进度交接过去。"
       },
       "privacy": {
         "title": "隐私脱敏",
@@ -5716,15 +5723,19 @@
       },
       "mcpRouter": {
         "title": "MCP 路由",
-        "description": "同一个 MCP 服务器在各客户端里统一叫法：别名、命名空间、对谁可见。"
+        "description": "同一个 MCP 服务器要在多个客户端里用，名字、别名和谁能看见，都在这页统一改。"
       },
       "lessons": {
         "title": "教训库",
-        "description": "把踩过的坑记成仓库的禁区清单，下次会话开始时自动带上。"
+        "description": "踩过的坑记成仓库清单，下次开会话自动带上，少走回头路。"
       },
       "taskBoard": {
         "title": "任务看板",
-        "description": "把仓库里的 Backlog.md 变成看板：拖动改状态、把任务开成终端会话，用量回挂到任务。"
+        "description": "仓库里的 Backlog.md 变成看板：拖动改状态，任务能直接开成终端会话，花掉的用量也记在这条任务上。"
+      },
+      "protocol": {
+        "title": "插件协议",
+        "description": "要写三方插件就看这一页：目录怎么摆、清单有哪些字段、脚本 SDK 怎么调、装上去要几步。"
       }
     },
     "lessons": {
@@ -5797,11 +5808,11 @@
         "step4": "保存之后去「试跑」贴一段真实文本，确认命中的位置和替换结果。",
         "note": "试跑读的是已保存的配置。脱敏只作用于之后发出的请求，已经发出去的内容收不回来。"
       },
-      "intro": "把凭据和容易被误用的个人信息在本机替换掉。请求体默认不改写——改 prompt 是行为变化，需要你自己打开。",
+      "intro": "发出去之前，把凭据和容易被误用的个人信息在本机换成占位文本。改写请求体默认关着：一改，模型看到的内容就变了，要不要开由你决定。",
       "enabled": "启用脱敏",
       "enabledHint": "关闭后请求体与错误摘要都不处理",
-      "body": "改写发往上游的请求体",
-      "bodyHint": "开启后 prompt 里命中的内容会被替换成占位文本",
+      "body": "改写发出去的请求体",
+      "bodyHint": "开启后，发出去的内容里命中的片段会被换成占位文本",
       "logs": "脱敏本地错误摘要",
       "logsHint": "只影响本地诊断材料，不影响任何功能",
       "rules": "检测规则",
@@ -5857,7 +5868,7 @@
       "serverPlaceholder": "选择服务器",
       "server": "服务器",
       "alias": "别名",
-      "aliasPlaceholder": "别名（留空则用命名空间）",
+      "aliasPlaceholder": "如 desktop-control",
       "namespacePlaceholder": "命名空间",
       "priority": "撞名优先级",
       "apps": "可见客户端",
@@ -5876,7 +5887,9 @@
       "applied": "已保存，并重新投影到客户端",
       "applyFailed": "配置已保存，但重新投影失败：{{message}}",
       "saveFailed": "保存失败：{{message}}",
-      "loadFailed": "MCP 路由配置读取失败"
+      "loadFailed": "MCP 路由配置读取失败",
+      "namespaceInputPlaceholder": "如 fs",
+      "namespaceWithAliasLabel": "命名空间（有别名时不用）"
     },
     "guide": {
       "what": "作用",
@@ -5928,7 +5941,95 @@
         "notes": "看板只改状态，不改代码；任务完成后仍然回到对应会话里收尾。"
       }
     },
-    "unsaved": "有未保存的改动"
+    "unsaved": "有未保存的改动",
+    "protocol": {
+      "lede": "写一个三方插件只要两样东西：一个目录、一份 plugin.json。要改请求就加声明式规则或脚本，要在界面挂页面就指名宿主已有的面板。",
+      "hint": "下面的数字取自当前这次构建：清单版本 v{{version}}，最多 {{maxPlugins}} 个插件。",
+      "loadFailed": "插件协议读取失败",
+      "copy": "复制",
+      "copied": "已复制",
+      "layout": {
+        "title": "一个插件就是一个目录",
+        "note": "目录里没有 plugin.json 会被跳过；同一个 id 只认先加载到的那个，后出现的记一条加载错误。"
+      },
+      "manifest": {
+        "title": "plugin.json",
+        "field": "字段",
+        "requiredColumn": "必填",
+        "meaning": "说明",
+        "note": "未知字段会被拒绝，这是刻意的：拼错的键若被悄悄忽略，插件就成了「装上了但什么都不做」。清单最多 {{kb}} KB，脚本最多 {{scriptKb}} KB。"
+      },
+      "required": {
+        "yes": "是",
+        "no": "否",
+        "script": "仅脚本",
+        "rules": "仅规则",
+        "feature": "仅功能"
+      },
+      "fields": {
+        "manifestVersion": "清单结构版本，不写就按当前版本（v{{version}}）处理。",
+        "id": "稳定标识：小写字母或数字开头，只能用 小写字母、数字、- _ .。",
+        "name": "展示名，卡片和页签都用它。",
+        "version": "插件自己的版本号，自由填写。",
+        "description": "一句话说清它做什么，显示在卡片上。",
+        "author": "作者署名，显示在插件详情里。",
+        "kind": "rules（默认）/ script / feature，见下一节。",
+        "hooks": "参与哪些钩子（{{hooks}}）；空数组等于不生效。",
+        "priority": "排队顺序，数值小的先跑，同值按 id 字典序。",
+        "enabledByDefault": "没被用户改过时的默认开关。",
+        "entry": "脚本入口，相对插件目录、必须以 .js 结尾。",
+        "rules": "声明式规则，最多 {{maxRules}} 条。",
+        "panel": "功能插件挂哪个内置面板：{{panels}}。"
+      },
+      "kinds": {
+        "title": "三类插件",
+        "kind": "类型",
+        "hooks": "能挂的钩子",
+        "how": "怎么生效",
+        "rules": {
+          "how": "清单里写规则，宿主编译执行，不跑代码。"
+        },
+        "script": {
+          "how": "沙箱里跑 entry 指向的脚本，导出 onRequest 或 onSessionExit。"
+        },
+        "feature": {
+          "how": "只在界面挂一个宿主内置面板，不参与请求，也不带前端代码。"
+        },
+        "note": "钩子决定它什么时候被叫到，类型决定它用什么方式回答。组合限制由清单校验兜住：规则插件不能声明 session-exit，脚本插件不能再带规则，功能插件只能声明 panel。启用的请求插件按 priority 依次跑，每个经过代理的请求都会过一遍。"
+      },
+      "rules": {
+        "title": "声明式规则",
+        "note": "路径用点分写法，* 同时匹配对象的键与数组元素，数字段表示数组下标（messages.0.content）。mask 只改字符串值；remove 删键或数组元素，不接受 pattern。"
+      },
+      "script": {
+        "title": "脚本 SDK",
+        "note": "沙箱不注入运行时：没有 require / import、没有网络、没有文件，也拿不到应用 id 与端点。脚本只做三件事——读入参、返回结果、返回 null 表示不动或弃权。",
+        "requestTitle": "改写请求体（onRequest）",
+        "requestNote": "只拿到请求体本身；返回新对象才会替换，原样返回等于没改。",
+        "exitTitle": "接棒决策（onSessionExit）",
+        "decisionField": "字段",
+        "decisionValue": "取值",
+        "decision": {
+          "action": "resume 接棒，record 只记录；必填。",
+          "mode": "same-session 续原会话，fresh-session 开新会话；省略时按内置判定。",
+          "reason": "一句理由，必填，超过 200 字会被截断。"
+        },
+        "eventNote": "事件里有 app、cwd、exitCode、failureKind（quota / context / provider / crash）、reason、hasTarget、attempts、lastKind、maxAttempts、autoResume、evidence、successes。字段只增不改，按名读取即可。",
+        "limitsNote": "沙箱上限：单次 {{timeout}} ms、堆 {{memory}} MB、栈 {{stack}} KB、入参与输出各 {{payload}}K 字符；每次执行都是新的运行时，不留状态。超时、抛错、输出不是合法 JSON，都只让这一次不生效。"
+      },
+      "install": {
+        "title": "装一个三方插件",
+        "step1": "在插件目录下建一个文件夹，名字建议和 id 一致：",
+        "step2": "放一份 plugin.json；要用脚本再放 main.js，并让 entry 指向它。",
+        "step3": "回到插件中心点「刷新」，卡片出现就能打开、启用、试跑。",
+        "step4": "不要了就删掉那个文件夹。启停只写 {{stateFile}}，不会改你的文件。",
+        "sdkNote": "仓库 plugins-sdk/ 里有类型声明 phi-plugin.d.ts 和两个可直接抄的示例（mask-emails、baton-policy）。它只给编辑器看，沙箱里并不加载它。"
+      },
+      "fails": {
+        "title": "出错时谁兜底",
+        "note": "插件是增强，不是依赖：加载失败、正则非法、脚本抛错或超时，都只让那一次不生效，请求照旧发往上游，错误显示在插件中心顶部。插件也拿不到宿主能力——重启会话、写文件这类动作由宿主执行。"
+      }
+    }
   },
   "reportCard": {
     "title": "成绩单",
@@ -6005,7 +6106,7 @@
     "title": "任务",
     "workspace": "仓库",
     "newTask": "新建任务",
-    "newTaskPlaceholder": "输入标题，回车创建",
+    "newTaskPlaceholder": "输入任务标题，Ctrl+Enter 创建",
     "newTaskSend": "创建任务",
     "refresh": "刷新",
     "addWorkspace": "添加仓库",
@@ -6102,7 +6203,12 @@
       "planEmpty": "这一轮没有拆分子任务",
       "planDeps": "依赖 {{deps}}",
       "saveFailed": "保存失败：{{error}}",
-      "actionFailed": "操作失败：{{error}}"
+      "actionFailed": "操作失败：{{error}}",
+      "confirmDecision": "下一步怎么处理？",
+      "confirmContinue": "继续执行（重新排队）",
+      "confirmComplete": "确认完成（移到 Done）",
+      "confirmSubmit": "提交确认",
+      "sessionGone": "这次运行是在之前那次应用启动里派发的，终端会话已经不在，没法再打开。"
     },
     "errors": {
       "noBacklog": "这个目录里没有 backlog/config.yml",
@@ -6114,6 +6220,9 @@
       "emptyTitle": "标题不能为空",
       "terminalUnsupported": "当前平台不支持本地终端",
       "invalidWorkspace": "这个仓库的 backlog 配置读不出来"
-    }
+    },
+    "openSession": "打开终端",
+    "sessionEnded": "会话已结束",
+    "sessionClosed": "这个会话已经结束：应用重启后终端会话不会保留，重新开始一次就会开新会话。"
   }
 }

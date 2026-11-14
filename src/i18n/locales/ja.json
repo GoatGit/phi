@@ -198,7 +198,8 @@
       "clearFilter": "絞り込みをリセット",
       "attempts": "試行 {{count}} 回",
       "latestOutlet": "直近の出口",
-      "usageCost": "使用量 / 推定費用"
+      "usageCost": "使用量 / 推定費用",
+      "toggleHint": "全 {{count}} 件。展開すると各リクエストの経路と所要時間を確認できます"
     },
     "errors": {
       "generic": "操作に失敗しました：{{detail}}",
@@ -413,6 +414,7 @@
       "empty": "リクエストはまだありません。到着すると各アプリの直近経路を表示します",
       "pause": "再生を一時停止",
       "replay": "再生",
+      "resume": "再開",
       "showAll": "全経路を表示",
       "step": "ステップ {{current}} / {{total}}",
       "diagram": "各アプリの直近リクエストが PHI とルートグループを経由してモデルへ流れる図",
@@ -433,6 +435,7 @@
       "lineUnknown": "点々線＝結果未確認",
       "idle": "未実行",
       "noGroup": "ルートグループ未接続",
+      "connected": "ルートグループ接続済み",
       "laneCount": "{{count}} 本のアプリ線",
       "legacyPolicy": "旧ポリシー",
       "focusApp": "{{app}} の流れ線を強調",
@@ -452,6 +455,7 @@
       }
     },
     "routingStatus": {
+      "filtered": "絞り込み中: {{summary}}",
       "title": "ルーティング状態",
       "description": "5 秒ごとに自動更新",
       "filter": "絞り込み",
@@ -5676,8 +5680,11 @@
       "loadFailures": "読み込めなかったプラグイン",
       "addPlugin": {
         "title": "プラグインを追加",
-        "body": "plugin.json を含むフォルダをプラグイン用フォルダに入れ、更新してください。"
-      }
+        "body": "plugin.json を含むフォルダをプラグイン用フォルダに入れ、更新してください。",
+        "protocol": "プロトコルと SDK"
+      },
+      "enabled": "有効",
+      "alwaysOn": "本体に同梱"
     },
     "pin": {
       "pin": "サイドバーに固定",
@@ -5725,6 +5732,10 @@
       "taskBoard": {
         "title": "タスクボード",
         "description": "リポジトリの Backlog.md をボードに。ドラッグで状態を変え、タスクをターミナルセッションとして開き、使用量をタスクに紐づけます。"
+      },
+      "protocol": {
+        "title": "プラグインプロトコル",
+        "description": "外部プラグインを書くための一枚：フォルダ構成、マニフェストの項目、スクリプト SDK、導入手順。"
       }
     },
     "lessons": {
@@ -5797,11 +5808,11 @@
         "step4": "保存してから「試す」に実データを貼り、どこが当たって何になるかを確認します。",
         "note": "「試す」が読むのは保存済みの設定です。マスキングはこれ以降に送るリクエストに効き、送信済みの内容は戻せません。"
       },
-      "intro": "認証情報と誤用しやすい個人情報をこのマシン上で置き換えます。リクエスト本文は既定では書き換えません：prompt を変えるのは振る舞いの変更なので、明示的に有効化します。",
+      "intro": "送信前に、認証情報や悪用されやすい個人情報をこのマシン上でプレースホルダーに置き換えます。リクエスト本文の書き換えは既定でオフです。書き換えるとモデルが見る内容が変わるため、必要なときだけオンにしてください。",
       "enabled": "マスキングを有効にする",
       "enabledHint": "オフにするとリクエスト本文もエラー要約も処理しません",
-      "body": "上流に送るリクエスト本文を書き換える",
-      "bodyHint": "一致した箇所がプレースホルダーに置き換わります",
+      "body": "送信するリクエスト本文を書き換える",
+      "bodyHint": "オンにすると、送信する内容のうち一致した箇所がプレースホルダーに置き換わります",
       "logs": "ローカルのエラー要約をマスキング",
       "logsHint": "ローカルの診断資料だけに影響し、機能には影響しません",
       "rules": "検知ルール",
@@ -5857,7 +5868,7 @@
       "serverPlaceholder": "サーバーを選択",
       "server": "サーバー",
       "alias": "別名",
-      "aliasPlaceholder": "別名（空なら名前空間を使用）",
+      "aliasPlaceholder": "例: desktop-control",
       "namespacePlaceholder": "名前空間",
       "priority": "衝突時の優先度",
       "apps": "公開先",
@@ -5876,7 +5887,9 @@
       "applied": "保存し、クライアントへ反映しました",
       "applyFailed": "設定は保存しましたが、反映に失敗しました：{{message}}",
       "saveFailed": "保存できませんでした：{{message}}",
-      "loadFailed": "MCP ルーティング設定を読めませんでした"
+      "loadFailed": "MCP ルーティング設定を読めませんでした",
+      "namespaceInputPlaceholder": "例: fs",
+      "namespaceWithAliasLabel": "名前空間（別名があるときは使いません）"
     },
     "guide": {
       "what": "役割",
@@ -5928,7 +5941,95 @@
         "notes": "状態だけを変え、コードは変更しません。"
       }
     },
-    "unsaved": "未保存の変更あり"
+    "unsaved": "未保存の変更あり",
+    "protocol": {
+      "lede": "外部プラグインはフォルダ一つと plugin.json 一枚でできています。リクエストを変えるなら宣言ルールかスクリプト、画面を足すならホスト内蔵のパネルを指定します。",
+      "hint": "以下の数値は現在のビルドから取得しています：マニフェスト v{{version}}、最大 {{maxPlugins}} 個。",
+      "loadFailed": "プラグインプロトコルを読み込めません",
+      "copy": "コピー",
+      "copied": "コピーしました",
+      "layout": {
+        "title": "プラグインはフォルダ一つ",
+        "note": "plugin.json の無いフォルダは無視されます。同じ id は最初の一つだけが採用され、後のものは読み込みエラーになります。"
+      },
+      "manifest": {
+        "title": "plugin.json",
+        "field": "項目",
+        "requiredColumn": "必須",
+        "meaning": "説明",
+        "note": "未知の項目は拒否されます。これは意図的です：綴りを間違えたキーが黙って無視されると、「入れたのに何もしないプラグイン」になるからです。マニフェストは {{kb}} KB、スクリプトは {{scriptKb}} KB まで。"
+      },
+      "required": {
+        "yes": "はい",
+        "no": "いいえ",
+        "script": "スクリプトのみ",
+        "rules": "ルールのみ",
+        "feature": "機能のみ"
+      },
+      "fields": {
+        "manifestVersion": "マニフェストの構造バージョン。省略すると現在のバージョン（v{{version}}）として扱います。",
+        "id": "安定した識別子。小文字か数字で始め、小文字・数字・- _ . だけを使います。",
+        "name": "表示名。カードとタブに使います。",
+        "version": "プラグイン自身のバージョン。自由に決めて構いません。",
+        "description": "何をするプラグインかを一文で。カードに表示します。",
+        "author": "作者名。プラグインの詳細に表示します。",
+        "kind": "rules（既定）/ script / feature。次の節を参照。",
+        "hooks": "参加するフック（{{hooks}}）。空配列なら何もしません。",
+        "priority": "実行順。小さいほど先に走り、同値は id 順。",
+        "enabledByDefault": "ユーザーが変更する前の既定のオン・オフ。",
+        "entry": "スクリプトの入口。プラグインフォルダからの相対パスで、.js で終わる必要があります。",
+        "rules": "宣言ルール。最大 {{maxRules}} 件。",
+        "panel": "機能プラグインが載せる内蔵パネル：{{panels}}。"
+      },
+      "kinds": {
+        "title": "三種類のプラグイン",
+        "kind": "種類",
+        "hooks": "付けられるフック",
+        "how": "どう動くか",
+        "rules": {
+          "how": "ルールをマニフェストに書き、ホストがコンパイルして実行します。コードは動きません。"
+        },
+        "script": {
+          "how": "entry のスクリプトをサンドボックスで実行します。onRequest か onSessionExit を公開します。"
+        },
+        "feature": {
+          "how": "ホスト内蔵のパネルを画面に一つ載せるだけ。リクエストには関与せず、独自のフロントエンドコードも持ちません。"
+        },
+        "note": "フックは「いつ呼ばれるか」、種類は「どう答えるか」を決めます。組み合わせの制限はマニフェスト検証が担保します：ルールは session-exit を宣言できず、スクリプトはルールを持てず、機能は panel だけを宣言できます。有効なリクエスト系プラグインは priority 順に、プロキシを通るすべてのリクエストで動きます。"
+      },
+      "rules": {
+        "title": "宣言ルール",
+        "note": "パスはドット区切り。* はオブジェクトのキーと配列の要素の両方に一致し、数字のセグメントは配列の添字です（messages.0.content）。mask は文字列だけを書き換えます。remove はキーや要素を削除し、pattern は取りません。"
+      },
+      "script": {
+        "title": "スクリプト SDK",
+        "note": "サンドボックスにランタイムは注入されません：require / import、ネットワーク、ファイルは無く、アプリ id やエンドポイントも渡りません。スクリプトができるのは、入力を読む、結果を返す、null で「何もしない／棄権」を表す、の三つだけです。",
+        "requestTitle": "リクエストを書き換える（onRequest）",
+        "requestNote": "渡るのはリクエスト本文だけです。新しいオブジェクトを返したときだけ置き換わり、そのまま返すのは変更なしと同じです。",
+        "exitTitle": "引き継ぎの判断（onSessionExit）",
+        "decisionField": "項目",
+        "decisionValue": "値",
+        "decision": {
+          "action": "resume で引き継ぎ、record は記録のみ。必須。",
+          "mode": "same-session は元のセッションを続け、fresh-session は新しいセッションを開きます。省略時は内蔵の判断に従います。",
+          "reason": "理由を一文。必須で、200 文字を超えると切り詰めます。"
+        },
+        "eventNote": "イベントには app、cwd、exitCode、failureKind（quota / context / provider / crash）、reason、hasTarget、attempts、lastKind、maxAttempts、autoResume、evidence、successes が入ります。項目は追加のみなので、名前で読んでください。",
+        "limitsNote": "サンドボックスの上限：1 回 {{timeout}} ms、ヒープ {{memory}} MB、スタック {{stack}} KB、入出力それぞれ {{payload}}K 文字。実行ごとに新しいランタイムで、状態は残りません。タイムアウト、例外、JSON でない出力は、その 1 回が効かないだけです。"
+      },
+      "install": {
+        "title": "外部プラグインを入れる",
+        "step1": "プラグインフォルダの中にフォルダを作ります。名前は id に合わせるのが無難です：",
+        "step2": "plugin.json を置きます。スクリプトを使うなら main.js も置き、entry をそこへ向けます。",
+        "step3": "プラグインセンターに戻って「更新」を押すと、カードが現れ、開く・有効化・試し実行ができます。",
+        "step4": "不要になったらフォルダを削除します。有効・無効は {{stateFile}} に書くだけで、あなたのファイルは変えません。",
+        "sdkNote": "リポジトリの plugins-sdk/ に型宣言 phi-plugin.d.ts と、そのまま使える例が二つ（mask-emails、baton-policy）あります。これはエディタ用で、サンドボックスは読み込みません。"
+      },
+      "fails": {
+        "title": "失敗したときの受け止め",
+        "note": "プラグインは拡張であり依存ではありません。読み込み失敗、正規表現の不正、スクリプトの例外やタイムアウトは、その 1 回が効かないだけで、リクエストはそのまま上流へ送られます。エラーはプラグインセンターの上部に出ます。プラグインはホストの機能も持ちません。セッションの再起動やファイル書き込みはホストが行います。"
+      }
+    }
   },
   "reportCard": {
     "title": "成績表",
@@ -6005,7 +6106,7 @@
     "title": "タスク",
     "workspace": "リポジトリ",
     "newTask": "タスクを作成",
-    "newTaskPlaceholder": "タイトルを入力して Enter",
+    "newTaskPlaceholder": "タスク名 · Ctrl+Enter で作成",
     "newTaskSend": "タスクを作成",
     "refresh": "再読み込み",
     "addWorkspace": "リポジトリを追加",
@@ -6102,7 +6203,12 @@
       "planEmpty": "今回はサブタスクに分割されていません",
       "planDeps": "依存：{{deps}}",
       "saveFailed": "保存できませんでした：{{error}}",
-      "actionFailed": "操作に失敗しました：{{error}}"
+      "actionFailed": "操作に失敗しました：{{error}}",
+      "confirmDecision": "次の操作を選択",
+      "confirmContinue": "続行（再キュー）",
+      "confirmComplete": "完了を確認（Done に移動）",
+      "confirmSubmit": "決定を送信",
+      "sessionGone": "この実行は前回のアプリ起動時に開始されたため、ターミナルセッションは残っていません。"
     },
     "errors": {
       "noBacklog": "このフォルダに backlog/config.yml がありません",
@@ -6114,6 +6220,9 @@
       "emptyTitle": "タイトルは必須です",
       "terminalUnsupported": "このプラットフォームではローカルターミナルを使えません",
       "invalidWorkspace": "このリポジトリの backlog 設定を読めません"
-    }
+    },
+    "openSession": "ターミナルを開く",
+    "sessionEnded": "セッション終了",
+    "sessionClosed": "このセッションは終了しています。アプリを再起動するとターミナルセッションは残りません。もう一度開始すると新しいセッションが開きます。"
   }
 }

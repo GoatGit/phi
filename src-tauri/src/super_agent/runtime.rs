@@ -37,7 +37,7 @@ async fn tick_once(app: &tauri::AppHandle) -> Result<(), String> {
     let db = state.db.clone();
     let judge = SystemOneJudge::new(db.clone());
     let dispatcher = TerminalDispatcher::new(app.clone());
-    let episode = build_episode(app);
+    let episode = episode_for(app);
     tick::run(
         TickContext {
             db: db.as_ref(),
@@ -55,7 +55,9 @@ async fn tick_once(app: &tauri::AppHandle) -> Result<(), String> {
 /// 选这一轮用哪个 episode。
 ///
 /// 侧车没随包带上（或脚本不在）就是规则版；带上了就让它当主实现，出任何问题退回规则版。
-fn build_episode(app: &tauri::AppHandle) -> Box<dyn Episode> {
+/// 命令层（手动跑一轮）也走这里：手跑与定时必须用同一套判断，否则「点一下看看会派谁」
+/// 看到的不是真的会派谁。
+pub(crate) fn episode_for(app: &tauri::AppHandle) -> Box<dyn Episode> {
     let episode: Box<dyn Episode> = match SidecarEpisode::bundled(app) {
         Some(sidecar) => {
             let sidecar = match episode_model(app) {

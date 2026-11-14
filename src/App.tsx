@@ -1586,34 +1586,37 @@ function App() {
 
     const tiles: AppHomeTile[] = [];
 
-    // 首选终端 → 终端打开：动作卡，永远放第一，也是这一页唯一的主宫格
+    // 应用未装或可升级时，装好它才是当下最该做的一步：把安装/升级推成主宫格，
+    // 终端退到后面；否则终端就是这一页唯一的主宫格。
+    const setupTile: AppHomeTile | null = !appInstalled
+      ? {
+          key: "install",
+          label: t("skills.install"),
+          icon: Download,
+          hint: t("appPage.tiles.install"),
+          primary: true,
+          onSelect: () => openSettings("apps"),
+        }
+      : appUpdateAvailable
+        ? {
+            key: "update",
+            label: t("skills.update"),
+            icon: RefreshCw,
+            hint: t("appPage.tiles.update"),
+            primary: true,
+            onSelect: () => openSettings("apps"),
+          }
+        : null;
+    if (setupTile) tiles.push(setupTile);
+
     if (terminals.supported) {
       tiles.push({
         key: "terminal",
         label: t("provider.openTerminal"),
         icon: SquareTerminal,
         hint: t("appPage.tiles.terminal"),
-        primary: true,
+        primary: setupTile === null,
         onSelect: () => terminals.newTerminal(),
-      });
-    }
-
-    // 应用未安装 → 安装卡片；有新版本 → 升级卡片（跳应用安装页处理）
-    if (toolName && !appInstalled) {
-      tiles.push({
-        key: "install",
-        label: t("skills.install"),
-        icon: Download,
-        hint: t("appPage.tiles.install"),
-        onSelect: () => openSettings("apps"),
-      });
-    } else if (toolName && appUpdateAvailable) {
-      tiles.push({
-        key: "update",
-        label: t("skills.update"),
-        icon: RefreshCw,
-        hint: t("appPage.tiles.update"),
-        onSelect: () => openSettings("apps"),
       });
     }
 
@@ -1871,11 +1874,27 @@ function App() {
       // 任务看板把任务开成终端会话，靠的是宿主这份终端能力；
       // 页面本身已经搬进插件中心，不再单独占一个侧栏一级入口。
       terminalApps: terminals.supportedApps,
-      onStartSession: async (root: string, appId: string) => {
-        const session = await terminals.launchSession(appId as AppId, root);
+      onStartSession: async (
+        root: string,
+        appId: string,
+        argumentsText?: string,
+      ) => {
+        const session = await terminals.launchSession(
+          appId as AppId,
+          root,
+          argumentsText ?? "",
+        );
         selectApp(appId as AppId);
         return session.id;
       },
+      // 后台派发的会话不会自己冒到界面上：终端只是后端 registry 里的一个窗格，
+      // 没有 present 就什么都看不到。任务详情靠这个入口把已有会话打开。
+      onOpenSession: async (appId: string, sessionId: string) => {
+        const opened = await terminals.openSession(appId as AppId, sessionId);
+        if (opened) selectApp(appId as AppId);
+        return opened;
+      },
+      liveSessionIds: terminals.sessions.map((session) => session.id),
     };
     const activePluginId = pluginIdFromView(currentView);
     if (activePluginId) {

@@ -69,6 +69,26 @@ pub(crate) fn session_exists(id: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 只供测试：假装有一个托管会话活着。
+///
+/// 真实场景里，CLI 退出后 PTY 会落回一个交互式 shell，会话并没有从表里消失；
+/// 回归用例需要同一个前提，又不想为了它起一个真 PTY。
+#[cfg(test)]
+pub(crate) fn register_test_session(id: &str) {
+    let mut state = registry().lock().unwrap();
+    state.sessions.push(Snapshot {
+        id: id.to_string(),
+        app_id: "claude".into(),
+        title: "test".into(),
+        launch_cwd: "/tmp".into(),
+        launch_args: String::new(),
+        phase: "running".into(),
+        generation: 1,
+        sequence: 1,
+        error_code: None,
+    });
+}
+
 /// 关闭后台调度器自己派发的会话：不做 IPC 校验，按当前 generation 强制关闭。
 /// 找不到会话视为已关，返回 Ok。
 pub(crate) fn close_by_id(id: &str) -> Result<(), String> {

@@ -21,6 +21,13 @@ use crate::Database;
 pub(crate) const EPISODE_STEPS: usize = 8;
 pub(crate) const EPISODE_JUDGE_CALLS: usize = 5;
 
+/// 一次只跑一轮 tick。
+///
+/// 定时器、面板上的「跑一轮」、人按下「开始」都会触发 tick。两轮重叠时看到的是同一份
+/// 快照，会把同一批候选算两遍、把判官与模型的钱花两遍；派发本身有租约挡，
+/// 但预算挡不住。锁是整个 tick 共享的，与具体数据库无关。
+pub(crate) static TICK_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub(crate) struct TickContext<'a> {
     pub db: &'a Database,
     pub judge: &'a dyn Judge,
@@ -39,6 +46,7 @@ pub(crate) struct TickOutcome {
 }
 
 pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutcome, String> {
+    let _one_at_a_time = TICK_LOCK.lock().await;
     let started = store::now_ms();
     let settings = ctx.db.router_settings().map_err(|e| e.to_string())?;
     let trace_id = uuid::Uuid::new_v4().to_string();
@@ -61,14 +69,11 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
     };
     let mut steps: Vec<String> = Vec::new();
 
-    if !settings.enabled {
-        report.skipped = Some("disabled".into());
-        return finish(ctx.db, report, steps, started);
-    }
-
     // ---------------------------------------------------------------- 收尾
     // 先把已经结束的 worker 结算掉，再决定这一轮派谁：否则一张早就跑完的卡
     // 会一直占着并发名额，看起来像「调度器停了」。
+    // 这一步只读写自己的运行态，不派发、不调判官，所以调度器关着时也要跑：
+    // 关掉/重启后没人收尾，卡片会永远挂着「运行中」。
     reconcile(
         ctx.db,
         &settings,
@@ -76,6 +81,11 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
         &crate::exit_hook::journal_path(),
         &mut report,
     );
+
+    if !settings.enabled {
+        report.skipped = Some("disabled".into());
+        return finish(ctx.db, report, steps, started);
+    }
 
     // ---------------------------------------------------------------- 快照
     let scan = snapshot::collect(ctx.db)?;
@@ -85,10 +95,19 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
         report.skipped = Some("no-tasks".into());
         return finish(ctx.db, report, steps, started);
     }
-    let statuses: HashMap<String, String> = scan
+    let statuses: HashMap<(String, String), String> = scan
         .candidates
         .iter()
-        .map(|candidate| (candidate.task_id.clone(), candidate.status.clone()))
+        .map(|candidate| {
+            (
+                (candidate.root.clone(), candidate.task_id.clone()),
+                if candidate.state() == RunState::Done {
+                    "Done".into()
+                } else {
+                    candidate.status.clone()
+                },
+            )
+        })
         .collect();
     let filtered = prefilter::apply(scan.candidates, &settings, &statuses, ctx.now);
     report.candidates = filtered.survivors.len();
@@ -155,49 +174,85 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
     survivors.truncate(settings.attention_threshold.max(capacity));
 
     // ------------------------------------------------------------- episode
-    let outcome = ctx
-        .episode
-        .run(EpisodeInput {
-            candidates: &survivors,
-            settings: &settings,
-            steps: EPISODE_STEPS,
-            judge_calls: if judge_available {
-                EPISODE_JUDGE_CALLS
-            } else {
-                0
-            },
-            // 判官额度用完就交 None：sidecar 的 judge 工具当场报错，不必空等一次超时。
-            judge: judge_available.then_some(ctx.judge),
-            judge_model: &settings.judge_model,
-        })
-        .await
-        .map_err(|error| format!("episode-failed:{error:?}"))?;
-    report.judge_calls += outcome.judge_calls;
-    steps.extend(outcome.steps.clone());
+    // 一次 episode 只喂一个仓库的候选。任务 id 只在仓库内唯一，两个仓库都有 TASK-1
+    // 时混在一次循环里，会让「给 TASK-1 的结论」落到另一张卡上，甚至派发到错的仓库。
+    let mut remaining = capacity;
+    for group in group_by_root(survivors) {
+        if remaining == 0 {
+            report.degraded.push("capacity-exhausted".into());
+            break;
+        }
+        let outcome = ctx
+            .episode
+            .run(EpisodeInput {
+                candidates: &group,
+                settings: &settings,
+                steps: EPISODE_STEPS,
+                judge_calls: if judge_available {
+                    EPISODE_JUDGE_CALLS
+                } else {
+                    0
+                },
+                // 判官额度用完就交 None：sidecar 的 judge 工具当场报错，不必空等一次超时。
+                judge: judge_available.then_some(ctx.judge),
+                judge_model: &settings.judge_model,
+            })
+            .await
+            .map_err(|error| format!("episode-failed:{error:?}"))?;
+        report.judge_calls += outcome.judge_calls;
+        steps.extend(outcome.steps.clone());
+        steps.push(format!(
+            "episode: {} 张候选（{}）",
+            group.len(),
+            group[0].root
+        ));
 
-    // -------------------------------------------------------------- 结算
-    let settled = settle(outcome, &survivors, &settings, capacity);
-    if settled.unfinished {
-        report.degraded.push("episode-unfinished".into());
-    }
-    report.decisions = settled.decisions;
-    for dropped in settled.dropped {
-        report.degraded.push(dropped);
-    }
+        // ---------------------------------------------------------- 结算
+        let settled = settle(outcome, &group, &settings, remaining);
+        if settled.unfinished {
+            report.degraded.push("episode-unfinished".into());
+        }
+        for dropped in &settled.dropped {
+            report.degraded.push(dropped.clone());
+        }
+        let decisions = settled.decisions;
+        // 名额按「真正要派发」的决策扣，跨仓库累计，不能让每个仓库各自用满一次。
+        remaining = remaining.saturating_sub(
+            decisions
+                .iter()
+                .filter(|decision| decision.action == Action::Dispatch)
+                .count(),
+        );
+        report.decisions.extend(decisions.iter().cloned());
 
-    // -------------------------------------------------------------- 执行
-    let decisions = report.decisions.clone();
-    apply(
-        ctx.db,
-        ctx.dispatcher,
-        &settings,
-        &survivors,
-        &decisions,
-        ctx.now,
-        &mut report,
-    );
+        // ---------------------------------------------------------- 执行
+        apply(
+            ctx.db,
+            ctx.dispatcher,
+            &settings,
+            &group,
+            &decisions,
+            ctx.now,
+            &mut report,
+        );
+    }
 
     finish(ctx.db, report, steps, started)
+}
+
+/// 按仓库分组，组内顺序与候选顺序一致。
+fn group_by_root(candidates: Vec<Candidate>) -> Vec<Vec<Candidate>> {
+    let mut groups: Vec<Vec<Candidate>> = Vec::new();
+    for candidate in candidates {
+        match groups
+            .iter_mut()
+            .find(|group| group[0].root == candidate.root)
+        {
+            Some(group) => group.push(candidate),
+            None => groups.push(vec![candidate]),
+        }
+    }
+    groups
 }
 
 fn finish(
@@ -233,8 +288,12 @@ fn finish(
 
 /// 结算已经结束的 worker。
 ///
-/// 三个信号逐级降级：托管会话还在不在 → journal 里的退出码 → 卡片内容有没有被改过。
-/// 只有「退出码 0 且卡片确实被改过」才算完成；其余一律转人工，不猜。
+/// 先看退出记账，再看托管会话还在不在。顺序不能反：`session.sh` 在 CLI 退出后会
+/// 落回一个交互式 shell，**终端会话还在**——用「会话存在」当「worker 还在跑」，
+/// 一张卡会永远停在「运行中」，一直占着并发名额，直到调度器再也不会派活。
+///
+/// 退出码为 0 且任务已移到 Done 才算完成。触发列中尚未完成的任务冷却后重派，
+/// 无退出记录或耗尽次数的任务转人工；不把进程消失或任意文件改动冒充完成。
 pub(crate) fn reconcile(
     db: &Database,
     settings: &RouterSettings,
@@ -243,11 +302,36 @@ pub(crate) fn reconcile(
     report: &mut TickReport,
 ) {
     let Ok(runs) = db.router_runs() else { return };
-    for run in runs.into_iter().filter(|run| run.state.is_running()) {
-        let Some(session) = run.session_id.clone() else {
+    for run in runs {
+        if run.state == RunState::Failed && run.attempts >= settings.max_attempts {
+            if let Err(error) = db.set_router_state(
+                &run.root,
+                &run.task_id,
+                RunState::NeedsYou,
+                Some("已达到自动尝试上限，请确认下一步"),
+                now,
+            ) {
+                log::error!(
+                    "router exhausted state write failed task={}: {error}",
+                    run.task_id
+                );
+            }
             continue;
-        };
-        if crate::terminal::session_exists(&session) {
+        }
+        if !run.state.is_running() {
+            continue;
+        }
+        let record = run
+            .session_id
+            .as_deref()
+            .and_then(|session| crate::exit_hook::journal::last_exit(journal, session));
+        if record.is_none()
+            && run
+                .session_id
+                .as_deref()
+                .is_some_and(crate::terminal::session_exists)
+        {
+            // 还没有退出记录、会话也还在：worker 真的还在跑。
             if run.state == RunState::Dispatched {
                 let _ = db.set_router_state(
                     &run.root,
@@ -260,19 +344,42 @@ pub(crate) fn reconcile(
             continue;
         }
 
-        let current = snapshot::task_fingerprint(&run.root, &run.task_id);
-        let record = crate::exit_hook::journal::last_exit(journal, &session);
+        let task = resolve_task(db, Some(&run.root), &run.task_id);
+        let current = task.as_ref().map(|task| task.fingerprint.as_str());
         let (state, detail) = match record {
             Some(record) if record.exit_code == 0 => {
                 let card_changed = current
-                    .as_deref()
                     .zip(run.card_fingerprint.as_deref())
                     .is_some_and(|(current, before)| current != before);
-                if settings.trust_exit_zero && card_changed {
-                    (RunState::Done, "worker 退出码 0，卡片已被改动".to_string())
+                if settings.trust_exit_zero
+                    && card_changed
+                    && task
+                        .as_ref()
+                        .is_some_and(|task| task.status.eq_ignore_ascii_case("done"))
+                {
+                    (
+                        RunState::Done,
+                        "worker 退出码 0，任务已移到 Done".to_string(),
+                    )
+                } else if settings.trust_exit_zero
+                    && task
+                        .as_ref()
+                        .is_some_and(|task| task.status == settings.trigger_status)
+                {
+                    (
+                        RunState::Failed,
+                        "worker 已结束，任务未完成，将在冷却后继续派发".to_string(),
+                    )
                 } else {
-                    let why = if card_changed {
+                    // 原因要说对人真正看到的那一种：自动判定开着、worker 把卡挪到了
+                    // 「审阅」这类非触发列时，说成「自动判定已关闭」会让人去找一个
+                    // 本来就是开的开关。
+                    let why = if !settings.trust_exit_zero {
                         "自动判定已关闭"
+                    } else if task.is_none() {
+                        "卡片已不在工作区"
+                    } else if card_changed {
+                        "任务没移进 Done"
                     } else {
                         "卡片没有改动"
                     };
@@ -291,7 +398,22 @@ pub(crate) fn reconcile(
                 "会话已结束，但没有退出记录，请确认结果".to_string(),
             ),
         };
-        let _ = db.put_router_run(
+        let (state, detail) = if state == RunState::Failed && run.attempts >= settings.max_attempts
+        {
+            (
+                RunState::NeedsYou,
+                format!("{detail}；已达到自动尝试上限，请确认下一步"),
+            )
+        } else {
+            (state, detail)
+        };
+        log::info!(
+            "router reconciled task={} state={} attempts={}",
+            run.task_id,
+            state.as_str(),
+            run.attempts
+        );
+        let persisted = db.put_router_run(
             &run.root,
             &run.task_id,
             store::RunWrite {
@@ -305,6 +427,17 @@ pub(crate) fn reconcile(
             },
             now,
         );
+        if let Err(error) = persisted {
+            log::error!(
+                "router reconcile persistence failed task={}: {error}",
+                run.task_id
+            );
+            report
+                .degraded
+                .push(format!("reconcile-write-failed:{}", run.task_id));
+            continue;
+        }
+        let _ = db.release_router_lease(&run.root, &run.task_id);
         report
             .degraded
             .push(format!("reconciled:{}:{}", run.task_id, state.as_str()));
@@ -530,7 +663,12 @@ fn apply(
                     title: candidate.title.clone(),
                 };
                 let result = dispatcher.dispatch(&spec);
-                let _ = db.release_router_lease(&candidate.root, &candidate.task_id);
+                // 成功时不放租约：写入运行态之前有一个窗口，并发的另一轮 tick
+                // （手动「开始」会 kick 一次）看到旧快照就会再派一次。租约到期
+                // （TTL）自己会被回收，不需要提前放。
+                if result.is_err() {
+                    let _ = db.release_router_lease(&candidate.root, &candidate.task_id);
+                }
 
                 match result {
                     Ok(outcome) => {
@@ -564,11 +702,12 @@ fn apply(
                             error.as_str(),
                             "no-window" | "unsupported-platform" | "unsupported-app"
                         );
-                        let state = if environment {
-                            RunState::NeedsYou
-                        } else {
-                            RunState::Failed
-                        };
+                        let state =
+                            if environment || candidate.attempts() + 1 >= settings.max_attempts {
+                                RunState::NeedsYou
+                            } else {
+                                RunState::Failed
+                            };
                         let _ = db.put_router_run(
                             &candidate.root,
                             &candidate.task_id,
@@ -597,11 +736,21 @@ fn apply(
             }
             Action::Ask => {
                 let question = decision.question.clone().unwrap_or_default();
+                // 影子模式不能把卡片钉在「等你看」：那会改变运行态，此后 prefilter
+                // 直接剔除它，影子就再也观测不到这张卡了。只记「本来会问什么」。
+                let (state, detail) = if settings.shadow {
+                    (
+                        RunState::Queued,
+                        format!("shadow: would ask a human（{question}）"),
+                    )
+                } else {
+                    (RunState::NeedsYou, question.clone())
+                };
                 let _ = db.put_router_run(
                     &candidate.root,
                     &candidate.task_id,
                     store::RunWrite {
-                        state: RunState::NeedsYou,
+                        state,
                         worker_app: candidate
                             .run
                             .as_ref()
@@ -611,16 +760,18 @@ fn apply(
                             .as_ref()
                             .and_then(|run| run.session_id.as_deref()),
                         attempts: candidate.attempts(),
-                        detail: Some(&question),
+                        detail: Some(&detail),
                         card_fingerprint: candidate
                             .run
                             .as_ref()
                             .and_then(|run| run.card_fingerprint.as_deref()),
-                        shadow: false,
+                        shadow: settings.shadow,
                     },
                     now,
                 );
-                report.needs_you.push(candidate.task_id.clone());
+                if !settings.shadow {
+                    report.needs_you.push(candidate.task_id.clone());
+                }
             }
             Action::Skip => {}
         }

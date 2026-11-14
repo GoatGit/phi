@@ -56,6 +56,7 @@ function renderSection(
       onStart={onStart}
       onPause={onPause}
       onResume={onResume}
+      onResolve={vi.fn()}
       {...overrides}
     />,
   );
@@ -109,9 +110,59 @@ describe("AutoRouterSection", () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
+  it("确认表单提交选择，不会通过开始按钮绕过确认", async () => {
+    const user = userEvent.setup();
+    const onResolve = vi.fn();
+    renderSection({ run: { ...run, state: "needs-you" }, onResolve });
+    expect(
+      screen.queryByRole("button", { name: zh.tasks.router.start }),
+    ).toBeNull();
+    await user.selectOptions(screen.getByRole("combobox"), "complete");
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.confirmSubmit }),
+    );
+    expect(onResolve).toHaveBeenCalledWith("complete");
+  });
+
+  it("忙碌时确认不可提交，已完成任务没有重复开始入口", () => {
+    renderSection({ run: { ...run, state: "needs-you" }, busy: true });
+    expect(
+      screen.getByRole("button", { name: zh.tasks.router.confirmSubmit }),
+    ).toBeDisabled();
+  });
+
+  it("已完成任务不再显示开始", () => {
+    renderSection({ run: { ...run, state: "done" } });
+    expect(
+      screen.queryByRole("button", { name: zh.tasks.router.start }),
+    ).toBeNull();
+  });
+
   it("有计划时列出每个节点与它的依赖", () => {
     renderSection();
     expect(screen.getByText("读代码并定位入口")).toBeInTheDocument();
     expect(screen.getByText("依赖 n1")).toBeInTheDocument();
+  });
+});
+
+describe("AutoRouterSection — 会话入口", () => {
+  it("会话还在时给「打开终端」，点了把请求交给上层", async () => {
+    const user = userEvent.setup();
+    const onOpenSession = vi.fn();
+    renderSection({ sessionLive: true, onOpenSession });
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.openSession }),
+    );
+    expect(onOpenSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("应用重启后会话已经不在了，说清原因而不是留一个打不开的按钮", () => {
+    renderSection({ sessionLive: false, onOpenSession: vi.fn() });
+
+    expect(
+      screen.queryByRole("button", { name: zh.tasks.openSession }),
+    ).toBeNull();
+    expect(screen.getByText(zh.tasks.router.sessionGone)).toBeInTheDocument();
   });
 });

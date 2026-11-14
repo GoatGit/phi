@@ -198,7 +198,8 @@
       "clearFilter": "重置篩選",
       "attempts": "{{count}} 次嘗試",
       "latestOutlet": "最近出口",
-      "usageCost": "用量 / 估算費用"
+      "usageCost": "用量 / 估算費用",
+      "toggleHint": "共 {{count}} 條，展開查看每次請求的選路與耗時"
     },
     "errors": {
       "generic": "操作失敗：{{detail}}",
@@ -413,6 +414,7 @@
       "empty": "暫無請求，到達後顯示各應用最近請求的實際呼叫路徑",
       "pause": "暫停回放",
       "replay": "回放",
+      "resume": "繼續回放",
       "showAll": "顯示完整軌跡",
       "step": "第 {{current}} / {{total}} 步",
       "diagram": "各應用最近請求經過 PHI 與路由組到達模型的路由流轉圖",
@@ -433,6 +435,7 @@
       "lineUnknown": "點狀虛線＝結果未確認",
       "idle": "未執行",
       "noGroup": "未接入路由組",
+      "connected": "已接入路由",
       "laneCount": "{{count}} 條應用線",
       "legacyPolicy": "歷史策略",
       "focusApp": "高亮 {{app}} 的流轉線",
@@ -452,6 +455,7 @@
       }
     },
     "routingStatus": {
+      "filtered": "已篩選 {{summary}}",
       "title": "路由狀態",
       "description": "每 5 秒自動刷新",
       "filter": "篩選",
@@ -5676,8 +5680,11 @@
       "loadFailures": "這些外掛沒能載入",
       "addPlugin": {
         "title": "新增外掛",
-        "body": "把帶 plugin.json 的資料夾放進外掛目錄，再重新整理一次。"
-      }
+        "body": "把帶 plugin.json 的資料夾放進外掛目錄，再重新整理一次。",
+        "protocol": "外掛協議與 SDK"
+      },
+      "enabled": "已啟用",
+      "alwaysOn": "宿主內建"
     },
     "pin": {
       "pin": "釘在側欄",
@@ -5704,11 +5711,11 @@
     "cards": {
       "reportCard": {
         "title": "成績單",
-        "description": "看每個模型在你自己倉庫上的可靠性：失敗率、中斷率、單步耗時、單任務成本。"
+        "description": "看每個模型在你自己倉庫上的表現：失敗率、中斷率、單任務成本排在一起，哪個更穩一眼就能分出來。"
       },
       "sessionBaton": {
         "title": "接棒",
-        "description": "工作階段跑到一半掛掉時決定接不接、怎麼接：額度耗盡續原工作階段，上下文超限開新工作階段並交接。"
+        "description": "工作階段跑到一半掛了就自動接著跑：額度用完續原工作階段，上下文爆了開新工作階段並把進度交接過去。"
       },
       "privacy": {
         "title": "隱私脫敏",
@@ -5716,15 +5723,19 @@
       },
       "mcpRouter": {
         "title": "MCP 路由",
-        "description": "統一同一個 MCP 伺服器在各用戶端裡的名字、別名與可見性。"
+        "description": "同一個 MCP 伺服器要在多個用戶端裡用，名字、別名和誰能看見，都在這頁統一改。"
       },
       "lessons": {
         "title": "教訓庫",
-        "description": "把踩過的坑記成倉庫的禁區清單，下次工作階段開始時自動帶上。"
+        "description": "踩過的坑記成倉庫清單，下次開工作階段自動帶上，少走回頭路。"
       },
       "taskBoard": {
         "title": "任務看板",
-        "description": "把倉庫裡的 Backlog.md 變成看板：拖曳改狀態、把任務開成終端機工作階段，用量回掛到任務。"
+        "description": "倉庫裡的 Backlog.md 變成看板：拖曳改狀態，任務能直接開成終端機工作階段，花掉的用量也記在這條任務上。"
+      },
+      "protocol": {
+        "title": "外掛協議",
+        "description": "要寫第三方外掛就看這一頁：目錄怎麼擺、清單有哪些欄位、腳本 SDK 怎麼呼叫、裝上去要幾步。"
       }
     },
     "lessons": {
@@ -5797,11 +5808,11 @@
         "step4": "儲存之後去「試跑」貼一段真實文字，確認命中的位置和替換結果。",
         "note": "試跑讀的是已儲存的設定。脫敏只作用於之後送出的請求，已經送出的內容收不回來。"
       },
-      "intro": "把憑證和容易被誤用的個人資訊在本機替換掉。請求體預設不改寫——改 prompt 是行為變化，需要你自己打開。",
+      "intro": "送出去之前，先把憑證和容易被誤用的個人資訊在本機換成佔位文字。改寫請求內容預設關閉：一改，模型看到的內容就變了，要不要開由你決定。",
       "enabled": "啟用脫敏",
       "enabledHint": "關閉後請求體與錯誤摘要都不處理",
-      "body": "改寫發往上游的請求體",
-      "bodyHint": "開啟後 prompt 裡命中的內容會被替換成佔位文字",
+      "body": "改寫送出的請求內容",
+      "bodyHint": "開啟後，送出的內容裡命中的片段會被換成佔位文字",
       "logs": "脫敏本機錯誤摘要",
       "logsHint": "只影響本機診斷材料，不影響任何功能",
       "rules": "偵測規則",
@@ -5857,7 +5868,7 @@
       "serverPlaceholder": "選擇伺服器",
       "server": "伺服器",
       "alias": "別名",
-      "aliasPlaceholder": "別名（留空則用命名空間）",
+      "aliasPlaceholder": "如 desktop-control",
       "namespacePlaceholder": "命名空間",
       "priority": "撞名優先級",
       "apps": "可見客戶端",
@@ -5876,7 +5887,9 @@
       "applied": "已儲存，並重新投影到客戶端",
       "applyFailed": "設定已儲存，但重新投影失敗：{{message}}",
       "saveFailed": "儲存失敗：{{message}}",
-      "loadFailed": "MCP 路由設定讀取失敗"
+      "loadFailed": "MCP 路由設定讀取失敗",
+      "namespaceInputPlaceholder": "如 fs",
+      "namespaceWithAliasLabel": "命名空間（有別名時不用）"
     },
     "guide": {
       "what": "作用",
@@ -5928,7 +5941,95 @@
         "notes": "看板只改狀態，不改程式碼。"
       }
     },
-    "unsaved": "有未儲存的變更"
+    "unsaved": "有未儲存的變更",
+    "protocol": {
+      "lede": "寫一個第三方外掛只要兩樣東西：一個目錄、一份 plugin.json。要改請求就加宣告式規則或腳本，要在介面掛頁面就指名宿主既有的面板。",
+      "hint": "下面的數字取自目前這次建置：清單版本 v{{version}}，最多 {{maxPlugins}} 個外掛。",
+      "loadFailed": "外掛協議讀取失敗",
+      "copy": "複製",
+      "copied": "已複製",
+      "layout": {
+        "title": "一個外掛就是一個目錄",
+        "note": "目錄裡沒有 plugin.json 會被跳過；同一個 id 只認先載入的那個，後出現的記一筆載入錯誤。"
+      },
+      "manifest": {
+        "title": "plugin.json",
+        "field": "欄位",
+        "requiredColumn": "必填",
+        "meaning": "說明",
+        "note": "未知欄位會被拒絕，這是刻意的：拼錯的鍵若被默默忽略，外掛就成了「裝上了但什麼都不做」。清單最多 {{kb}} KB，腳本最多 {{scriptKb}} KB。"
+      },
+      "required": {
+        "yes": "是",
+        "no": "否",
+        "script": "僅腳本",
+        "rules": "僅規則",
+        "feature": "僅功能"
+      },
+      "fields": {
+        "manifestVersion": "清單結構版本，不寫就按目前版本（v{{version}}）處理。",
+        "id": "穩定識別碼：小寫字母或數字開頭，只能用 小寫字母、數字、- _ .。",
+        "name": "顯示名稱，卡片和頁籤都用它。",
+        "version": "外掛自己的版本號，自由填寫。",
+        "description": "一句話說清它做什麼，顯示在卡片上。",
+        "author": "作者署名，顯示在外掛詳情裡。",
+        "kind": "rules（預設）/ script / feature，見下一節。",
+        "hooks": "參與哪些鉤子（{{hooks}}）；空陣列等於不生效。",
+        "priority": "排隊順序，數值小的先跑，同值按 id 字典序。",
+        "enabledByDefault": "沒被使用者改過時的預設開關。",
+        "entry": "腳本入口，相對於外掛目錄、必須以 .js 結尾。",
+        "rules": "宣告式規則，最多 {{maxRules}} 條。",
+        "panel": "功能外掛掛哪個內建面板：{{panels}}。"
+      },
+      "kinds": {
+        "title": "三類外掛",
+        "kind": "類型",
+        "hooks": "能掛的鉤子",
+        "how": "怎麼生效",
+        "rules": {
+          "how": "規則寫在清單裡，宿主編譯執行，不跑程式碼。"
+        },
+        "script": {
+          "how": "在沙箱裡跑 entry 指向的腳本，匯出 onRequest 或 onSessionExit。"
+        },
+        "feature": {
+          "how": "只在介面掛一個宿主內建面板，不參與請求，也不帶前端程式碼。"
+        },
+        "note": "鉤子決定它什麼時候被呼叫，類型決定它用什麼方式回答。組合限制由清單驗證兒住：規則外掛不能宣告 session-exit，腳本外掛不能再帶規則，功能外掛只能宣告 panel。啟用的請求外掛按 priority 依序跑，每個經過代理的請求都會過一遍。"
+      },
+      "rules": {
+        "title": "宣告式規則",
+        "note": "路徑用點分寫法，* 同時匹配物件的鍵與陣列元素，數字段表示陣列下標（messages.0.content）。mask 只改字串值；remove 刪鍵或陣列元素，不接受 pattern。"
+      },
+      "script": {
+        "title": "腳本 SDK",
+        "note": "沙箱不注入執行環境：沒有 require / import、沒有網路、沒有檔案，也拿不到應用程式 id 與端點。腳本只做三件事——讀入參、回傳結果、回傳 null 表示不動或棄權。",
+        "requestTitle": "改寫請求內容（onRequest）",
+        "requestNote": "只拿到請求內容本身；回傳新物件才會替換，原樣回傳等於沒改。",
+        "exitTitle": "接棒決策（onSessionExit）",
+        "decisionField": "欄位",
+        "decisionValue": "取值",
+        "decision": {
+          "action": "resume 接棒，record 只記錄；必填。",
+          "mode": "same-session 續原工作階段，fresh-session 開新工作階段；省略時按內建判定。",
+          "reason": "一句理由，必填，超過 200 字會被截斷。"
+        },
+        "eventNote": "事件裡有 app、cwd、exitCode、failureKind（quota / context / provider / crash）、reason、hasTarget、attempts、lastKind、maxAttempts、autoResume、evidence、successes。欄位只增不改，按名稱讀取即可。",
+        "limitsNote": "沙箱上限：單次 {{timeout}} ms、堆積 {{memory}} MB、堆疊 {{stack}} KB、入參與輸出各 {{payload}}K 字元；每次執行都是新的執行環境，不留狀態。逾時、拋錯、輸出不是合法 JSON，都只讓這一次不生效。"
+      },
+      "install": {
+        "title": "裝一個第三方外掛",
+        "step1": "在外掛目錄下建一個資料夾，名稱建議和 id 一致：",
+        "step2": "放一份 plugin.json；要用腳本再放 main.js，並讓 entry 指向它。",
+        "step3": "回到外掛中心點「重新整理」，卡片出現就能開啟、啟用、試跑。",
+        "step4": "不要了就刪掉那個資料夾。啟停只寫 {{stateFile}}，不會改你的檔案。",
+        "sdkNote": "倉庫 plugins-sdk/ 裡有型別宣告 phi-plugin.d.ts 和兩個可直接抄的範例（mask-emails、baton-policy）。它只給編輯器看，沙箱裡並不載入它。"
+      },
+      "fails": {
+        "title": "出錯時誰兒底",
+        "note": "外掛是增強，不是依賴：載入失敗、正規式非法、腳本拋錯或逾時，都只讓那一次不生效，請求照舊送往上游，錯誤顯示在外掛中心頂部。外掛也拿不到宿主能力——重啟工作階段、寫檔案這類動作由宿主執行。"
+      }
+    }
   },
   "reportCard": {
     "title": "成績單",
@@ -6005,7 +6106,7 @@
     "title": "任務",
     "workspace": "倉庫",
     "newTask": "新增任務",
-    "newTaskPlaceholder": "輸入標題，按 Enter 建立",
+    "newTaskPlaceholder": "輸入任務標題，Ctrl+Enter 建立",
     "newTaskSend": "建立任務",
     "refresh": "重新整理",
     "addWorkspace": "新增倉庫",
@@ -6102,7 +6203,12 @@
       "planEmpty": "這一輪沒有拆分子任務",
       "planDeps": "依賴 {{deps}}",
       "saveFailed": "儲存失敗：{{error}}",
-      "actionFailed": "操作失敗：{{error}}"
+      "actionFailed": "操作失敗：{{error}}",
+      "confirmDecision": "接下來如何處理？",
+      "confirmContinue": "繼續執行（重新排隊）",
+      "confirmComplete": "確認完成（移到 Done）",
+      "confirmSubmit": "提交確認",
+      "sessionGone": "這次執行是在先前那次應用啟動裡派發的，終端工作階段已經不在了，無法再開啟。"
     },
     "errors": {
       "noBacklog": "這個目錄裡沒有 backlog/config.yml",
@@ -6114,6 +6220,9 @@
       "emptyTitle": "標題不能為空",
       "terminalUnsupported": "目前平台不支援本機終端機",
       "invalidWorkspace": "這個倉庫的 backlog 設定讀不出來"
-    }
+    },
+    "openSession": "開啟終端",
+    "sessionEnded": "工作階段已結束",
+    "sessionClosed": "這個工作階段已經結束：應用重新啟動後終端工作階段不會保留，重新開始一次就會開新的工作階段。"
   }
 }

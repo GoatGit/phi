@@ -214,6 +214,51 @@ async fn disabled_router_touches_nothing() {
     assert!(report.decisions.is_empty());
 }
 
+/// 调度器关着时也要收尾：否则上一个 worker 早就退出了，卡片还挂着「运行中」，
+/// 而且它一直占着并发名额，重新打开后也先卡一下。
+#[tokio::test]
+async fn a_disabled_router_still_settles_a_dead_worker() {
+    let workspace = workspace(1, "In Progress");
+    workspace
+        .db
+        .put_router_run(
+            &workspace.root,
+            "TASK-1",
+            RunWrite {
+                state: RunState::Dispatched,
+                worker_app: Some("claude"),
+                // 这个名字永远不会出现在托管会话表与 journal 里：等同于进程已经没了。
+                session_id: Some("3f2504e0-4f89-11d3-9a0c-0305e82c3304"),
+                attempts: 1,
+                detail: None,
+                card_fingerprint: None,
+                shadow: false,
+            },
+            crate::super_agent::store::now_ms(),
+        )
+        .expect("run");
+
+    let mut config = settings(false);
+    config.enabled = false;
+    let report = run_tick(
+        &workspace.db,
+        config,
+        &FixedJudge::noul(0.9),
+        &RecordingDispatcher::default(),
+        &RuleEpisode,
+    )
+    .await;
+    assert_eq!(report.skipped.as_deref(), Some("disabled"));
+
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::NeedsYou);
+    assert!(run.session_id.is_none());
+}
+
 #[tokio::test]
 async fn shadow_mode_records_the_decision_without_dispatching() {
     let workspace = workspace(1, "In Progress");
@@ -366,6 +411,7 @@ async fn concurrency_limit_stops_the_tick_before_the_loop() {
     let workspace = workspace(2, "In Progress");
     let mut config = settings(false);
     config.concurrency = 1;
+    crate::terminal::register_test_session("concurrency-test-running");
     workspace
         .db
         .put_router_run(
@@ -374,8 +420,7 @@ async fn concurrency_limit_stops_the_tick_before_the_loop() {
             RunWrite {
                 state: RunState::Working,
                 worker_app: Some("claude"),
-                // 没有会话 id：reconcile 不会去猜它结束没结束，这一条只测并发上限。
-                session_id: None,
+                session_id: Some("concurrency-test-running"),
                 attempts: 1,
                 detail: None,
                 card_fingerprint: None,
@@ -519,7 +564,16 @@ async fn attempts_exhausted_stops_the_automatic_path() {
     assert!(report
         .filtered
         .iter()
-        .any(|filtered| filtered.reason == "attempts-exhausted"));
+        .any(|filtered| filtered.reason == "waiting-for-human"));
+    assert_eq!(
+        workspace
+            .db
+            .router_run(&workspace.root, "TASK-1")
+            .unwrap()
+            .unwrap()
+            .state,
+        RunState::NeedsYou
+    );
 }
 
 #[tokio::test]
@@ -597,7 +651,7 @@ fn dispatch_run(db: &Database, root: &str, session: &str, fingerprint: Option<&s
 }
 
 #[test]
-fn reconcile_marks_done_only_when_exit_is_zero_and_the_card_changed() {
+fn reconcile_requires_done_status_not_just_a_changed_card() {
     let workspace = workspace(1, "In Progress");
     let journal_dir = tempfile::tempdir().expect("journal dir");
     let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
@@ -620,10 +674,10 @@ fn reconcile_marks_done_only_when_exit_is_zero_and_the_card_changed() {
         .router_run(&workspace.root, "TASK-1")
         .expect("run")
         .expect("row");
-    assert_eq!(run.state, RunState::NeedsYou);
-    assert!(run.detail.expect("detail").contains("卡片没有改动"));
+    assert_eq!(run.state, RunState::Failed);
+    assert!(run.detail.expect("detail").contains("未完成"));
 
-    // 卡片被 worker 改过 + 退出码 0 → 完成。
+    // 只追加说明不代表任务完成；仍需按退避策略续派。
     let task_file = std::path::Path::new(&workspace.root).join("backlog/tasks");
     let path = std::fs::read_dir(&task_file)
         .expect("tasks dir")
@@ -649,7 +703,7 @@ fn reconcile_marks_done_only_when_exit_is_zero_and_the_card_changed() {
         .router_run(&workspace.root, "TASK-1")
         .expect("run")
         .expect("row");
-    assert_eq!(run.state, RunState::Done);
+    assert_eq!(run.state, RunState::Failed);
 }
 
 #[test]
@@ -692,6 +746,75 @@ fn reconcile_fails_a_non_zero_exit_and_asks_when_there_is_no_record() {
         .expect("row");
     assert_eq!(run.state, RunState::NeedsYou);
     assert!(run.detail.expect("detail").contains("没有退出记录"));
+}
+
+#[test]
+fn the_task_prompt_survives_the_shell_escaping_as_one_argument() {
+    // 路径里有空格和中文，引号抡错就会变成好几个 argv：CLI 只会把第一个词当指令。
+    // 手动「开始会话」就是靠这一对函数把任务交给 worker 的。
+    let prompt = crate::super_agent::model::task_prompt("backlog/tasks/task-1 - 芳芳说的发生.md");
+    let quoted = crate::terminal::quote_argument(&prompt);
+    assert_eq!(
+        crate::terminal::parse_arguments(&quoted).unwrap(),
+        vec![prompt]
+    );
+}
+
+#[test]
+fn reconcile_settles_a_worker_whose_pty_is_still_alive() {
+    // session.sh 在 CLI 退出后会落回一个交互式 shell，所以「会话还在」并不等于
+    // 「worker 还在跑」。这一条如果按会话判断，卡片会永远停在「运行中」并占着
+    // 并发名额，后面再也不会派活。
+    let workspace = workspace(1, "In Progress");
+    let journal_dir = tempfile::tempdir().expect("journal dir");
+    let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3304";
+    dispatch_run(&workspace.db, &workspace.root, session, None);
+    crate::terminal::register_test_session(session);
+    let journal = journal_with(&journal_dir, session, 1, &workspace.root);
+
+    crate::super_agent::tick::reconcile(
+        &workspace.db,
+        &settings(false),
+        crate::super_agent::store::now_ms(),
+        &journal,
+        &mut empty_report(),
+    );
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Failed);
+}
+
+#[test]
+fn reconcile_leaves_a_still_running_worker_alone() {
+    // 会话还在、也还没有退出记账：这就是真的在跑，不能提前结算。
+    let workspace = workspace(1, "In Progress");
+    let journal_dir = tempfile::tempdir().expect("journal dir");
+    let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3305";
+    dispatch_run(&workspace.db, &workspace.root, session, None);
+    crate::terminal::register_test_session(session);
+    let journal = journal_with(
+        &journal_dir,
+        "3f2504e0-4f89-11d3-9a0c-0305e82c3306",
+        0,
+        &workspace.root,
+    );
+
+    crate::super_agent::tick::reconcile(
+        &workspace.db,
+        &settings(false),
+        crate::super_agent::store::now_ms(),
+        &journal,
+        &mut empty_report(),
+    );
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Working);
 }
 
 fn empty_report() -> crate::super_agent::model::TickReport {
@@ -744,6 +867,367 @@ fn run_state_is_keyed_by_repository_not_only_task_id() {
     assert_eq!(in_second.state, RunState::Working);
     assert_eq!(in_first.root, first.root);
     assert_eq!(in_second.root, second.root);
+}
+
+/// 两个仓库都有 TASK-1：暂停只作用于被暂停的那个仓库，另一个仓库的卡该派就派。
+///
+/// 用户的实际场景就是这样：每个 backlog 仓库的 id 都从 TASK-1 开始。
+#[tokio::test]
+async fn the_same_task_id_in_two_repositories_keeps_its_own_state() {
+    let first = workspace(1, "In Progress");
+    let (_temp, second_root) = second_workspace(&first.db);
+    first
+        .db
+        .set_router_state(&first.root, "TASK-1", RunState::Paused, None, 10)
+        .expect("pause");
+
+    let dispatcher = RecordingDispatcher::default();
+    let report = run_tick(
+        &first.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+
+    assert!(report
+        .filtered
+        .iter()
+        .any(|filtered| filtered.task_id == "TASK-1" && filtered.reason == "paused"));
+    assert_eq!(report.dispatched, vec!["TASK-1".to_string()]);
+    {
+        let specs = dispatcher.dispatched.lock().unwrap();
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].root, second_root, "派发的必须是没被暂停的那个仓库");
+    }
+
+    let second = first
+        .db
+        .router_run(&second_root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(second.state, RunState::Dispatched);
+    let paused = first
+        .db
+        .router_run(&first.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(paused.state, RunState::Paused);
+}
+
+/// 依赖也要按仓库解：另一个仓库里同名卡是 Done，不能拿来满足本仓库的依赖。
+#[test]
+fn dependencies_are_resolved_inside_the_same_repository() {
+    let mut statuses = std::collections::HashMap::new();
+    statuses.insert(("B".to_string(), "TASK-2".to_string()), "Done".to_string());
+    let candidate = Candidate {
+        task_id: "TASK-1".into(),
+        root: "A".into(),
+        title: "任务 1".into(),
+        status: "In Progress".into(),
+        file: "backlog/tasks/task-1.md".into(),
+        fingerprint: "fp".into(),
+        dependencies: vec!["TASK-2".into()],
+        run: None,
+    };
+    let outcome = crate::super_agent::prefilter::apply(
+        vec![candidate],
+        &settings(false),
+        &statuses,
+        crate::super_agent::store::now_ms(),
+    );
+    assert!(outcome.survivors.is_empty());
+    assert_eq!(outcome.filtered[0].reason, "blocked-by:TASK-2");
+}
+
+/// 影子模式只观测、不改运行态：一张卡被判为「要问人」也不能被钉在「等你看」，
+/// 否则 prefilter 从此把它剔除，影子就再也观测不到这张卡了。
+#[tokio::test]
+async fn shadow_mode_does_not_park_a_card_on_waiting_for_you() {
+    let workspace = workspace(1, "In Progress");
+    let asking = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: vec![Decision::ask("TASK-1", "需要人给一个答案")],
+            unfinished: false,
+        },
+    };
+    let dispatcher = RecordingDispatcher::default();
+    let report = run_tick(
+        &workspace.db,
+        settings(true),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &asking,
+    )
+    .await;
+    assert!(report.needs_you.is_empty());
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Queued);
+    assert!(run.shadow);
+    assert!(run.detail.expect("detail").starts_with("shadow:"));
+
+    // 关掉影子后，同一张卡仍会被重新判断，并且这次真的转成「等你看」。
+    let report = run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &asking,
+    )
+    .await;
+    assert_eq!(report.needs_you, vec!["TASK-1".to_string()]);
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::NeedsYou);
+}
+
+/// 派发成功后租约留到 TTL：写运行态之前有一个窗口，并发的一轮 tick 不能重派。
+/// 派发失败要立刻放掉，冷却结束后还能重试。
+#[tokio::test]
+async fn the_lease_outlives_a_successful_dispatch_but_not_a_failed_one() {
+    let dispatched = workspace(1, "In Progress");
+    run_tick(
+        &dispatched.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &RecordingDispatcher::default(),
+        &RuleEpisode,
+    )
+    .await;
+    let now = crate::super_agent::store::now_ms();
+    let again = dispatched
+        .db
+        .acquire_router_lease(&dispatched.root, "TASK-1", "other", now + 90_000)
+        .expect("lease");
+    assert!(!again, "成功派发之后租约不能被立刻放掉");
+
+    let failed = workspace(1, "In Progress");
+    let dispatcher = RecordingDispatcher {
+        fail_with: Some("terminal-limit".into()),
+        ..Default::default()
+    };
+    run_tick(
+        &failed.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+    let retry = failed
+        .db
+        .acquire_router_lease(&failed.root, "TASK-1", "other", now + 90_000)
+        .expect("lease");
+    assert!(retry, "派发失败后租约必须放掉，否则重试会被自己挡住");
+}
+
+/// 「开始」会把卡片挪进触发列，而挪列会改文件指纹。这条前提是命令层必须
+/// 用挪完之后的指纹写运行态的依据——拿旧指纹去对，收尾会把空跑判成完成。
+#[test]
+fn moving_a_card_into_the_trigger_column_changes_its_fingerprint() {
+    let workspace = workspace(1, "To Do");
+    let opened = crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("open");
+    let before = repository::list(&opened).expect("list")[0].clone();
+    let moved = repository::set_status(&opened, &before.id, "In Progress", &before.fingerprint)
+        .expect("set status");
+    assert_ne!(moved.task.fingerprint, before.fingerprint);
+}
+
+#[test]
+fn confirmation_checks_version_fingerprint_and_repository() {
+    use crate::super_agent::commands::{resolve_confirmation, HumanDecision};
+    let workspace = workspace(1, "In Progress");
+    workspace
+        .db
+        .set_router_state(
+            &workspace.root,
+            "TASK-1",
+            RunState::NeedsYou,
+            Some("请确认"),
+            10,
+        )
+        .unwrap();
+    let candidate =
+        crate::super_agent::tick::resolve_task(&workspace.db, Some(&workspace.root), "TASK-1")
+            .unwrap();
+    assert_eq!(
+        resolve_confirmation(
+            &workspace.db,
+            &workspace.root,
+            "TASK-1",
+            HumanDecision::Complete,
+            9,
+            &candidate.fingerprint
+        )
+        .unwrap_err(),
+        "run-state-changed"
+    );
+    assert_eq!(
+        resolve_confirmation(
+            &workspace.db,
+            &workspace.root,
+            "TASK-1",
+            HumanDecision::Complete,
+            10,
+            "stale"
+        )
+        .unwrap_err(),
+        "stale-fingerprint"
+    );
+    assert!(resolve_confirmation(
+        &workspace.db,
+        "/other",
+        "TASK-1",
+        HumanDecision::Complete,
+        10,
+        &candidate.fingerprint
+    )
+    .is_err());
+    resolve_confirmation(
+        &workspace.db,
+        &workspace.root,
+        "TASK-1",
+        HumanDecision::Complete,
+        10,
+        &candidate.fingerprint,
+    )
+    .unwrap();
+    let candidate =
+        crate::super_agent::tick::resolve_task(&workspace.db, Some(&workspace.root), "TASK-1")
+            .unwrap();
+    assert_eq!(candidate.status, "Done");
+    assert_eq!(candidate.state(), RunState::Done);
+    assert!(resolve_confirmation(
+        &workspace.db,
+        &workspace.root,
+        "TASK-1",
+        HumanDecision::Continue,
+        10,
+        &candidate.fingerprint
+    )
+    .is_err());
+}
+
+#[tokio::test]
+async fn confirmation_continue_resets_attempts_and_allows_next_tick() {
+    use crate::super_agent::commands::{resolve_confirmation, HumanDecision};
+    let workspace = workspace(1, "To Do");
+    workspace
+        .db
+        .put_router_run(
+            &workspace.root,
+            "TASK-1",
+            RunWrite {
+                state: RunState::NeedsYou,
+                worker_app: Some("claude"),
+                session_id: None,
+                attempts: 3,
+                detail: Some("失败次数已满"),
+                card_fingerprint: None,
+                shadow: false,
+            },
+            10,
+        )
+        .unwrap();
+    let candidate =
+        crate::super_agent::tick::resolve_task(&workspace.db, Some(&workspace.root), "TASK-1")
+            .unwrap();
+    resolve_confirmation(
+        &workspace.db,
+        &workspace.root,
+        "TASK-1",
+        HumanDecision::Continue,
+        10,
+        &candidate.fingerprint,
+    )
+    .unwrap();
+    let candidate =
+        crate::super_agent::tick::resolve_task(&workspace.db, Some(&workspace.root), "TASK-1")
+            .unwrap();
+    assert_eq!(candidate.status, "In Progress");
+    assert_eq!(candidate.attempts(), 0);
+    let dispatcher = RecordingDispatcher::default();
+    run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+    assert_eq!(dispatcher.count(), 1);
+}
+
+#[test]
+fn reconcile_accepts_done_and_releases_lease() {
+    let workspace = workspace(1, "In Progress");
+    let before = crate::super_agent::snapshot::task_fingerprint(&workspace.root, "TASK-1").unwrap();
+    let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3388";
+    dispatch_run(&workspace.db, &workspace.root, session, Some(&before));
+    let ws = crate::tasks::document::open(std::path::Path::new(&workspace.root)).unwrap();
+    crate::tasks::repository::set_status(&ws, "TASK-1", "Done", &before).unwrap();
+    workspace
+        .db
+        .acquire_router_lease(
+            &workspace.root,
+            "TASK-1",
+            "worker",
+            crate::super_agent::store::now_ms() + 90_000,
+        )
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let journal = journal_with(&dir, session, 0, &workspace.root);
+    crate::super_agent::tick::reconcile(
+        &workspace.db,
+        &settings(false),
+        crate::super_agent::store::now_ms(),
+        &journal,
+        &mut empty_report(),
+    );
+    assert_eq!(
+        workspace
+            .db
+            .router_run(&workspace.root, "TASK-1")
+            .unwrap()
+            .unwrap()
+            .state,
+        RunState::Done
+    );
+    assert!(workspace
+        .db
+        .acquire_router_lease(
+            &workspace.root,
+            "TASK-1",
+            "next",
+            crate::super_agent::store::now_ms() + 90_000
+        )
+        .unwrap());
+}
+
+/// 直接造一个挂在已有数据库上的第二个仓库：用来测「两个仓库都有 TASK-1」。
+fn second_workspace(db: &std::sync::Arc<Database>) -> (tempfile::TempDir, String) {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let opened = initialize(temp.path(), "phi").expect("init");
+    repository::create(
+        &opened,
+        &NewTask {
+            title: "任务 1".into(),
+            status: Some("In Progress".into()),
+            ..Default::default()
+        },
+    )
+    .expect("create");
+    let root = opened.root.to_string_lossy().into_owned();
+    db.add_task_workspace(&root).expect("register");
+    (temp, root)
 }
 
 /// 依赖没到 Done：先不动这张卡。

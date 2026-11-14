@@ -19,11 +19,13 @@ pub(crate) struct Snapshot {
 
 /// 扫全部已登记工作区。单个工作区读失败不影响其它工作区。
 pub(crate) fn collect(db: &Database) -> Result<Snapshot, String> {
-    let runs: HashMap<String, crate::super_agent::model::TaskRun> = db
+    // 键必须是 (仓库, 任务)：每个 backlog 仓库都有自己的 TASK-1，只按任务 id 索引
+    // 会让一个仓库的运行态覆盖另一个仓库的同名任务（暂停、跑起来了都会串）。
+    let runs: HashMap<(String, String), crate::super_agent::model::TaskRun> = db
         .router_runs()
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|run| (run.task_id.clone(), run))
+        .map(|run| ((run.root.clone(), run.task_id.clone()), run))
         .collect();
 
     let mut snapshot = Snapshot::default();
@@ -44,8 +46,9 @@ pub(crate) fn collect(db: &Database) -> Result<Snapshot, String> {
         };
         snapshot.scanned += tasks.len();
         for task in tasks {
+            let run = runs.get(&(root.clone(), task.id.clone())).cloned();
             snapshot.candidates.push(Candidate {
-                run: runs.get(&task.id).cloned(),
+                run,
                 task_id: task.id,
                 root: root.clone(),
                 title: task.title,
@@ -60,6 +63,7 @@ pub(crate) fn collect(db: &Database) -> Result<Snapshot, String> {
 }
 
 /// 一张卡当前的内容指纹。收尾时用它判断 worker 有没有动过这张卡。
+#[cfg(test)]
 pub(crate) fn task_fingerprint(root: &str, task_id: &str) -> Option<String> {
     let workspace = document::open(std::path::Path::new(root)).ok()?;
     repository::list(&workspace)

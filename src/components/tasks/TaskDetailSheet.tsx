@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Archive, Link2Off, Play, SquareTerminal } from "lucide-react";
+import { Archive, Link2Off, SquareTerminal } from "lucide-react";
 import {
   Sheet,
   SheetBody,
@@ -11,13 +11,6 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -27,26 +20,33 @@ import {
 import { getAppDisplayName } from "@/components/shell/AppGlyph";
 import { fmtUsd } from "@/components/usage/format";
 import type { TaskDetail } from "@/lib/api/tasks";
-import type { RouterPlanNode, RouterTaskRun } from "@/lib/api/superAgent";
+import type {
+  RouterHumanDecision,
+  RouterPlanNode,
+  RouterTaskRun,
+} from "@/lib/api/superAgent";
 import { cn } from "@/lib/utils";
 import { AutoRouterSection } from "./AutoRouterSection";
 
 interface TaskDetailSheetProps {
   detail: TaskDetail | null;
   statuses: string[];
-  /** 可以开终端会话的应用；空数组表示这台机器 / 平台不支持 */
-  terminalApps: string[];
+
   busy: boolean;
   /** 这张卡的自动调度运行态与执行计划 */
   run: RouterTaskRun | undefined;
   plan: RouterPlanNode[];
+  /** 后端当前确实持有的会话 id；不在其中的链接表示会话已结束 */
+  liveSessionIds?: ReadonlySet<string>;
+  /** 打开一条已有关联会话（后台派发的 worker 不会自己出现在界面上） */
+  onOpenSession?: (appId: string, sessionId: string) => void;
   onClose: () => void;
   onAutoStart: () => void;
   onAutoPause: () => void;
   onAutoResume: () => void;
   onSetStatus: (status: string) => void;
   onArchive: () => void;
-  onStartSession: (appId: string) => void;
+  onResolve: (decision: RouterHumanDecision) => void;
   onUnlink: (sessionId: string) => void;
 }
 
@@ -59,18 +59,19 @@ function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-/** 任务详情抽屉：只读正文 + 三个写操作（改状态、归档、开始会话）。 */
+/** 任务详情抽屉：任务正文、统一调度操作与会话记录。 */
 export function TaskDetailSheet({
   detail,
   statuses,
-  terminalApps,
   busy,
   run,
   plan,
+  liveSessionIds,
+  onOpenSession,
   onClose,
   onSetStatus,
   onArchive,
-  onStartSession,
+  onResolve,
   onUnlink,
   onAutoStart,
   onAutoPause,
@@ -207,6 +208,16 @@ export function TaskDetailSheet({
                 onStart={onAutoStart}
                 onPause={onAutoPause}
                 onResume={onAutoResume}
+                onResolve={onResolve}
+                sessionLive={
+                  Boolean(run?.sessionId) &&
+                  (!liveSessionIds || liveSessionIds.has(run!.sessionId!))
+                }
+                onOpenSession={
+                  onOpenSession && run?.sessionId && run.workerApp
+                    ? () => onOpenSession(run.workerApp!, run.sessionId!)
+                    : undefined
+                }
               />
 
               <section className="space-y-2">
@@ -219,40 +230,63 @@ export function TaskDetailSheet({
                   </p>
                 ) : (
                   <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
-                    {detail.links.map((link) => (
-                      <li
-                        key={link.sessionId}
-                        className="flex items-center gap-2 rounded-control border border-border px-2.5 py-1.5"
-                      >
-                        <SquareTerminal
-                          aria-hidden="true"
-                          className="size-3.5 shrink-0 text-fg-3"
-                        />
-                        <span className="min-w-0 flex-1 truncate text-caption text-fg-1">
-                          {getAppDisplayName(link.appId)}
-                        </span>
-                        <span className="shrink-0 text-caption tabular-nums text-fg-3">
-                          {t("tasks.sessionUsage", {
-                            cost: fmtUsd(link.costUsd, 2),
-                            count: link.requests,
-                          })}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon-compact"
-                          aria-label={t("tasks.unlinkSession")}
-                          title={t("tasks.unlinkSession")}
-                          disabled={busy}
-                          onClick={() => onUnlink(link.sessionId)}
+                    {detail.links.map((link) => {
+                      // 应用重启后后端不再持有旧会话，链接还留在数据库里。
+                      // 这种情况不说成「打不开」，而是如实写「会话已结束」。
+                      const live =
+                        !liveSessionIds || liveSessionIds.has(link.sessionId);
+                      return (
+                        <li
+                          key={link.sessionId}
+                          className="flex items-center gap-2 rounded-control border border-border px-2.5 py-1.5"
                         >
-                          <Link2Off
-                            data-icon
-                            className="h-3.5 w-3.5"
-                            strokeWidth={1.5}
+                          <SquareTerminal
+                            aria-hidden="true"
+                            className="size-3.5 shrink-0 text-fg-3"
                           />
-                        </Button>
-                      </li>
-                    ))}
+                          <span className="min-w-0 flex-1 truncate text-caption text-fg-1">
+                            {getAppDisplayName(link.appId)}
+                          </span>
+                          <span className="shrink-0 text-caption tabular-nums text-fg-3">
+                            {t("tasks.sessionUsage", {
+                              cost: fmtUsd(link.costUsd, 2),
+                              count: link.requests,
+                            })}
+                          </span>
+                          {onOpenSession && live ? (
+                            <Button
+                              variant="ghost"
+                              size="compact"
+                              className="shrink-0"
+                              disabled={busy}
+                              onClick={() =>
+                                onOpenSession(link.appId, link.sessionId)
+                              }
+                            >
+                              {t("tasks.openSession")}
+                            </Button>
+                          ) : (
+                            <span className="shrink-0 text-caption text-fg-3">
+                              {t("tasks.sessionEnded")}
+                            </span>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon-compact"
+                            aria-label={t("tasks.unlinkSession")}
+                            title={t("tasks.unlinkSession")}
+                            disabled={busy}
+                            onClick={() => onUnlink(link.sessionId)}
+                          >
+                            <Link2Off
+                              data-icon
+                              className="h-3.5 w-3.5"
+                              strokeWidth={1.5}
+                            />
+                          </Button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </section>
@@ -291,54 +325,6 @@ export function TaskDetailSheet({
                   ))}
                 </SelectContent>
               </Select>
-              {terminalApps.length === 0 ? (
-                <Button
-                  variant="solid"
-                  size="compact"
-                  disabled
-                  title={t("tasks.errors.terminalUnsupported")}
-                >
-                  <Play data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  {t("tasks.startSession")}
-                </Button>
-              ) : (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="solid"
-                      size="compact"
-                      disabled={busy}
-                      aria-label={t("tasks.startSession")}
-                    >
-                      <Play
-                        data-icon
-                        className="h-3.5 w-3.5"
-                        strokeWidth={1.5}
-                      />
-                      {t("tasks.startSession")}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>
-                      {t("tasks.startSessionIn")}
-                    </DropdownMenuLabel>
-                    {terminalApps.map((appId) => (
-                      <DropdownMenuItem
-                        key={appId}
-                        // 先收起抽屉再开终端：开完会话整页会换成终端页，
-                        // 若此时抽屉和菜单还开着，两层模态就要和整页替换
-                        // 在同一个提交里卸载掉，收尾顺序容易把全局点击封锁留下。
-                        onSelect={() => {
-                          onClose();
-                          onStartSession(appId);
-                        }}
-                      >
-                        {getAppDisplayName(appId)}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
             </SheetFooter>
           </>
         ) : null}

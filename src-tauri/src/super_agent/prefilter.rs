@@ -23,7 +23,8 @@ fn reject(outcome: &mut Outcome, candidate: &Candidate, reason: &str) {
 pub(crate) fn apply(
     candidates: Vec<Candidate>,
     settings: &RouterSettings,
-    statuses: &HashMap<String, String>,
+    // 键是 (仓库, 任务)：依赖也要按仓库查，两个仓库都有 TASK-1 时不能互相顶掉。
+    statuses: &HashMap<(String, String), String>,
     now: i64,
 ) -> Outcome {
     let mut outcome = Outcome::default();
@@ -76,7 +77,8 @@ pub(crate) fn apply(
             if dependency.as_str() == candidate.task_id {
                 return false;
             }
-            match statuses.get(dependency.as_str()).map(String::as_str) {
+            let key = (candidate.root.clone(), dependency.to_string());
+            match statuses.get(&key).map(String::as_str) {
                 Some(status) => !is_done(status),
                 // 依赖卡找不到：不猜，直接当没满足。
                 None => true,
