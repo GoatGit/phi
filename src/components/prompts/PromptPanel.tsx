@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/lib/toast";
 import { APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
@@ -34,6 +34,8 @@ export interface PromptPanelProps {
   open?: boolean;
   onInteractionBlockedChange?: (blocked: boolean) => void;
   onNavigationBlockedChange?: (blocked: boolean) => void;
+  /** 工具箱的页签行：有它时页签占用页头标题位 */
+  tabs?: ReactNode;
 }
 
 const StandardPromptPanel: React.FC<PromptPanelProps> = ({
@@ -44,6 +46,7 @@ const StandardPromptPanel: React.FC<PromptPanelProps> = ({
   onAppChange,
   onInteractionBlockedChange,
   onNavigationBlockedChange,
+  tabs,
 }) => {
   const { t } = useTranslation();
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -483,6 +486,7 @@ const StandardPromptPanel: React.FC<PromptPanelProps> = ({
   return (
     <PromptPageFrame
       onBack={onBack}
+      tabs={tabs}
       app={appId}
       apps={apps}
       onAppChange={onAppChange}
@@ -590,6 +594,7 @@ const PromptPanel: React.FC<PromptPanelProps> = (props) => {
       <PiPromptPanel
         open={props.open ?? true}
         onBack={props.onBack}
+        tabs={props.tabs}
         apps={props.apps}
         onAppChange={props.onAppChange}
         onInteractionBlockedChange={props.onInteractionBlockedChange}

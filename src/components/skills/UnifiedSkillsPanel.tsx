@@ -1,5 +1,11 @@
 import { createPortal } from "react-dom";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { useTranslation } from "react-i18next";
 import {
@@ -97,6 +103,11 @@ interface UnifiedSkillsPanelProps {
   onNavigationBlockedChange?: (blocked: boolean) => void;
   /** 从应用页下钻进来时的返回 */
   onBack?: () => void;
+  /**
+   * 工具箱的页签行：有它时页签占用页头标题位，面板不再画自己的标题与图标；
+   * 「已安装 / 发现」仍是页头下面的二级页签。
+   */
+  tabs?: ReactNode;
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -123,6 +134,7 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
   onInteractionBlockedChange,
   onNavigationBlockedChange,
   onBack,
+  tabs,
 }) => {
   const { t, i18n } = useTranslation();
   const appIds = useVisibleAppIds(SKILLS_APP_IDS);
@@ -921,8 +933,9 @@ const UnifiedSkillsPanel: React.FC<UnifiedSkillsPanelProps> = ({
   const header = (
     <AppPageHeader
       leading={onBack && <PageHeaderBackButton onClick={onBack} />}
-      icon={<SkillsIcon size={20} />}
-      title="Skills"
+      icon={tabs ? undefined : <SkillsIcon size={20} />}
+      title={tabs ? null : "Skills"}
+      tabs={tabs}
       titleExtra={
         <>
           <HelpTip title={t("skillsPage.helpTitle")}>

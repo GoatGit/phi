@@ -5,7 +5,6 @@ import { Play } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
-import { Switch } from "@/components/ui/switch";
 import {
   commandErrorMessage,
   pluginsApi,
@@ -18,7 +17,14 @@ import {
   PluginPreviewDialog,
   SessionExitPreviewDialog,
 } from "./PluginPreviewDialogs";
+import {
+  SettingsBlock,
+  SettingsCard,
+  SettingsRow,
+  SettingsSwitchRow,
+} from "@/components/settings/SettingsLayout";
 import { pluginPageClass } from "./pluginPage";
+import { PluginGuide } from "./pluginSection";
 
 /** 钩子标签。未知钩子原样展示，方便插件作者自己扩展时先看到它。 */
 function hookLabel(hook: PluginHook, t: (key: string) => string): string {
@@ -89,7 +95,7 @@ export function PluginDetailPage({ entry }: { entry: PluginCenterEntry }) {
     .join(" · ");
 
   return (
-    <div className={cn(pluginPageClass, "space-y-4")}>
+    <div className={cn(pluginPageClass, "space-y-5")}>
       <section className="space-y-2">
         {plugin.description && (
           <p className="text-body text-fg-2">{plugin.description}</p>
@@ -106,43 +112,42 @@ export function PluginDetailPage({ entry }: { entry: PluginCenterEntry }) {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-panel border border-border bg-surface">
-        <div className="flex items-center justify-between gap-4 px-4 py-3">
-          <div className="min-w-0 space-y-0.5">
-            <p className="text-strong text-fg-1">
-              {t("pluginCenter.detail.enable")}
-            </p>
-            <p className="text-caption text-fg-3">
-              {t("pluginCenter.detail.enableHint")}
-            </p>
-          </div>
-          <Switch
-            checked={plugin.enabled}
-            disabled={busy}
-            aria-label={t("pluginCenter.detail.enable")}
-            onCheckedChange={(next) => void toggle(next)}
+      <SettingsCard>
+        <SettingsSwitchRow
+          label={t("pluginCenter.detail.enable")}
+          description={t("pluginCenter.detail.enableHint")}
+          checked={plugin.enabled}
+          disabled={busy}
+          onCheckedChange={(next) => void toggle(next)}
+        />
+        <SettingsRow
+          label={t("pluginCenter.detail.priority")}
+          control={
+            <span className="text-body tabular-nums text-fg-1">
+              {plugin.priority}
+            </span>
+          }
+        />
+        {plugin.kind === "rules" && (
+          <SettingsRow
+            label={t("pluginCenter.detail.rules")}
+            control={
+              <span className="text-body tabular-nums text-fg-1">
+                {plugin.ruleCount}
+              </span>
+            }
           />
-        </div>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border px-4 py-3 text-caption">
-          <div className="flex items-center justify-between gap-2">
-            <dt className="text-fg-3">{t("pluginCenter.detail.priority")}</dt>
-            <dd className="tabular-nums text-fg-1">{plugin.priority}</dd>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <dt className="text-fg-3">{t("pluginCenter.detail.rules")}</dt>
-            <dd className="tabular-nums text-fg-1">{plugin.ruleCount}</dd>
-          </div>
-        </dl>
+        )}
         <p
-          className="truncate border-t border-border px-4 py-2 text-caption text-fg-3"
+          className="truncate px-4 py-2 text-caption text-fg-3"
           title={metaLine}
         >
           {metaLine}
         </p>
-      </section>
+      </SettingsCard>
 
       {(canPreviewRequest || canPreviewSessionExit) && (
-        <section className="space-y-2">
+        <SettingsBlock title={t("pluginCenter.detail.tryRun")}>
           {canPreviewSessionExit && (
             <p className="text-caption text-fg-3">
               {t("sessionBaton.pluginCenter.hint")}
@@ -170,8 +175,20 @@ export function PluginDetailPage({ entry }: { entry: PluginCenterEntry }) {
               </Button>
             )}
           </div>
-        </section>
+        </SettingsBlock>
       )}
+
+      <PluginGuide
+        title={t("pluginCenter.guide.title")}
+        summary={
+          plugin.description?.trim() ||
+          t("pluginCenter.detail.about.whatFallback")
+        }
+        steps={[1, 2, 3].map((step) =>
+          t(`pluginCenter.detail.about.step${step}`),
+        )}
+        note={t("pluginCenter.detail.about.note")}
+      />
 
       {preview === "request" && (
         <PluginPreviewDialog plugin={plugin} onClose={() => setPreview(null)} />

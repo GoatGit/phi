@@ -7,6 +7,7 @@ pub mod cache_injector;
 pub mod circuit_breaker;
 pub(crate) mod content_encoding;
 pub mod copilot_optimizer;
+pub(crate) mod decision;
 pub mod error;
 pub mod error_mapper;
 pub(crate) mod failover_switch;
@@ -54,6 +55,10 @@ pub use provider_router::ProviderRouter;
 pub use session::{extract_session_id, SessionIdResult, SessionIdSource};
 #[allow(unused_imports)]
 pub use types::{ProxyConfig, ProxyServerInfo, ProxyStatus};
+
+/// 进程内问一次 System One（供 super-agent 的判官使用，不监听端口）。
+#[allow(unused_imports)]
+pub(crate) use decision::ask_system_one;
 
 // 内部模块间共享（供子模块使用）
 // 注意：这个导出用于模块内部，编译器可能警告未使用但实际被子模块使用

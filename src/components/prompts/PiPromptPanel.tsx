@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useIsMutating } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -44,6 +50,8 @@ interface PiPromptPanelProps {
   onAppChange: (app: AppId) => void;
   onInteractionBlockedChange?: (blocked: boolean) => void;
   onNavigationBlockedChange?: (blocked: boolean) => void;
+  /** 工具箱的页签行：有它时页签占用页头标题位 */
+  tabs?: ReactNode;
 }
 
 /** 去掉路径最后一段（AGENTS.md），留下目录，末尾带分隔符。 */
@@ -60,6 +68,7 @@ const PiPromptPanel: React.FC<PiPromptPanelProps> = ({
   onAppChange,
   onInteractionBlockedChange,
   onNavigationBlockedChange,
+  tabs,
 }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<PiPromptTab>("global");
@@ -387,6 +396,7 @@ const PiPromptPanel: React.FC<PiPromptPanelProps> = ({
   return (
     <PromptPageFrame
       onBack={onBack}
+      tabs={tabs}
       app="pi"
       apps={apps}
       onAppChange={onAppChange}

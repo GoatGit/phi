@@ -352,17 +352,22 @@ pub(super) fn session_exit_hook_for_plugin(
 /// 它们不是用户安装的：清单写在代码里，但启用状态仍读 `plugins-state.json`，
 /// 所以「停用」与磁盘插件走同一条路，不需要另一套开关。
 fn builtin_plugins() -> Vec<LoadedPlugin> {
-    vec![LoadedPlugin {
+    [
+        ("report-card", "Report card", "report-card", 10),
+        ("task-board", "Task board", "task-board", 15),
+    ]
+    .into_iter()
+    .map(|(id, name, panel, order)| LoadedPlugin {
         manifest: PluginManifest {
-            id: "report-card".to_string(),
-            name: "Report card".to_string(),
+            id: id.to_string(),
+            name: name.to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             hooks: vec![PluginHook::Panel],
             kind: PluginKind::Feature,
             panel: Some(PanelDeclaration {
-                entry: "report-card".to_string(),
+                entry: panel.to_string(),
                 title: None,
-                order: Some(10),
+                order: Some(order),
             }),
             ..PluginManifest::default()
         },
@@ -370,7 +375,8 @@ fn builtin_plugins() -> Vec<LoadedPlugin> {
         script: None,
         enabled: true,
         builtin: true,
-    }]
+    })
+    .collect()
 }
 
 fn dir_name(dir: &Path) -> String {
@@ -661,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn builtin_report_card_panel_appears_and_can_be_disabled() {
+    fn builtin_panels_appear_and_can_be_disabled() {
         let root = tempfile::tempdir().unwrap();
         let overrides = PluginOverrides::default();
         let registry =
@@ -676,12 +682,19 @@ mod tests {
                     .map(|panel| panel.entry.as_str())
             })
             .collect();
-        assert_eq!(panels, ["report-card"]);
+        assert_eq!(panels, ["report-card", "task-board"]);
         // 功能插件不会进入请求管线
         assert!(registry.active_request_plugins().next().is_none());
 
+        // 停用只影响自己那一个面板，另一张照常挂上
         let mut disabled = PluginOverrides::default();
         disabled.set("report-card", false);
+        let registry =
+            PluginRegistry::discover(root.path(), &disabled).with_builtin_plugins(&disabled);
+        assert_eq!(registry.active_panels().count(), 1);
+        assert!(registry.get("task-board").is_some());
+
+        disabled.set("task-board", false);
         let registry =
             PluginRegistry::discover(root.path(), &disabled).with_builtin_plugins(&disabled);
         assert_eq!(registry.active_panels().count(), 0);
@@ -707,6 +720,7 @@ mod tests {
         let plugin = registry.get("report-card").expect("loaded");
         assert!(!plugin.builtin);
         assert_eq!(plugin.manifest.name, "Custom report card");
-        assert_eq!(registry.active_panels().count(), 1);
+        // 自定义的那一张顶掉内置的同 id 面板，另一张内置面板（任务看板）还在
+        assert_eq!(registry.active_panels().count(), 2);
     }
 }

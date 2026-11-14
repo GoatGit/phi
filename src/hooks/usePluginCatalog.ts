@@ -9,6 +9,7 @@ import {
   HandHeart,
   Network,
   ShieldCheck,
+  SquareKanban,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { pluginsApi, type PluginSummary } from "@/lib/api/plugins";
@@ -17,8 +18,8 @@ import { pluginsApi, type PluginSummary } from "@/lib/api/plugins";
  * 插件中心的卡片目录。
  *
  * 这里描述「界面上有哪几个插件」，与后端清单是两件事：
- * - `panel` / `plugin` 卡片背后有插件清单条目（成绩单是宿主内置，接棒来自插件目录），
- *   启停状态直接读清单；
+ * - `panel` / `plugin` 卡片背后有插件清单条目（成绩单、任务看板是宿主内置，
+ *   接棒来自插件目录），启停状态直接读清单；
  * - `config` 卡片是宿主自带能力（隐私脱敏、MCP 路由、教训库），没有插件清单，
  *   也不需要启停——它们各自的面板里才有关闭开关。
  *
@@ -69,6 +70,14 @@ const CARD_DEFINITIONS: CardDefinition[] = [
     descriptionKey: "pluginCenter.cards.reportCard.description",
     icon: ClipboardList,
     order: 10,
+    kind: "panel",
+  },
+  {
+    id: "task-board",
+    titleKey: "pluginCenter.cards.taskBoard.title",
+    descriptionKey: "pluginCenter.cards.taskBoard.description",
+    icon: SquareKanban,
+    order: 15,
     kind: "panel",
   },
   {

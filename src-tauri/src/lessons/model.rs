@@ -60,6 +60,33 @@ pub struct LessonState {
     pub failures: usize,
 }
 
+/// 一个仓库的教训状态，用于「一次扫描、所有仓库一起看」。
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LessonProject {
+    pub root: String,
+    /// 目录名，给人看的短名字
+    pub name: String,
+    pub state: LessonState,
+}
+
+/// 本机会话涉及到的所有仓库。少一个仓库选择器，多一份「都跑过了」的底账。
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LessonOverview {
+    pub projects: Vec<LessonProject>,
+    /// 扫描过的仓库数（含没有失败记录的）
+    pub scanned_projects: usize,
+    /// 本次扫过的会话数
+    pub scanned_sessions: usize,
+    /// 还没扫到的会话数（超过单次上限时非 0，再点一次继续）
+    pub pending_sessions: usize,
+    /// 本次扫到的失败事件数
+    pub failures: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_scan_at: Option<i64>,
+}
+
 /// 注入块预览：先给用户看清楚要写进仓库的到底是什么。
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

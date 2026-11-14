@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,77 @@ interface PreviewDialogProps {
   onClose: () => void;
 }
 
+interface PreviewDialogShellProps {
+  title: string;
+  description: ReactNode;
+  inputLabel: string;
+  input: string;
+  onInput: (value: string) => void;
+  /** 跑出来的结果；还没跑时传 null */
+  result: ReactNode;
+  error: string | null;
+  running: boolean;
+  onRun: () => void;
+  onClose: () => void;
+}
+
+/**
+ * 两个试跑对话框的同一副骨架：标题、一段说明、输入框、结果、运行 / 关闭。
+ *
+ * 请求改写与接棒决策的输入输出长得一样，只是结果那半边不同内容；
+ * 骨架收在这里，两处不再各写一遍内边距与按钮顺序。
+ */
+function PreviewDialogShell({
+  title,
+  description,
+  inputLabel,
+  input,
+  onInput,
+  result,
+  error,
+  running,
+  onRun,
+  onClose,
+}: PreviewDialogShellProps) {
+  const { t } = useTranslation();
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-3">
+          <label className="block space-y-1.5">
+            <span className="text-caption text-fg-2">{inputLabel}</span>
+            <Textarea
+              value={input}
+              onChange={(event) => onInput(event.target.value)}
+              className="min-h-[160px] font-mono text-caption"
+              spellCheck={false}
+            />
+          </label>
+
+          {error && <Notice tone="warning" title={error} />}
+
+          {result}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" size="compact" onClick={onClose}>
+            {t("pluginCenter.close")}
+          </Button>
+          <Button size="compact" onClick={onRun} disabled={running}>
+            {running
+              ? t("pluginCenter.running")
+              : t("pluginCenter.stages.previewRun")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** 干跑对话框：输入一段请求体，看这个插件把它改成什么。 */
 export function PluginPreviewDialog({ plugin, onClose }: PreviewDialogProps) {
   const { t } = useTranslation();
@@ -99,61 +170,36 @@ export function PluginPreviewDialog({ plugin, onClose }: PreviewDialogProps) {
         : t("pluginCenter.stages.previewHits", { count: hits });
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>
-            {t("pluginCenter.stages.previewTitle", { name: plugin.name })}
-          </DialogTitle>
-          <DialogDescription>
-            {t("pluginCenter.stages.previewHint")}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="space-y-3">
-          <label className="block space-y-1.5">
-            <span className="text-caption text-fg-2">
-              {t("pluginCenter.stages.previewInput")}
-            </span>
-            <Textarea
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              className="min-h-[140px] font-mono text-caption"
-              spellCheck={false}
-            />
-          </label>
-
-          {error && <Notice tone="warning" title={error} />}
-
-          {output !== null && (
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="text-caption text-fg-2">
-                  {t("pluginCenter.stages.previewOutput")}
-                </span>
-                {summary && (
-                  <Badge variant="outline" className="text-fg-2">
-                    {summary}
-                  </Badge>
-                )}
-              </div>
-              <pre className="max-h-[240px] overflow-auto rounded-panel border border-border bg-subtle p-3 text-caption text-fg-1">
-                {output}
-              </pre>
+    <PreviewDialogShell
+      title={t("pluginCenter.stages.previewTitle", { name: plugin.name })}
+      description={t("pluginCenter.stages.previewHint")}
+      inputLabel={t("pluginCenter.stages.previewInput")}
+      input={input}
+      onInput={setInput}
+      error={error}
+      running={running}
+      onRun={() => void run()}
+      onClose={onClose}
+      result={
+        output !== null && (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-caption text-fg-2">
+                {t("pluginCenter.stages.previewOutput")}
+              </span>
+              {summary && (
+                <Badge variant="outline" className="text-fg-2">
+                  {summary}
+                </Badge>
+              )}
             </div>
-          )}
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="ghost" size="compact" onClick={onClose}>
-            {t("pluginCenter.close")}
-          </Button>
-          <Button size="compact" onClick={() => void run()} disabled={running}>
-            {running
-              ? t("pluginCenter.running")
-              : t("pluginCenter.stages.previewRun")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <pre className="max-h-[240px] overflow-auto rounded-panel border border-border bg-subtle p-3 text-caption text-fg-1">
+              {output}
+            </pre>
+          </div>
+        )
+      }
+    />
   );
 }
 
@@ -199,71 +245,46 @@ export function SessionExitPreviewDialog({
   }, [input, plugin.id, t]);
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>
-            {t("sessionBaton.preview.title", { name: plugin.name })}
-          </DialogTitle>
-          <DialogDescription>
-            {t("sessionBaton.preview.hint")}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="space-y-3">
-          <label className="block space-y-1.5">
+    <PreviewDialogShell
+      title={t("sessionBaton.preview.title", { name: plugin.name })}
+      description={t("sessionBaton.preview.hint")}
+      inputLabel={t("sessionBaton.preview.input")}
+      input={input}
+      onInput={setInput}
+      error={error}
+      running={running}
+      onRun={() => void run()}
+      onClose={onClose}
+      result={
+        ran && (
+          <div className="space-y-1.5">
             <span className="text-caption text-fg-2">
-              {t("sessionBaton.preview.input")}
+              {t("sessionBaton.preview.output")}
             </span>
-            <Textarea
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              className="min-h-[180px] font-mono text-caption"
-              spellCheck={false}
-            />
-          </label>
-
-          {error && <Notice tone="warning" title={error} />}
-
-          {ran && (
-            <div className="space-y-1.5">
-              <span className="text-caption text-fg-2">
-                {t("sessionBaton.preview.output")}
-              </span>
-              {decision ? (
-                <div className="space-y-1 rounded-panel border border-border bg-subtle p-3">
-                  <p className="text-body text-fg-1">
-                    {decision.action === "resume"
-                      ? t("sessionBaton.preview.actionResume")
-                      : t("sessionBaton.preview.actionRecord")}
-                    {decision.mode
-                      ? ` · ${
-                          decision.mode === "fresh-session"
-                            ? t("sessionBaton.preview.modeFresh")
-                            : t("sessionBaton.preview.modeSame")
-                        }`
-                      : null}
-                  </p>
-                  <p className="text-caption text-fg-2">{decision.reason}</p>
-                </div>
-              ) : (
-                <p className="text-body text-fg-2">
-                  {t("sessionBaton.preview.abstained")}
+            {decision ? (
+              <div className="space-y-1 rounded-panel border border-border bg-subtle p-3">
+                <p className="text-body text-fg-1">
+                  {decision.action === "resume"
+                    ? t("sessionBaton.preview.actionResume")
+                    : t("sessionBaton.preview.actionRecord")}
+                  {decision.mode
+                    ? ` · ${
+                        decision.mode === "fresh-session"
+                          ? t("sessionBaton.preview.modeFresh")
+                          : t("sessionBaton.preview.modeSame")
+                      }`
+                    : null}
                 </p>
-              )}
-            </div>
-          )}
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="ghost" size="compact" onClick={onClose}>
-            {t("pluginCenter.close")}
-          </Button>
-          <Button size="compact" onClick={() => void run()} disabled={running}>
-            {running
-              ? t("pluginCenter.running")
-              : t("pluginCenter.stages.previewRun")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+                <p className="text-caption text-fg-2">{decision.reason}</p>
+              </div>
+            ) : (
+              <p className="text-body text-fg-2">
+                {t("sessionBaton.preview.abstained")}
+              </p>
+            )}
+          </div>
+        )
+      }
+    />
   );
 }

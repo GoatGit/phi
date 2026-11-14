@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   defaultRangeExtractor,
@@ -134,6 +141,11 @@ interface SessionManagerPageProps {
   onOpenTerminalSettings?: () => void;
   /** 从应用页「查看会话」下钻进入时的返回入口 */
   onBack?: () => void;
+  /**
+   * 工具箱的页签行：有它时页签占用页头标题位，列表页不再画自己的标题；
+   * 阅读页有会话名自己的页头，不接这行页签。
+   */
+  tabs?: ReactNode;
 }
 
 export function SessionManagerPage({
@@ -141,6 +153,7 @@ export function SessionManagerPage({
   fromApp,
   onOpenTerminalSettings,
   onBack,
+  tabs,
 }: SessionManagerPageProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -943,8 +956,11 @@ export function SessionManagerPage({
       {!readerSession && (
         <AppPageHeader
           leading={onBack && <PageHeaderBackButton onClick={onBack} />}
-          icon={<History className="h-5 w-5" strokeWidth={1.5} />}
-          title={t("nav.sessions", { defaultValue: "会话" })}
+          icon={
+            tabs ? undefined : <History className="h-5 w-5" strokeWidth={1.5} />
+          }
+          title={tabs ? null : t("nav.sessions", { defaultValue: "会话" })}
+          tabs={tabs}
           titleExtra={
             <HelpTip
               title={t("sessionManager.helpTitle", {

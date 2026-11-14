@@ -26,25 +26,28 @@ import {
 } from "@/components/ui/select";
 import { getAppDisplayName } from "@/components/shell/AppGlyph";
 import { fmtUsd } from "@/components/usage/format";
-import type { RelayView } from "@/lib/api/orchestration";
 import type { TaskDetail } from "@/lib/api/tasks";
+import type { RouterPlanNode, RouterTaskRun } from "@/lib/api/superAgent";
 import { cn } from "@/lib/utils";
-import { TaskRelayPanel } from "./TaskRelayPanel";
+import { AutoRouterSection } from "./AutoRouterSection";
 
 interface TaskDetailSheetProps {
   detail: TaskDetail | null;
-  /** 编排接力视图：卡片没有契约时也可能有（会提示缺什么） */
-  relay: RelayView | null;
   statuses: string[];
   /** 可以开终端会话的应用；空数组表示这台机器 / 平台不支持 */
   terminalApps: string[];
   busy: boolean;
+  /** 这张卡的自动调度运行态与执行计划 */
+  run: RouterTaskRun | undefined;
+  plan: RouterPlanNode[];
   onClose: () => void;
+  onAutoStart: () => void;
+  onAutoPause: () => void;
+  onAutoResume: () => void;
   onSetStatus: (status: string) => void;
   onArchive: () => void;
   onStartSession: (appId: string) => void;
   onUnlink: (sessionId: string) => void;
-  onRunGate: (gate: 2 | 3) => void;
 }
 
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
@@ -59,16 +62,19 @@ function Meta({ label, value }: { label: string; value: React.ReactNode }) {
 /** 任务详情抽屉：只读正文 + 三个写操作（改状态、归档、开始会话）。 */
 export function TaskDetailSheet({
   detail,
-  relay,
   statuses,
   terminalApps,
   busy,
+  run,
+  plan,
   onClose,
   onSetStatus,
   onArchive,
   onStartSession,
   onUnlink,
-  onRunGate,
+  onAutoStart,
+  onAutoPause,
+  onAutoResume,
 }: TaskDetailSheetProps) {
   const { t } = useTranslation();
   const task = detail?.task ?? null;
@@ -194,6 +200,15 @@ export function TaskDetailSheet({
                   </section>
                 ))}
 
+              <AutoRouterSection
+                run={run}
+                plan={plan}
+                busy={busy}
+                onStart={onAutoStart}
+                onPause={onAutoPause}
+                onResume={onAutoResume}
+              />
+
               <section className="space-y-2">
                 <h3 className="m-0 text-body font-medium text-fg-1">
                   {t("tasks.sessions")}
@@ -241,14 +256,6 @@ export function TaskDetailSheet({
                   </ul>
                 )}
               </section>
-
-              {relay && relay.taskId === task.id ? (
-                <TaskRelayPanel
-                  relay={relay}
-                  busy={busy}
-                  onRunGate={onRunGate}
-                />
-              ) : null}
 
               <p className="m-0 break-all font-mono text-[11px] text-fg-3">
                 {task.file}
@@ -318,7 +325,13 @@ export function TaskDetailSheet({
                     {terminalApps.map((appId) => (
                       <DropdownMenuItem
                         key={appId}
-                        onSelect={() => onStartSession(appId)}
+                        // 先收起抽屉再开终端：开完会话整页会换成终端页，
+                        // 若此时抽屉和菜单还开着，两层模态就要和整页替换
+                        // 在同一个提交里卸载掉，收尾顺序容易把全局点击封锁留下。
+                        onSelect={() => {
+                          onClose();
+                          onStartSession(appId);
+                        }}
                       >
                         {getAppDisplayName(appId)}
                       </DropdownMenuItem>

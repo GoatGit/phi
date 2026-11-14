@@ -10,24 +10,25 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import {
   Blocks,
-  BookOpen,
   ChartColumn,
   ChevronDown,
-  History,
   Layers,
   MoreHorizontal,
   Plus,
   Route,
-  Server,
   Settings,
-  SquareKanban,
   ToolCase,
   X,
 } from "lucide-react";
 import type { AppId } from "@/lib/api";
 import type { GlobalPage, View } from "@/lib/navigation";
-import { isAppPage, pluginView } from "@/lib/navigation";
-import { SkillsIcon } from "@/components/BrandIcons";
+import {
+  isAppPage,
+  pluginView,
+  readStoredToolboxTab,
+  toolboxTabFromView,
+  toolboxView,
+} from "@/lib/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -344,15 +345,6 @@ function SidebarTopBar({
 
 const EMPTY_TERMINAL_COUNTS: Partial<Record<string, number>> = {};
 
-/** 工具箱二级菜单覆盖的页面（Skills 的发现页也算 Skills）。 */
-const TOOLBOX_PAGES: GlobalPage[] = [
-  "mcp",
-  "skills",
-  "skillsDiscovery",
-  "prompts",
-  "sessions",
-];
-
 function MainDirectory({
   collapsed,
   activeApp,
@@ -428,12 +420,8 @@ function MainDirectory({
         }
       : appStatus(entry.appId as AppId);
 
-  // 工具箱（MCP/Skills/提示词/会话 的二级菜单）：进入其中任一页时自动展开一次
-  const toolboxActive = (TOOLBOX_PAGES as string[]).includes(view);
-  const [toolboxOpen, setToolboxOpen] = useState(toolboxActive);
-  useEffect(() => {
-    if (toolboxActive) setToolboxOpen(true);
-  }, [toolboxActive]);
+  // 工具箱（MCP / Skills / 提示词 / 会话）是同一个页面里的页签，侧栏只留一个入口
+  const toolboxTab = toolboxTabFromView(view);
 
   return (
     <>
@@ -444,13 +432,6 @@ function MainDirectory({
           icon={Route}
           label={t("gateway.routing")}
           onClick={() => onSelectPage("routingOverview")}
-        />
-        <NavItem
-          collapsed={collapsed}
-          selected={view === "tasks"}
-          icon={SquareKanban}
-          label={t("tasks.title")}
-          onClick={() => onSelectPage("tasks")}
         />
         {/* 钉住的插件：插件中心主页右上角的钉住按钮控制这一层 */}
         {pinnedPluginEntries.map((entry) => (
@@ -470,13 +451,15 @@ function MainDirectory({
           label={t("pluginCenter.title")}
           onClick={() => onSelectPage("plugins")}
         />
-        <ToolboxNavItem
+        <NavItem
           collapsed={collapsed}
-          active={toolboxActive}
-          open={toolboxOpen}
-          onToggleOpen={() => setToolboxOpen((value) => !value)}
-          view={view}
-          onSelectPage={onSelectPage}
+          selected={toolboxTab !== null}
+          icon={ToolCase}
+          label={t("nav.toolbox")}
+          // 已经停在工具箱里的某个页签就留在那儿，否则回到上次打开的那个页签
+          onClick={() =>
+            onSelectPage(toolboxView(toolboxTab ?? readStoredToolboxTab()))
+          }
         />
         <NavItem
           collapsed={collapsed}
@@ -872,110 +855,6 @@ function AlertGlyph({ className }: { className?: string }) {
       <path d="M12 4v10" />
       <path d="M12 20h.01" />
     </svg>
-  );
-}
-
-/**
- * 工具箱：把 MCP / Skills / 提示词 / 会话 合并成「路由」下面的二级菜单。
- * 展开侧栏：点击组行展开/收起，子项导航；收起（图标轨）：点击弹浮层选子项。
- */
-function ToolboxNavItem({
-  collapsed,
-  active,
-  open,
-  onToggleOpen,
-  view,
-  onSelectPage,
-}: {
-  collapsed: boolean;
-  /** 当前停在工具箱内任一页（含 Skills 发现页） */
-  active: boolean;
-  open: boolean;
-  onToggleOpen: () => void;
-  view: View;
-  onSelectPage: (page: GlobalPage | "settings") => void;
-}) {
-  const { t } = useTranslation();
-  const label = t("nav.toolbox");
-  const items: { page: GlobalPage; label: string; icon: IconComponent }[] = [
-    { page: "mcp", label: "MCP", icon: Server },
-    { page: "skills", label: "Skills", icon: SkillsIcon },
-    { page: "prompts", label: t("nav.prompts"), icon: BookOpen },
-    { page: "sessions", label: t("nav.sessions"), icon: History },
-  ];
-  const selected = (page: GlobalPage) =>
-    view === page || (page === "skills" && view === "skillsDiscovery");
-
-  if (collapsed) {
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={label}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "mx-auto flex h-8 w-10 shrink-0 items-center justify-center rounded-control transition-colors hover:bg-subtle",
-              active && "bg-selected hover:bg-selected",
-            )}
-          >
-            <ToolCase aria-hidden className="h-[18px] w-[18px] text-fg-2" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="right" align="start" className="min-w-36">
-          {items.map((item) => (
-            <DropdownMenuItem
-              key={item.page}
-              onSelect={() => onSelectPage(item.page)}
-            >
-              <item.icon className="h-4 w-4" aria-hidden />
-              {item.label}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  }
-
-  return (
-    <div className="flex flex-col">
-      <button
-        type="button"
-        onClick={onToggleOpen}
-        aria-expanded={open}
-        className={cn(
-          "mx-2 flex h-7 w-[184px] shrink-0 items-center gap-2 rounded-control px-2 text-start transition-colors hover:bg-subtle",
-          active && "bg-selected font-medium hover:bg-selected",
-        )}
-      >
-        <span aria-hidden="true" className="flex shrink-0 text-fg-2">
-          <ToolCase className="h-[18px] w-[18px]" />
-        </span>
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        <ChevronDown
-          aria-hidden
-          className={cn(
-            "h-4 w-4 shrink-0 text-fg-3 transition-transform",
-            !open && "-rotate-90",
-          )}
-        />
-      </button>
-      {open && (
-        <div role="group" aria-label={label} className="flex flex-col">
-          {items.map((item) => (
-            <NavItem
-              key={item.page}
-              collapsed={false}
-              selected={selected(item.page)}
-              icon={item.icon}
-              label={item.label}
-              inset
-              onClick={() => onSelectPage(item.page)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 

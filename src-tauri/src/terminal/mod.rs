@@ -61,6 +61,33 @@ pub(crate) fn is_cli_app(app_id: &str) -> Result<(), String> {
         .ok_or_else(|| "unsupported-app".to_string())
 }
 
+/// 某个会话是否还在托管中。后台调度器用它判断派出去的 worker 是否已经退出。
+pub(crate) fn session_exists(id: &str) -> bool {
+    registry()
+        .lock()
+        .map(|state| state.sessions.iter().any(|session| session.id == id))
+        .unwrap_or(false)
+}
+
+/// 关闭后台调度器自己派发的会话：不做 IPC 校验，按当前 generation 强制关闭。
+/// 找不到会话视为已关，返回 Ok。
+pub(crate) fn close_by_id(id: &str) -> Result<(), String> {
+    let generation = {
+        let mut state = registry().lock().unwrap();
+        let Some(session) = state.sessions.iter().find(|session| session.id == id) else {
+            return Ok(());
+        };
+        let generation = session.generation;
+        state.sessions.retain(|session| session.id != id);
+        generation
+    };
+    #[cfg(target_os = "macos")]
+    native::close(id, generation);
+    #[cfg(not(target_os = "macos"))]
+    let _ = generation;
+    Ok(())
+}
+
 /// 把一条恢复命令拆成 argv（与启动时用的是同一套规则）。
 pub(crate) fn parse_arguments(value: &str) -> Result<Vec<String>, String> {
     launch::parse_arguments(value)

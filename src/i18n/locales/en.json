@@ -5647,11 +5647,15 @@
   },
   "pluginCenter": {
     "title": "Plugins",
+    "guide": {
+      "title": "What this plugin does"
+    },
     "refresh": "Refresh",
     "loading": "Loading…",
     "running": "Running…",
     "save": "Save",
     "saving": "Saving…",
+    "unsaved": "Unsaved changes",
     "close": "Close",
     "home": {
       "disabled": "Disabled",
@@ -5668,12 +5672,20 @@
       "unpin": "Unpin"
     },
     "detail": {
+      "about": {
+        "whatFallback": "This plugin lives in phi's plugin directory and takes part through its hooks.",
+        "step1": "“Enabled” decides whether it runs. Disabling keeps the manifest and settings, so you can turn it back on later.",
+        "step2": "Plugins with the same hook are ordered by priority, lowest number first.",
+        "step3": "For request-rewrite or session-exit hooks, feed a sample to “Dry run” to see the decision. A dry run changes no real request and restarts no session.",
+        "note": "Plugin files live in the plugin directory; refresh the plugin center after editing a script to reload it."
+      },
       "missing": "This plugin no longer exists; it may have been uninstalled.",
       "enable": "Enabled",
       "enableHint": "Disabling stops it from running but keeps the manifest and settings.",
       "priority": "Priority",
       "rules": "Rules",
       "sourceDir": "From {{dir}}",
+      "tryRun": "Dry run",
       "previewRequest": "Dry-run request rewrite",
       "previewSessionExit": "Dry-run baton decision"
     },
@@ -5681,6 +5693,10 @@
       "reportCard": {
         "title": "Report card",
         "description": "How each model behaves on your own repositories: failure rate, interruptions, step time, cost per task."
+      },
+      "taskBoard": {
+        "title": "Task board",
+        "description": "Turn the repository's Backlog.md into a board: drag to change status, open a task as a terminal session, and link usage back to it."
       },
       "sessionBaton": {
         "title": "Session baton",
@@ -5700,25 +5716,32 @@
       }
     },
     "lessons": {
+      "about": {
+        "what": "The lessons library turns failures from local sessions into a per-repository list: what broke, and what to watch for before touching which file. No model is called; entries come from a fixed template.",
+        "step1": "Run “Scan all sessions” and phi walks every repository that local sessions touched.",
+        "step2": "Turn on “Write into AGENTS.md” for a repository so its sessions read those lessons at the start.",
+        "step3": "“Preview” shows the injected block and its size before you turn anything on.",
+        "step4": "Delete lessons you disagree with and say why; deleted ones are listed below and can be restored.",
+        "note": "Injection is read once at the start of a session, not appended every turn. When the budget fills, entries with harder evidence are kept first."
+      },
       "intro": "Turns failed sessions into a repo-level list of no-go zones: what broke, and what to watch out for before touching which file.",
       "sourceHint": "Built from locally hosted session records: tool errors and non-zero exit codes. No model is called, entries come from fixed templates.",
-      "noWorkspaceTitle": "No repository yet",
-      "noWorkspaceBody": "Lessons grow per repository. Register one on the Tasks page and its list of no-go zones shows up here.",
-      "repo": "Repository",
-      "repoPlaceholder": "Pick a repository",
-      "scan": "Scan sessions",
+      "scan": "Scan all sessions",
       "scanning": "Scanning…",
       "loadFailed": "Could not read the lesson list",
       "scannedAt": "Last scan {{time}}",
       "neverScanned": "Never scanned",
+      "discovered": "{{count}} repositories found",
       "scanSummary": "{{sessions}} sessions scanned, {{failures}} failures",
       "pending": "{{count}} sessions still to scan",
+      "lessonCount": "{{count}}",
       "injectionTitle": "Write into AGENTS.md",
-      "injectionHint": "When on, phi writes the no-go list into {{file}} and only maintains what sits between its own comment markers. Nothing else in the file is touched.",
       "injectionMeta": "{{used}}/{{budget}} chars · lessons v{{version}}",
       "injectionStale": "The block in the file no longer matches the current lessons; scan again to realign",
       "preview": "Preview",
-      "empty": "No lessons yet. Run a few tasks, break something for real, and the first one appears.",
+      "emptyHint": "Nothing scanned yet. Hit “Scan all sessions” and phi walks every repository this machine's sessions touched.",
+      "emptyScanned": "No lessons in the scanned repositories yet. Run a few tasks, break something for real, and the first one appears.",
+      "allDismissed": "Every lesson in this repository was deleted.",
       "hits": "hit {{count}}×",
       "dismiss": "Delete this lesson",
       "dismissedTitle": "Deleted lessons",
@@ -5733,7 +5756,7 @@
       "cancel": "Cancel",
       "errors": {
         "invalidDirectory": "That repository path is not usable",
-        "notRegistered": "This repository is not registered on the Tasks page",
+        "notRegistered": "This repository is not registered on the Task board",
         "reasonRequired": "A reason is required to delete a lesson",
         "notFound": "That lesson is gone already"
       }
@@ -5754,6 +5777,14 @@
       "toggleFailed": "Could not toggle the plugin: {{message}}"
     },
     "privacy": {
+      "about": {
+        "what": "Redaction catches credentials and personal data on this machine, replacing hits with placeholder text or removing them. Request bodies are left alone by default, since rewriting a prompt changes what the model sees.",
+        "step1": "Turn on “Redaction on” first; with it off, nothing is processed.",
+        "step2": "Add a detector under “Detectors”, then choose replace or remove. “Placeholder” sets the text a masked hit becomes.",
+        "step3": "Turn on “Rewrite the outgoing request body” only if prompts need cleaning too; leave it off when you only care about local diagnostics.",
+        "step4": "Save, then use “Try it” with a real sample to confirm what matches and what comes back.",
+        "note": "Try it reads the saved config. Redaction applies to requests sent afterwards; anything already sent cannot be recalled."
+      },
       "intro": "Replaces credentials and easy-to-misuse personal data on this machine. Request bodies are left alone by default: rewriting a prompt changes behaviour, so it is opt-in.",
       "enabled": "Redaction on",
       "enabledHint": "Turning this off skips both request bodies and error summaries",
@@ -5794,6 +5825,14 @@
       }
     },
     "router": {
+      "about": {
+        "what": "MCP routing decides what name each MCP server gets in client config files and which clients can see it. It does not change the server, only its name and visibility.",
+        "step1": "With “Routing on” off, every server passes through under its original name; saved rules stay but do nothing.",
+        "step2": "Use “Add route” and pick a server. “Alias” renames it; “Namespace” puts a shared prefix in front.",
+        "step3": "Tick the clients that should see it under “Visible to”. Ticking none means every client.",
+        "step4": "“Save and apply” rewrites the client configs; check “Projection preview” for the names that actually took effect.",
+        "note": "Routing can only narrow, never widen: if the server itself is not enabled for a client, ticking it here will not make it appear. The preview also reads the saved config."
+      },
       "intro": "One place for how each MCP server is named and who can see it. With no routes configured, every server is passed through under its own name.",
       "enabled": "Routing on",
       "enabledHint": "When off, every server passes through under its own name",
@@ -5804,12 +5843,15 @@
       "addRoute": "Add route",
       "removeRoute": "Remove this route",
       "serverPlaceholder": "Pick a server",
+      "server": "Server",
+      "alias": "Alias",
       "aliasPlaceholder": "Alias (falls back to the namespace)",
       "namespacePlaceholder": "Namespace",
       "priority": "Conflict priority",
       "apps": "Visible to",
       "appsHint": "Nothing checked = every client",
       "tagsPlaceholder": "Tags, comma separated",
+      "tags": "Tags",
       "catalog": "Projection preview",
       "catalogEmpty": "No MCP servers yet",
       "catalogAll": "Every client",
@@ -5826,6 +5868,14 @@
     }
   },
   "reportCard": {
+    "about": {
+      "what": "The report card only measures reliability: tool-call failure rate, interruption rate, empty deliveries, time per step, and cost per task. Numbers come from sessions in your own repositories, not a benchmark ranking.",
+      "step1": "Pick a window first: 7 days for the recent past, 30 and 90 days for direction.",
+      "step2": "Use the summary and chart to find outliers, then read the exact numbers in the table.",
+      "step3": "Cells with too few samples show the sample count instead of a percentage. Below five samples, no rate is worth trusting.",
+      "step4": "“Rescan” reparses sessions; opening the page syncs on its own.",
+      "note": "There are no acceptance commands or rework data here, so this compares who breaks less often, not who works better. Everything stays on this machine."
+    },
     "title": "Report card",
     "windowLabel": "Window",
     "windowDays": "{{days}}d",
@@ -5839,6 +5889,16 @@
     "footnote": "Tasks are split on 30-minute idle gaps. Below five samples phi shows the sample size instead of a percentage. Everything stays on this machine.",
     "unlabeledModel": "Unlabeled model",
     "insufficient": "Too few samples ({{samples}})",
+    "chart": {
+      "title": "What the tool calls became",
+      "ok": "Succeeded",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "calls": "Calls",
+      "empty": "No tool-call samples to draw yet. The table below has what there is.",
+      "tooFewSamples": "Too few samples",
+      "omitted": "{{count}} more models have no tool-call samples yet; they only appear in the table below."
+    },
     "today": "Today",
     "daysAgo": "{{days}}d ago",
     "columns": {
@@ -5863,49 +5923,21 @@
     }
   },
   "tasks": {
-    "relay": {
-      "title": "Relay",
-      "gate2": "Gate 2 · implementation holds",
-      "gate3": "Gate 3 · review holds",
-      "notRun": "Not run",
-      "runGate2": "Run gate 2",
-      "runGate3": "Run gate 3",
-      "runGate2Hint": "Run the card's acceptance commands and check the diff stays in bounds",
-      "runGate3Hint": "Check the review's evidence anchors against the source",
-      "noAccept": "The card has no phi.accept, so gate 2 has nothing to run",
-      "noContract": "This card has no phi contract: add a phi block (accept / touched / role) so gates 2 and 3 have something to judge.",
-      "verdictAt": "Last verdict",
-      "role": "Relay role",
-      "touched": "Allowed",
-      "forbidden": "Forbidden",
-      "changed": "Changed now",
-      "changedCount": "{{value}} files",
-      "claims": "Evidence anchors",
-      "claimCount": "{{value}} entries",
-      "budget": "Budget",
-      "tokens": "{{value}} tokens",
-      "minutes": "{{value}} min",
-      "accept": "Accept",
-      "timeout": "Timed out",
-      "exitCode": "exit {{code}} (expected {{expect}})",
-      "latest": "Latest gate {{gate}}, took {{ms}}ms",
-      "emptyHistory": "No gate has run yet.",
-      "gateDone": "Gate {{gate}}: {{status}}",
-      "rule": {
-        "forbidden": "forbidden",
-        "out-of-scope": "out of scope"
-      },
-      "status": {
-        "pass": "Passed",
-        "fail": "Failed",
-        "invalid": "Evidence does not hold"
-      }
+    "about": {
+      "what": "The task board reads a repository's backlog directory as a board. Tasks are still plain markdown files, so the backlog CLI and other agents can read and edit them.",
+      "step1": "Pick a repository. If it has no backlog yet, “Initialize backlog” creates config.yml and tasks/.",
+      "step2": "Click “New task” at the top of the To Do column, type one line, and it becomes a card; cards can be dragged between columns to change status.",
+      "step3": "Open a card for its body, dependencies and linked sessions; every card is still a markdown file in the repository.",
+      "step4": "“Start session” in the detail panel links the session and its usage back to the card.",
+      "step5": "Turn on “Auto-run” in the header: cards moved to “In Progress” go to the chosen app and are settled on exit. Start in shadow mode to check the judgement first.",
+      "note": "The board only reads and writes backlog files in the repository. Removing a repository from the board deletes no tasks."
     },
     "title": "Tasks",
     "workspace": "Repository",
     "newTask": "New task",
+    "newTaskPlaceholder": "Type a title, press Enter",
+    "newTaskSend": "Create task",
     "refresh": "Refresh",
-    "moreActions": "More actions",
     "addWorkspace": "Add repository",
     "removeWorkspace": "Remove from board",
     "removeWorkspaceMessage": "This only removes the repository from phi's board; the task files in the repository are untouched.",
@@ -5941,6 +5973,67 @@
     "archiveTitle": "Archive this task?",
     "archiveMessage": "The task file moves to backlog/archive/tasks/ with its content unchanged.",
     "archived": "Task archived",
+    "router": {
+      "button": "Auto-run",
+      "title": "Auto-run",
+      "loading": "Reading scheduler state…",
+      "loadFailed": "Could not read scheduler state: {{error}}",
+      "modeOff": "Off",
+      "modeShadow": "Shadow mode",
+      "modeOn": "Running",
+      "enabled": "Hand out work automatically",
+      "enabledHint": "Cards in the trigger column go to the chosen app; results are settled when it exits.",
+      "shadow": "Shadow mode",
+      "shadowHint": "Decide and record as usual, but dispatch nothing. Watch a few rounds first.",
+      "triggerStatus": "Trigger column",
+      "concurrency": "At most",
+      "concurrencyUnit": "{{count}} at once",
+      "workers": "Dispatch to",
+      "noWorkers": "No usable terminal on this machine, so nothing can be dispatched yet.",
+      "episodeModel": "Scheduler model",
+      "episodeModelRules": "Rules only (no model)",
+      "episodeModelHint": "Let a model decide which card to touch and who to send it to. Requests go through phi's own gateway.",
+      "episodeModelNoGroup": "No route group includes pi yet. Connect pi to a group under Routing first.",
+      "quota": "Today: {{dispatches}} dispatched, {{judge}} judge calls",
+      "runNow": "Run a round",
+      "runNowHint": "Judge this round only",
+      "resultDispatched": "Dispatched {{count}}: {{tasks}}",
+      "resultNeedsYou": "{{count}} waiting on you",
+      "resultNone": "Nothing to do this round",
+      "skipped": {
+        "disabled": "Auto-run is off",
+        "noTasks": "No tasks found",
+        "noCandidates": "Nothing dispatchable right now",
+        "quota": "Daily dispatch budget used up",
+        "concurrency": "Concurrency limit reached",
+        "capacity": "No free slot this round"
+      },
+      "state": {
+        "idle": "Not started",
+        "queued": "Queued",
+        "dispatched": "Dispatched",
+        "working": "Running",
+        "done": "Done",
+        "failed": "Last attempt failed",
+        "needsYou": "Needs you",
+        "paused": "Paused",
+        "shadow": "Shadow"
+      },
+      "section": "Auto-run",
+      "idleHint": "Not handed to the scheduler yet",
+      "workerLine": "Run by {{app}}",
+      "attempts": "Attempt {{count}}",
+      "start": "Start",
+      "pause": "Pause",
+      "resume": "Resume",
+      "startHint": "Dispatch now, without waiting for the next round",
+      "started": "Handed to the scheduler",
+      "planTitle": "Plan",
+      "planEmpty": "No sub-tasks were split out this round",
+      "planDeps": "Depends on {{deps}}",
+      "saveFailed": "Could not save: {{error}}",
+      "actionFailed": "Action failed: {{error}}"
+    },
     "errors": {
       "noBacklog": "There is no backlog/config.yml in this folder",
       "stale": "The task file changed on disk; reloaded",
@@ -5951,17 +6044,6 @@
       "emptyTitle": "A title is required",
       "terminalUnsupported": "Local terminals are not available on this platform",
       "invalidWorkspace": "The backlog config in this repository cannot be read"
-    },
-    "create": {
-      "title": "New task",
-      "description": "Writes a new Markdown task file in the same format as the backlog CLI.",
-      "titleLabel": "Title",
-      "titlePlaceholder": "What needs to happen, in one line",
-      "descriptionLabel": "Description",
-      "acceptanceLabel": "Acceptance criteria (one per line)",
-      "acceptancePlaceholder": "What can be verified when this is done",
-      "submit": "Create",
-      "hint": "Start a session from the task afterwards; the session and its usage stay linked to it."
     }
   }
 }

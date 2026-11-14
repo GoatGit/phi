@@ -1,0 +1,19 @@
+{
+  "name": "phi-router-sidecar",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "自动调度的 episode 侧车：跑在 phi 自带的 node 运行时里，与 Rust 侧用 stdio 上的行分隔 JSON 说话。",
+  "scripts": {
+    "build": "node ../scripts/build-sidecar.mjs",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "0.73.1",
+    "@mariozechner/pi-ai": "0.73.1",
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.2"
+  }
+}

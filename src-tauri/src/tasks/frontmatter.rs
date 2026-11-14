@@ -25,9 +25,6 @@ pub struct Document {
 #[derive(Clone, Copy, Debug)]
 pub enum FieldValue<'a> {
     Scalar(&'a str),
-    /// 已经渲染好的多行块：首行是 `key:`，其余行自带缩进。
-    /// 写回时整块替换该键及其续行，仍然不重新序列化其它字段。
-    Block(&'a str),
 }
 
 impl Document {
@@ -129,7 +126,6 @@ fn yaml_scalar(value: &Value) -> Option<String> {
 fn render_field(key: &str, value: FieldValue<'_>) -> String {
     match value {
         FieldValue::Scalar(text) => format!("{key}: {}", render_scalar(text)),
-        FieldValue::Block(text) => text.to_string(),
     }
 }
 

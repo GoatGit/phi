@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReportCardPage } from "@/components/reportcard/ReportCardPage";
 import type { ModelScoreboardRow, ReportCard } from "@/lib/api/reportCard";
@@ -92,13 +98,18 @@ describe("ReportCardPage", () => {
 
     render(<ReportCardPage />);
 
-    await waitFor(() => expect(screen.getByText("gpt-5")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("table")).getByText("gpt-5"),
+      ).toBeInTheDocument(),
+    );
     // 失败率、中断率、空交付率三列都够样本：14.3% / 12.5% / 0.0%
-    expect(screen.getAllByText("14.3%")).toHaveLength(1);
-    expect(screen.getAllByText("12.5%")).toHaveLength(1);
-    expect(screen.getAllByText("0.0%")).toHaveLength(1);
+    const table = within(screen.getByRole("table"));
+    expect(table.getAllByText("14.3%")).toHaveLength(1);
+    expect(table.getAllByText("12.5%")).toHaveLength(1);
+    expect(table.getAllByText("0.0%")).toHaveLength(1);
     // 样本不足的模型只报样本量，不给百分比
-    expect(screen.getByText("tiny")).toBeInTheDocument();
+    expect(table.getByText("tiny")).toBeInTheDocument();
     expect(
       screen.getAllByText("reportCard.insufficient").length,
     ).toBeGreaterThan(0);
@@ -107,13 +118,22 @@ describe("ReportCardPage", () => {
   it("drops its own page header when embedded as a plugin tab", async () => {
     render(<ReportCardPage embedded />);
 
-    await waitFor(() => expect(screen.getByText("gpt-5")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("table")).getByText("gpt-5"),
+      ).toBeInTheDocument(),
+    );
     // 页头由插件中心提供；内层不再画一个标题，也不占用 main-content
     expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
     expect(
       screen.getAllByRole("button", { name: "reportCard.windowDays" }),
     ).toHaveLength(3);
     expect(document.querySelectorAll("#main-content")).toHaveLength(0);
+    // 页尾说明跟着内容一起嵌入，两种模式都要有
+    expect(
+      screen.getByRole("heading", { name: "pluginCenter.guide.title" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("reportCard.about.what")).toBeInTheDocument();
   });
 
   it("gives the table a wide page so it fits without a scrollbar", async () => {
@@ -176,11 +196,17 @@ describe("ReportCardPage", () => {
 
     // 7 天先回，30 天后回：晚到的那份不能把页面改回 30 天
     resolveNarrow(card({ windowDays: 7, rows: [row({ model: "week" })] }));
-    await screen.findByText("week");
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("table")).getByText("week"),
+      ).toBeInTheDocument(),
+    );
     resolveWide(card({ rows: [row({ model: "month" })] }));
 
-    await waitFor(() => expect(screen.queryByText("month")).toBeNull());
-    expect(screen.getByText("week")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryAllByText("month")).toHaveLength(0));
+    expect(
+      within(screen.getByRole("table")).getByText("week"),
+    ).toBeInTheDocument();
   });
 
   it("labels every scoreboard as reliability, not quality", async () => {

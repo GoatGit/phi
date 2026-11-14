@@ -9,6 +9,7 @@ import { PluginCenterPage } from "@/components/plugins/PluginCenterPage";
 import type { PluginSummary, PluginSummaryResponse } from "@/lib/api/plugins";
 
 const apiMocks = vi.hoisted(() => ({ list: vi.fn() }));
+const taskMocks = vi.hoisted(() => ({ workspaces: vi.fn() }));
 
 vi.mock("@/lib/api/plugins", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/plugins")>();
@@ -17,6 +18,18 @@ vi.mock("@/lib/api/plugins", async (importOriginal) => {
     pluginsApi: {
       ...actual.pluginsApi,
       list: (...args: unknown[]) => apiMocks.list(...args),
+    },
+  };
+});
+
+// 任务看板嵌在插件页签里，打开它只需要读到工作区列表
+vi.mock("@/lib/api/tasks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/tasks")>();
+  return {
+    ...actual,
+    tasksApi: {
+      ...actual.tasksApi,
+      workspaces: (...args: unknown[]) => taskMocks.workspaces(...args),
     },
   };
 });
@@ -66,6 +79,8 @@ function renderPage(
       onSelectPlugin={onSelectPlugin}
       pinnedPluginIds={[]}
       onTogglePin={onTogglePin}
+      terminalApps={[]}
+      onStartSession={vi.fn(async () => "session-1")}
       {...props}
     />,
     { wrapper },
@@ -76,12 +91,20 @@ function renderPage(
 describe("PluginCenterPage", () => {
   beforeEach(() => {
     apiMocks.list.mockResolvedValue(summary([plugin()]));
+    taskMocks.workspaces.mockResolvedValue([]);
   });
 
-  it("lists the five capabilities as cards on the home page", async () => {
+  it("lists the six capabilities as cards on the home page", async () => {
     renderPage();
 
-    for (const title of ["成绩单", "接棒", "隐私脱敏", "MCP 路由", "教训库"]) {
+    for (const title of [
+      "成绩单",
+      "任务看板",
+      "接棒",
+      "隐私脱敏",
+      "MCP 路由",
+      "教训库",
+    ]) {
       expect(await screen.findByText(title)).toBeInTheDocument();
     }
     // 卡片末尾留一格空位：插件从哪来、刷新入口都在这格。
@@ -159,6 +182,14 @@ describe("PluginCenterPage", () => {
 
     await user.click(await screen.findByRole("button", { name: "钉在侧栏" }));
     expect(onTogglePin).toHaveBeenCalledWith("session-baton");
+
+    // 清单插件也要在页尾讲清作用与用法，描述为空时给一句兜底
+    expect(
+      screen.getByRole("heading", { name: "这个插件做什么" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/这个插件住在 phi 的插件目录里/),
+    ).toBeInTheDocument();
   });
 
   it("switches the pin button to unpin when the plugin is already pinned", async () => {
@@ -183,6 +214,20 @@ describe("PluginCenterPage", () => {
 
     expect(
       await screen.findByRole("button", { name: "取消钉住" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens the task board inside the plugin tab", async () => {
+    renderPage({ activePluginId: "task-board" });
+
+    expect(
+      await screen.findByRole("tab", { name: "任务看板" }),
+    ).toBeInTheDocument();
+    // 看板自己的页头不再出现，内容直接落在插件页签里
+    expect(await screen.findByText("还没有添加仓库")).toBeInTheDocument();
+    expect(screen.getByText("添加仓库")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "这个插件做什么" }),
     ).toBeInTheDocument();
   });
 

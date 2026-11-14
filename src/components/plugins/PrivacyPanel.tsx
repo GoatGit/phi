@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { HoverTip } from "@/components/ui/hover-tip";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import {
@@ -12,8 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  SettingsBlock,
+  SettingsCard,
+  SettingsSwitchRow,
+} from "@/components/settings/SettingsLayout";
 import {
   commandErrorMessage,
   privacyApi,
@@ -27,6 +32,13 @@ import {
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { pluginPageClass } from "./pluginPage";
+import {
+  PluginEmpty,
+  PluginField,
+  PluginGuide,
+  PluginLede,
+  PluginSaveBar,
+} from "./pluginSection";
 
 /** 检测器 → 文案键，顺序与后端 `DetectorKind` 一致。 */
 const DETECTOR_LABEL: Record<DetectorKind, string> = {
@@ -191,151 +203,161 @@ export function PrivacyPanel() {
     );
   }
 
+  // 改过但没保存时，页尾点一句，别让人以为配置已经生效。
+  const dirty = data
+    ? JSON.stringify(draft) !== JSON.stringify(data.config)
+    : false;
+
   return (
     <div className={cn(pluginPageClass, "space-y-5")}>
-      <p className="text-body text-fg-2">{t("pluginCenter.privacy.intro")}</p>
+      <PluginLede>{t("pluginCenter.privacy.intro")}</PluginLede>
 
-      <section className="divide-y divide-border overflow-hidden rounded-panel border border-border">
-        <ToggleRow
-          title={t("pluginCenter.privacy.enabled")}
-          hint={t("pluginCenter.privacy.enabledHint")}
+      <SettingsCard>
+        <SettingsSwitchRow
+          label={t("pluginCenter.privacy.enabled")}
+          description={t("pluginCenter.privacy.enabledHint")}
           checked={draft.enabled}
-          onChange={(enabled) => patch({ enabled })}
+          onCheckedChange={(enabled) => patch({ enabled })}
         />
-        <ToggleRow
-          title={t("pluginCenter.privacy.body")}
-          hint={t("pluginCenter.privacy.bodyHint")}
+        <SettingsSwitchRow
+          label={t("pluginCenter.privacy.body")}
+          description={t("pluginCenter.privacy.bodyHint")}
           checked={draft.applyToRequestBody}
           disabled={!draft.enabled}
-          onChange={(applyToRequestBody) => patch({ applyToRequestBody })}
+          onCheckedChange={(applyToRequestBody) =>
+            patch({ applyToRequestBody })
+          }
         />
-        <ToggleRow
-          title={t("pluginCenter.privacy.logs")}
-          hint={t("pluginCenter.privacy.logsHint")}
+        <SettingsSwitchRow
+          label={t("pluginCenter.privacy.logs")}
+          description={t("pluginCenter.privacy.logsHint")}
           checked={draft.redactErrorLogs}
           disabled={!draft.enabled}
-          onChange={(redactErrorLogs) => patch({ redactErrorLogs })}
+          onCheckedChange={(redactErrorLogs) => patch({ redactErrorLogs })}
         />
-      </section>
+      </SettingsCard>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-strong font-medium text-fg-1">
-            {t("pluginCenter.privacy.rules")}
-          </h3>
+      <SettingsBlock
+        title={t("pluginCenter.privacy.rules")}
+        actions={
           <Button variant="ghost" size="compact" onClick={addRule}>
             <Plus className="me-1.5 h-3.5 w-3.5" />
             {t("pluginCenter.privacy.addRule")}
           </Button>
-        </div>
-
+        }
+      >
         {draft.rules.length === 0 ? (
-          <div className="rounded-panel border border-dashed border-border px-4 py-6 text-center text-body text-fg-3">
-            {t("pluginCenter.privacy.noRules")}
-          </div>
+          <PluginEmpty>{t("pluginCenter.privacy.noRules")}</PluginEmpty>
         ) : (
-          <ul className="space-y-2">
+          <SettingsCard>
             {draft.rules.map((rule, index) => (
-              <li
-                key={`${rule.detector}-${index}`}
-                className="rounded-panel border border-border bg-surface px-3 py-2.5"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value={rule.detector}
-                    onValueChange={(value) => {
-                      const detector = value as DetectorKind;
-                      patchRule(index, {
-                        detector,
-                        // 切到自定义时要给一个可编辑的正则框；切回内置时清掉，
-                        // 否则后端会因为「非 custom 带了 customPattern」拒绝保存。
-                        customPattern: detector === "custom" ? "" : null,
-                      });
-                    }}
-                  >
-                    <SelectTrigger className="w-[168px]">
-                      <SelectValue
-                        placeholder={t("pluginCenter.privacy.ruleDetector")}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {detectors.map((detector) => (
-                        <SelectItem key={detector.id} value={detector.id}>
-                          {t(
-                            `pluginCenter.privacy.detectors.${DETECTOR_LABEL[detector.id]}`,
-                          )}
-                          {detector.builtin ? "" : " (regex)"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <div key={`${rule.detector}-${index}`} className="px-4 py-3">
+                <div className="grid items-end gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_112px_minmax(0,1fr)_28px]">
+                  <PluginField label={t("pluginCenter.privacy.ruleDetector")}>
+                    <Select
+                      value={rule.detector}
+                      onValueChange={(value) => {
+                        const detector = value as DetectorKind;
+                        patchRule(index, {
+                          detector,
+                          // 切到自定义时要给一个可编辑的正则框；切回内置时清掉，
+                          // 否则后端会因为「非 custom 带了 customPattern」拒绝保存。
+                          customPattern: detector === "custom" ? "" : null,
+                        });
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={t("pluginCenter.privacy.ruleDetector")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {detectors.map((detector) => (
+                          <SelectItem key={detector.id} value={detector.id}>
+                            {t(
+                              `pluginCenter.privacy.detectors.${DETECTOR_LABEL[detector.id]}`,
+                            )}
+                            {detector.builtin ? "" : " (regex)"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </PluginField>
 
-                  <Select
-                    value={rule.action}
-                    onValueChange={(value) =>
-                      patchRule(index, { action: value as RedactionAction })
-                    }
-                  >
-                    <SelectTrigger className="w-[112px]">
-                      <SelectValue
-                        placeholder={t("pluginCenter.privacy.ruleAction")}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ACTIONS.map((action) => (
-                        <SelectItem key={action} value={action}>
-                          {action === "mask"
-                            ? t("pluginCenter.privacy.actionMask")
-                            : t("pluginCenter.privacy.actionRemove")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <PluginField label={t("pluginCenter.privacy.ruleAction")}>
+                    <Select
+                      value={rule.action}
+                      onValueChange={(value) =>
+                        patchRule(index, { action: value as RedactionAction })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={t("pluginCenter.privacy.ruleAction")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ACTIONS.map((action) => (
+                          <SelectItem key={action} value={action}>
+                            {action === "mask"
+                              ? t("pluginCenter.privacy.actionMask")
+                              : t("pluginCenter.privacy.actionRemove")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </PluginField>
 
-                  <Input
-                    className="w-[200px]"
-                    value={rule.replacement ?? ""}
-                    placeholder={t("pluginCenter.privacy.replacement")}
-                    onChange={(event) =>
-                      patchRule(index, {
-                        replacement: event.target.value || null,
-                      })
-                    }
-                  />
+                  <PluginField label={t("pluginCenter.privacy.replacement")}>
+                    <Input
+                      value={rule.replacement ?? ""}
+                      placeholder="***"
+                      onChange={(event) =>
+                        patchRule(index, {
+                          replacement: event.target.value || null,
+                        })
+                      }
+                    />
+                  </PluginField>
 
-                  <Button
-                    variant="ghost"
-                    size="icon-compact"
-                    aria-label={t("pluginCenter.privacy.removeRule")}
-                    onClick={() => removeRule(index)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <HoverTip content={t("pluginCenter.privacy.removeRule")}>
+                    <Button
+                      variant="ghost"
+                      size="icon-compact"
+                      aria-label={t("pluginCenter.privacy.removeRule")}
+                      onClick={() => removeRule(index)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </HoverTip>
                 </div>
 
                 {rule.detector === "custom" && (
-                  <div className="mt-2">
-                    <Input
-                      className="font-mono text-caption"
-                      value={rule.customPattern ?? ""}
-                      placeholder={t("pluginCenter.privacy.customPatternHint")}
-                      onChange={(event) =>
-                        patchRule(index, { customPattern: event.target.value })
-                      }
-                    />
+                  <div className="mt-2 sm:max-w-[calc(50%-0.375rem)]">
+                    <PluginField
+                      label={t("pluginCenter.privacy.customPatternHint")}
+                    >
+                      <Input
+                        className="font-mono text-caption"
+                        value={rule.customPattern ?? ""}
+                        onChange={(event) =>
+                          patchRule(index, {
+                            customPattern: event.target.value,
+                          })
+                        }
+                      />
+                    </PluginField>
                   </div>
                 )}
-              </li>
+              </div>
             ))}
-          </ul>
+          </SettingsCard>
         )}
-      </section>
+      </SettingsBlock>
 
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-strong font-medium text-fg-1">
-            {t("pluginCenter.privacy.preview")}
-          </h3>
+      <SettingsBlock
+        title={t("pluginCenter.privacy.preview")}
+        actions={
           <Button
             variant="secondary"
             size="compact"
@@ -347,17 +369,24 @@ export function PrivacyPanel() {
               ? t("pluginCenter.running")
               : t("pluginCenter.privacy.previewRun")}
           </Button>
-        </div>
+        }
+      >
         <p className="text-caption text-fg-3">
           {t("pluginCenter.privacy.previewHint")}
         </p>
-        <Textarea
-          value={sample}
-          onChange={(event) => setSample(event.target.value)}
-          className="min-h-[96px] font-mono text-caption"
-          spellCheck={false}
-          aria-label={t("pluginCenter.privacy.previewInput")}
-        />
+        <SettingsCard>
+          <label className="block space-y-1.5 px-4 py-3">
+            <span className="block text-caption text-fg-3">
+              {t("pluginCenter.privacy.previewInput")}
+            </span>
+            <Textarea
+              value={sample}
+              onChange={(event) => setSample(event.target.value)}
+              className="min-h-[96px] font-mono text-caption"
+              spellCheck={false}
+            />
+          </label>
+        </SettingsCard>
         {preview && (
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
@@ -375,43 +404,24 @@ export function PrivacyPanel() {
             </pre>
           </div>
         )}
-      </section>
+      </SettingsBlock>
 
-      <div className="flex justify-end">
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving ? t("pluginCenter.saving") : t("pluginCenter.save")}
-        </Button>
-      </div>
-    </div>
-  );
-}
+      <PluginGuide
+        title={t("pluginCenter.guide.title")}
+        summary={t("pluginCenter.privacy.about.what")}
+        steps={[1, 2, 3, 4].map((step) =>
+          t(`pluginCenter.privacy.about.step${step}`),
+        )}
+        note={t("pluginCenter.privacy.about.note")}
+      />
 
-interface ToggleRowProps {
-  title: string;
-  hint: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (checked: boolean) => void;
-}
-
-function ToggleRow({
-  title,
-  hint,
-  checked,
-  disabled = false,
-  onChange,
-}: ToggleRowProps) {
-  return (
-    <div className="flex items-start justify-between gap-4 bg-surface px-4 py-3">
-      <div className="min-w-0 space-y-0.5">
-        <p className="text-strong text-fg-1">{title}</p>
-        <p className="text-caption text-fg-3">{hint}</p>
-      </div>
-      <Switch
-        checked={checked}
-        disabled={disabled}
-        aria-label={title}
-        onCheckedChange={onChange}
+      <PluginSaveBar
+        onSave={() => void save()}
+        label={t("pluginCenter.save")}
+        savingLabel={t("pluginCenter.saving")}
+        saving={saving}
+        dirty={dirty}
+        dirtyLabel={t("pluginCenter.unsaved")}
       />
     </div>
   );

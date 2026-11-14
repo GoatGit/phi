@@ -4,6 +4,7 @@ import { ClipboardList, RefreshCw } from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { PageHeaderBackButton } from "@/components/shell/PageHeaderBackButton";
 import { Button } from "@/components/ui/button";
+import { HoverTip } from "@/components/ui/hover-tip";
 import { Notice } from "@/components/ui/notice";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
@@ -13,6 +14,8 @@ import {
   getResolvedLang,
 } from "@/components/usage/format";
 import { usageTable } from "@/components/usage/usageTable";
+import { ReliabilityChart } from "./ReliabilityChart";
+import { formatPercent } from "./chartData";
 import {
   reportCardApi,
   type ModelScoreboardRow,
@@ -20,6 +23,7 @@ import {
 } from "@/lib/api/reportCard";
 import { cn } from "@/lib/utils";
 import { pluginWidePageClass } from "@/components/plugins/pluginPage";
+import { PluginGuide } from "@/components/plugins/pluginSection";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 /** 与后端 `extract::MIN_SAMPLES` 对齐：样本不够就不报百分比 */
@@ -102,19 +106,21 @@ export function ReportCardPage({
           label: t("reportCard.windowDays", { days: value }),
         }))}
       />
-      <Button
-        type="button"
-        variant="quiet"
-        size="icon-compact"
-        onClick={() => void load(true)}
-        disabled={refreshing}
-        aria-label={t("reportCard.refresh")}
-      >
-        <RefreshCw
-          className={cn("h-4 w-4", refreshing && "animate-spin")}
-          strokeWidth={1.75}
-        />
-      </Button>
+      <HoverTip content={t("reportCard.refresh")}>
+        <Button
+          type="button"
+          variant="quiet"
+          size="icon-compact"
+          onClick={() => void load(true)}
+          disabled={refreshing}
+          aria-label={t("reportCard.refresh")}
+        >
+          <RefreshCw
+            className={cn("h-4 w-4", refreshing && "animate-spin")}
+            strokeWidth={1.75}
+          />
+        </Button>
+      </HoverTip>
     </>
   );
 
@@ -122,7 +128,7 @@ export function ReportCardPage({
     <div
       className={
         embedded
-          ? cn(pluginWidePageClass, "space-y-4")
+          ? cn(pluginWidePageClass, "space-y-5")
           : "flex min-h-0 flex-1 flex-col"
       }
     >
@@ -178,6 +184,9 @@ export function ReportCardPage({
             refreshing={refreshing}
           />
         ) : null}
+
+        {/* 图在前、表在后：先看谁在翻车，再追到具体数字 */}
+        {rows.length > 0 && <ReliabilityChart rows={rows} locale={locale} />}
 
         {loading && !card ? (
           <div className={usageTable.skeleton} />
@@ -248,6 +257,13 @@ export function ReportCardPage({
           </p>
           <p>{t("reportCard.footnote")}</p>
         </div>
+
+        <PluginGuide
+          title={t("pluginCenter.guide.title")}
+          summary={t("reportCard.about.what")}
+          steps={[1, 2, 3, 4].map((step) => t(`reportCard.about.step${step}`))}
+          note={t("reportCard.about.note")}
+        />
       </div>
     </div>
   );
@@ -335,17 +351,17 @@ function ScoreboardRow({
       <td className={usageTable.tdEnd}>{fmtInt(row.toolCalls, locale)}</td>
       <td className={usageTable.tdEnd}>
         {row.sufficient
-          ? percent(row.toolFailureRate)
+          ? formatPercent(row.toolFailureRate)
           : t("reportCard.insufficient", { samples: row.sampleSize })}
       </td>
       <td className={usageTable.tdEnd}>
         {row.sufficient
-          ? percent(row.interruptionRate)
+          ? formatPercent(row.interruptionRate)
           : t("reportCard.insufficient", { samples: row.sampleSize })}
       </td>
       <td className={usageTable.tdEnd}>
         {row.deliveryTasks >= MIN_SAMPLES
-          ? percent(row.emptyDeliveryRate)
+          ? formatPercent(row.emptyDeliveryRate)
           : t("reportCard.insufficient", { samples: row.deliveryTasks })}
       </td>
       <td className={usageTable.tdEnd}>
@@ -357,11 +373,6 @@ function ScoreboardRow({
       <td className={usageTable.tdEnd}>{recency(row.lastSeenAt, now, t)}</td>
     </tr>
   );
-}
-
-function percent(rate: number | null): string {
-  if (rate == null) return "—";
-  return `${(rate * 100).toFixed(1)}%`;
 }
 
 function duration(ms: number): string {

@@ -93,6 +93,35 @@ pub(crate) fn read_new_lines(path: &Path, offset: u64, max_lines: usize) -> (Vec
     (lines, start + consumed as u64)
 }
 
+/// 只读文件尾部，找某个终端会话的最后一次退出记录。
+///
+/// 供 super-agent 判断「派出去的 worker 到底结束了没有」。它不参与 service 的
+/// 增量偏移（那条游标归监听器所有），所以只读、只扫尾部 256 KiB：
+/// journal 是追加写的，一个会话的退出记录一定在末尾附近。
+pub(crate) fn last_exit(path: &Path, terminal_id: &str) -> Option<ExitRecord> {
+    const TAIL_BYTES: u64 = 256 * 1024;
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let start = len.saturating_sub(TAIL_BYTES);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    for line in bytes.split(|byte| *byte == b'\n').rev() {
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(text) = std::str::from_utf8(line) else {
+            continue;
+        };
+        if let Some(record) = parse_line(text) {
+            if record.terminal_id == terminal_id {
+                return Some(record);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

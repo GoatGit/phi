@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -12,14 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { HoverTip } from "@/components/ui/hover-tip";
 import { Notice } from "@/components/ui/notice";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -27,22 +21,15 @@ import {
   lessonsApi,
   type InjectionPreview,
   type Lesson,
+  type LessonOverview,
+  type LessonProject,
   type LessonState,
 } from "@/lib/api/lessons";
-import { tasksApi, type TaskWorkspace } from "@/lib/api/tasks";
 import { toast } from "@/lib/toast";
+import { SettingsCard } from "@/components/settings/SettingsLayout";
 import { cn } from "@/lib/utils";
 import { pluginPageClass } from "./pluginPage";
-
-const ROOT_STORAGE_KEY = "phi.lesson.workspace";
-
-function readStoredRoot() {
-  try {
-    return localStorage.getItem(ROOT_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
+import { PluginEmpty, PluginGuide, PluginLede } from "./pluginSection";
 
 function formatTime(ts: number | undefined) {
   if (!ts) return null;
@@ -54,37 +41,40 @@ function formatTime(ts: number | undefined) {
 }
 
 /**
- * 教训库页签：仓库级的「禁区清单」。
+ * 教训库页签：本机所有会话沉淀出来的「禁区清单」。
  *
  * 三件事分开讲：教训从哪来（本机会话里的工具失败）、怎么回喂（`AGENTS.md` 里的
  * 一个小块、默认关闭）、删了怎么复原（删掉只是不再注入，理由留着）。界面上不放
  * 「一键全量注入」这类开关——注入的克制就是这个功能能不能活下去的前提。
+ *
+ * 仓库不需要先选：扫一遍会话，会话 cwd 所在的仓库就自动成为清单的归属地，
+ * 所以这一页没有仓库选择器，只有「扫描会话」和一个按仓库分组的结果。
  */
 export function LessonsPanel() {
   const { t } = useTranslation();
-  const [workspaces, setWorkspaces] = useState<TaskWorkspace[]>([]);
-  const [root, setRoot] = useState<string>(() => readStoredRoot() ?? "");
-  const [state, setState] = useState<LessonState | null>(null);
+  const [overview, setOverview] = useState<LessonOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingRoot, setSavingRoot] = useState<string | null>(null);
   const [preview, setPreview] = useState<InjectionPreview | null>(null);
-  const [dismissTarget, setDismissTarget] = useState<Lesson | null>(null);
+  const [dismissTarget, setDismissTarget] = useState<{
+    root: string;
+    lesson: Lesson;
+  } | null>(null);
 
-  const loadWorkspaces = useCallback(async () => {
-    const list = await tasksApi.workspaces();
-    setWorkspaces(list);
-    return list;
-  }, []);
-
-  const loadState = useCallback(async (target: string) => {
-    if (!target) {
-      setState(null);
-      return;
-    }
-    const next = await lessonsApi.state(target);
-    setState(next);
+  /** 单仓库操作（删除、恢复、开关注入）只回一个仓库的状态，就地替换。 */
+  const replaceState = useCallback((root: string, next: LessonState) => {
+    setOverview((current) =>
+      current
+        ? {
+            ...current,
+            projects: current.projects.map((project) =>
+              project.root === root ? { ...project, state: next } : project,
+            ),
+          }
+        : current,
+    );
   }, []);
 
   useEffect(() => {
@@ -92,15 +82,9 @@ export function LessonsPanel() {
     void (async () => {
       setLoading(true);
       try {
-        const list = await loadWorkspaces();
-        const stored = readStoredRoot();
-        const next =
-          list.find((entry) => entry.root === stored)?.root ??
-          list[0]?.root ??
-          "";
+        const next = await lessonsApi.overview();
         if (cancelled) return;
-        setRoot(next);
-        await loadState(next);
+        setOverview(next);
         setError(null);
       } catch (err) {
         if (!cancelled) setError(lessonErrorMessage(err, t));
@@ -111,88 +95,57 @@ export function LessonsPanel() {
     return () => {
       cancelled = true;
     };
-  }, [loadState, loadWorkspaces, t]);
-
-  const selectRoot = useCallback(
-    async (next: string) => {
-      setRoot(next);
-      try {
-        localStorage.setItem(ROOT_STORAGE_KEY, next);
-      } catch {
-        // 存不了就算了，下次回到第一个仓库
-      }
-      setLoading(true);
-      try {
-        await loadState(next);
-        setError(null);
-      } catch (err) {
-        setError(lessonErrorMessage(err, t));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [loadState, t],
-  );
+  }, [t]);
 
   const scan = useCallback(async () => {
-    if (!root) return;
     setScanning(true);
     try {
-      setState(await lessonsApi.refresh(root));
+      setOverview(await lessonsApi.scan());
       setError(null);
     } catch (err) {
       toast.error(lessonErrorMessage(err, t));
     } finally {
       setScanning(false);
     }
-  }, [root, t]);
+  }, [t]);
 
   const toggleInjection = useCallback(
-    async (enabled: boolean) => {
-      if (!root) return;
-      setSaving(true);
+    async (project: LessonProject, enabled: boolean) => {
+      setSavingRoot(project.root);
       try {
-        setPreview(await lessonsApi.setInjection(root, enabled));
-        await loadState(root);
+        setPreview(await lessonsApi.setInjection(project.root, enabled));
+        replaceState(project.root, await lessonsApi.state(project.root));
         setError(null);
       } catch (err) {
         toast.error(lessonErrorMessage(err, t));
       } finally {
-        setSaving(false);
+        setSavingRoot(null);
       }
     },
-    [loadState, root, t],
+    [replaceState, t],
   );
 
-  const openPreview = useCallback(async () => {
-    if (!root) return;
-    try {
-      setPreview(await lessonsApi.preview(root));
-    } catch (err) {
-      toast.error(lessonErrorMessage(err, t));
-    }
-  }, [root, t]);
-
-  const restore = useCallback(
-    async (lesson: Lesson) => {
+  const openPreview = useCallback(
+    async (root: string) => {
       try {
-        setState(await lessonsApi.restore(root, lesson.id));
+        setPreview(await lessonsApi.preview(root));
       } catch (err) {
         toast.error(lessonErrorMessage(err, t));
       }
     },
-    [root, t],
+    [t],
   );
 
-  const active = useMemo(
-    () => (state?.lessons ?? []).filter((lesson) => !lesson.dismissed),
-    [state],
+  const restore = useCallback(
+    async (root: string, lesson: Lesson) => {
+      try {
+        replaceState(root, await lessonsApi.restore(root, lesson.id));
+      } catch (err) {
+        toast.error(lessonErrorMessage(err, t));
+      }
+    },
+    [replaceState, t],
   );
-  const dismissed = useMemo(
-    () => (state?.lessons ?? []).filter((lesson) => lesson.dismissed),
-    [state],
-  );
-  const scannedAt = formatTime(state?.lastScanAt);
 
   if (loading) {
     return (
@@ -202,52 +155,46 @@ export function LessonsPanel() {
     );
   }
 
-  if (workspaces.length === 0) {
-    return (
-      <div className={cn(pluginPageClass, "space-y-4")}>
-        <p className="text-body text-fg-2">{t("pluginCenter.lessons.intro")}</p>
-        <Notice
-          tone="neutral"
-          title={t("pluginCenter.lessons.noWorkspaceTitle")}
-        >
-          {t("pluginCenter.lessons.noWorkspaceBody")}
-        </Notice>
-      </div>
-    );
-  }
+  const projects = overview?.projects ?? [];
+  // 没有失败记录的仓库不占版面：扫是全扫的，看只看真出过事的那几个。
+  const reported = projects.filter(
+    (project) => project.state.lessons.length > 0,
+  );
+  const scannedAt = formatTime(overview?.lastScanAt);
+  const summary = [
+    scannedAt
+      ? t("pluginCenter.lessons.scannedAt", { time: scannedAt })
+      : t("pluginCenter.lessons.neverScanned"),
+    projects.length > 0
+      ? t("pluginCenter.lessons.discovered", { count: projects.length })
+      : null,
+    overview && (overview.scannedSessions > 0 || overview.failures > 0)
+      ? t("pluginCenter.lessons.scanSummary", {
+          sessions: overview.scannedSessions,
+          failures: overview.failures,
+        })
+      : null,
+    overview && overview.pendingSessions > 0
+      ? t("pluginCenter.lessons.pending", {
+          count: overview.pendingSessions,
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <div className={cn(pluginPageClass, "space-y-4")}>
-      <section className="space-y-1">
-        <p className="text-body text-fg-2">{t("pluginCenter.lessons.intro")}</p>
-        <p className="text-caption text-fg-3">
-          {t("pluginCenter.lessons.sourceHint")}
-        </p>
-      </section>
+    <div className={cn(pluginPageClass, "space-y-5")}>
+      <PluginLede hint={t("pluginCenter.lessons.sourceHint")}>
+        {t("pluginCenter.lessons.intro")}
+      </PluginLede>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={root} onValueChange={(value) => void selectRoot(value)}>
-          <SelectTrigger
-            className="w-[260px]"
-            aria-label={t("pluginCenter.lessons.repo")}
-          >
-            <SelectValue
-              placeholder={t("pluginCenter.lessons.repoPlaceholder")}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {workspaces.map((workspace) => (
-              <SelectItem key={workspace.root} value={workspace.root}>
-                {workspace.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Button
           variant="ghost"
           size="compact"
           onClick={() => void scan()}
-          disabled={scanning || !root}
+          disabled={scanning}
         >
           <RefreshCw
             className={cn("me-1.5 h-3.5 w-3.5", scanning && "animate-spin")}
@@ -256,6 +203,7 @@ export function LessonsPanel() {
             ? t("pluginCenter.lessons.scanning")
             : t("pluginCenter.lessons.scan")}
         </Button>
+        <p className="text-caption text-fg-3">{summary}</p>
       </div>
 
       {error && (
@@ -263,7 +211,7 @@ export function LessonsPanel() {
           tone="danger"
           title={t("pluginCenter.lessons.loadFailed")}
           actions={
-            <Button size="compact" onClick={() => void selectRoot(root)}>
+            <Button size="compact" onClick={() => void scan()}>
               {t("pluginCenter.refresh")}
             </Button>
           }
@@ -272,98 +220,158 @@ export function LessonsPanel() {
         </Notice>
       )}
 
-      {state && (
-        <p className="text-caption text-fg-3">
-          {[
-            root,
-            scannedAt
-              ? t("pluginCenter.lessons.scannedAt", { time: scannedAt })
-              : t("pluginCenter.lessons.neverScanned"),
-            t("pluginCenter.lessons.scanSummary", {
-              sessions: state.scannedSessions,
-              failures: state.failures,
-            }),
-            state.pendingSessions > 0
-              ? t("pluginCenter.lessons.pending", {
-                  count: state.pendingSessions,
-                })
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
+      {reported.length === 0 ? (
+        <PluginEmpty>
+          {projects.length === 0
+            ? t("pluginCenter.lessons.emptyHint")
+            : t("pluginCenter.lessons.emptyScanned")}
+        </PluginEmpty>
+      ) : (
+        reported.map((project) => (
+          <ProjectSection
+            key={project.root}
+            project={project}
+            saving={savingRoot === project.root}
+            onToggleInjection={(enabled) =>
+              void toggleInjection(project, enabled)
+            }
+            onPreview={() => void openPreview(project.root)}
+            onRestore={(lesson) => void restore(project.root, lesson)}
+            onDismiss={(lesson) =>
+              setDismissTarget({ root: project.root, lesson })
+            }
+          />
+        ))
       )}
 
-      {state && (
-        <section className="rounded-panel border border-border bg-surface">
-          <div className="flex items-start justify-between gap-4 p-4">
-            <div className="space-y-1">
-              <p className="flex items-center gap-2 text-strong font-medium text-fg-1">
-                <ShieldAlert className="h-4 w-4 text-fg-2" />
-                {t("pluginCenter.lessons.injectionTitle")}
-              </p>
-              <p className="text-body text-fg-2">
-                {t("pluginCenter.lessons.injectionHint", {
-                  file: state.injection.file,
-                })}
-              </p>
-              <p className="text-caption text-fg-3">
-                {t("pluginCenter.lessons.injectionMeta", {
-                  used: state.injection.usedChars,
-                  budget: state.injection.budgetChars,
-                  version: state.injection.version,
-                })}
-                {state.injection.enabled && !state.injection.applied
-                  ? ` · ${t("pluginCenter.lessons.injectionStale")}`
-                  : null}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 pt-0.5">
-              <Button
-                variant="ghost"
-                size="compact"
-                onClick={() => void openPreview()}
-              >
-                {t("pluginCenter.lessons.preview")}
-              </Button>
-              <Switch
-                size="sm"
-                checked={state.injection.enabled}
-                disabled={saving}
-                aria-label={t("pluginCenter.lessons.injectionTitle")}
-                onCheckedChange={(next) => void toggleInjection(next)}
-              />
-            </div>
+      <PluginGuide
+        title={t("pluginCenter.guide.title")}
+        summary={t("pluginCenter.lessons.about.what")}
+        steps={[1, 2, 3, 4].map((step) =>
+          t(`pluginCenter.lessons.about.step${step}`),
+        )}
+        note={t("pluginCenter.lessons.about.note")}
+      />
+
+      {preview && (
+        <InjectionPreviewDialog
+          preview={preview}
+          onClose={() => setPreview(null)}
+        />
+      )}
+
+      {dismissTarget && (
+        <DismissDialog
+          lesson={dismissTarget.lesson}
+          onCancel={() => setDismissTarget(null)}
+          onConfirm={async (reason) => {
+            const { root, lesson } = dismissTarget;
+            try {
+              replaceState(
+                root,
+                await lessonsApi.dismiss(root, lesson.id, reason),
+              );
+              setDismissTarget(null);
+            } catch (err) {
+              toast.error(lessonErrorMessage(err, t));
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+interface ProjectSectionProps {
+  project: LessonProject;
+  saving: boolean;
+  onToggleInjection: (enabled: boolean) => void;
+  onPreview: () => void;
+  onRestore: (lesson: Lesson) => void;
+  onDismiss: (lesson: Lesson) => void;
+}
+
+/** 一个仓库：名字与路径只出现一次，注入开关跟着自己的仓库，不混成全局开关。 */
+function ProjectSection({
+  project,
+  saving,
+  onToggleInjection,
+  onPreview,
+  onRestore,
+  onDismiss,
+}: ProjectSectionProps) {
+  const { t } = useTranslation();
+  const active = project.state.lessons.filter((lesson) => !lesson.dismissed);
+  const dismissed = project.state.lessons.filter((lesson) => lesson.dismissed);
+  const injection = project.state.injection;
+
+  return (
+    <section className="space-y-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex min-w-0 items-center gap-2 text-body font-medium text-fg-1">
+            <ShieldAlert className="h-4 w-4 shrink-0 text-fg-2" />
+            <span className="truncate">{project.name}</span>
+            <Badge variant="outline" className="shrink-0 text-fg-2">
+              {t("pluginCenter.lessons.lessonCount", { count: active.length })}
+            </Badge>
           </div>
-        </section>
-      )}
-
-      {active.length === 0 && dismissed.length === 0 && (
-        <div className="rounded-panel border border-dashed border-border px-4 py-8 text-center text-body text-fg-3">
-          {t("pluginCenter.lessons.empty")}
+          <p className="truncate text-caption text-fg-3">{project.root}</p>
+          {injection.enabled && (
+            <p className="text-caption text-fg-3">
+              {t("pluginCenter.lessons.injectionMeta", {
+                used: injection.usedChars,
+                budget: injection.budgetChars,
+                version: injection.version,
+              })}
+              {injection.applied
+                ? null
+                : ` · ${t("pluginCenter.lessons.injectionStale")}`}
+            </p>
+          )}
         </div>
-      )}
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="ghost" size="compact" onClick={onPreview}>
+            {t("pluginCenter.lessons.preview")}
+          </Button>
+          <HoverTip content={t("pluginCenter.lessons.injectionTitle")}>
+            <Switch
+              size="sm"
+              checked={injection.enabled}
+              disabled={saving}
+              aria-label={t("pluginCenter.lessons.injectionTitle")}
+              onCheckedChange={onToggleInjection}
+            />
+          </HoverTip>
+        </div>
+      </div>
 
-      {active.length > 0 && (
-        <ul className="divide-y divide-border overflow-hidden rounded-panel border border-border">
-          {active.map((lesson) => (
-            <li key={lesson.id} className="space-y-1 bg-surface px-4 py-3">
+      <SettingsCard>
+        {active.length === 0 ? (
+          <p className="px-4 py-3 text-caption text-fg-3">
+            {t("pluginCenter.lessons.allDismissed")}
+          </p>
+        ) : (
+          active.map((lesson) => (
+            <div key={lesson.id} className="space-y-1 px-4 py-3">
               <div className="flex items-start justify-between gap-3">
-                <p className="min-w-0 flex-1 text-strong font-medium text-fg-1">
+                <p className="min-w-0 flex-1 text-strong text-fg-1">
                   {lesson.trigger}
                 </p>
                 <div className="flex shrink-0 items-center gap-2">
                   <Badge variant="outline" className="text-fg-2">
                     {t("pluginCenter.lessons.hits", { count: lesson.hits })}
                   </Badge>
-                  <Button
-                    variant="ghost"
-                    size="compact"
-                    aria-label={t("pluginCenter.lessons.dismiss")}
-                    onClick={() => setDismissTarget(lesson)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <HoverTip content={t("pluginCenter.lessons.dismiss")}>
+                    <Button
+                      variant="ghost"
+                      size="icon-compact"
+                      aria-label={t("pluginCenter.lessons.dismiss")}
+                      onClick={() => onDismiss(lesson)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </HoverTip>
                 </div>
               </div>
               <p className="text-body text-fg-2">{lesson.nextStep}</p>
@@ -375,21 +383,21 @@ export function LessonsPanel() {
                   .filter(Boolean)
                   .join(" · ")}
               </p>
-            </li>
-          ))}
-        </ul>
-      )}
+            </div>
+          ))
+        )}
+      </SettingsCard>
 
       {dismissed.length > 0 && (
-        <section className="space-y-2">
+        <div className="space-y-1">
           <p className="text-caption text-fg-3">
             {t("pluginCenter.lessons.dismissedTitle")}
           </p>
-          <ul className="divide-y divide-border overflow-hidden rounded-panel border border-border">
+          <SettingsCard>
             {dismissed.map((lesson) => (
-              <li
+              <div
                 key={lesson.id}
-                className="flex items-start justify-between gap-3 bg-surface px-4 py-3"
+                className="flex items-start justify-between gap-3 px-4 py-3"
               >
                 <div className="min-w-0 space-y-1">
                   <p className="text-body text-fg-2 line-through">
@@ -406,40 +414,16 @@ export function LessonsPanel() {
                 <Button
                   variant="ghost"
                   size="compact"
-                  onClick={() => void restore(lesson)}
+                  onClick={() => onRestore(lesson)}
                 >
                   {t("pluginCenter.lessons.restore")}
                 </Button>
-              </li>
+              </div>
             ))}
-          </ul>
-        </section>
+          </SettingsCard>
+        </div>
       )}
-
-      {preview && (
-        <InjectionPreviewDialog
-          preview={preview}
-          onClose={() => setPreview(null)}
-        />
-      )}
-
-      {dismissTarget && (
-        <DismissDialog
-          lesson={dismissTarget}
-          onCancel={() => setDismissTarget(null)}
-          onConfirm={async (reason) => {
-            try {
-              setState(
-                await lessonsApi.dismiss(root, dismissTarget.id, reason),
-              );
-              setDismissTarget(null);
-            } catch (err) {
-              toast.error(lessonErrorMessage(err, t));
-            }
-          }}
-        />
-      )}
-    </div>
+    </section>
   );
 }
 

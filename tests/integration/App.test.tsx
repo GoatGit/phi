@@ -1,4 +1,4 @@
-import { Suspense, type ComponentType } from "react";
+import { Suspense, type ComponentType, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   render,
@@ -157,10 +157,22 @@ vi.mock("@/components/settings/SettingsPage", () => ({
 }));
 
 vi.mock("@/components/skills/UnifiedSkillsPanel", () => ({
-  // v7：Skills 的页头（添加 / 检查更新 / 存储与同步）在面板自己里面
-  default: ({ initialView }: { initialView?: string }) => {
+  // v7：Skills 的页头（添加 / 检查更新 / 存储与同步）在面板自己里面；
+  // 工具箱的页签行也由面板画在页头，所以这里把 tabs 透出来
+  default: ({
+    initialView,
+    tabs,
+  }: {
+    initialView?: string;
+    tabs?: ReactNode;
+  }) => {
     skillsPanelMocks.initialViews.push(initialView ?? "installed");
-    return <div data-testid="unified-skills-panel">{initialView}</div>;
+    return (
+      <div data-testid="unified-skills-panel">
+        {tabs}
+        {initialView ?? "installed"}
+      </div>
+    );
   },
 }));
 
@@ -1085,13 +1097,19 @@ describe("App integration with MSW", () => {
     );
   });
 
-  it("opens the old skillsDiscovery view as the Discover segment", async () => {
+  it("lands the old skillsDiscovery view on the toolbox Skills tab", async () => {
     localStorage.setItem("phi-last-view", "skillsDiscovery");
     const { default: App } = await import("@/App");
     renderApp(App);
 
-    expect(await screen.findByTestId("unified-skills-panel")).toHaveTextContent(
-      "discover",
-    );
+    // 「发现」是 Skills 页签里的二级页签，旧视图只能落到 Skills 页签本身
+    const tablist = await screen.findByRole("tablist", {
+      name: "nav.toolbox",
+      hidden: true,
+    });
+    expect(
+      within(tablist).getByRole("tab", { name: "Skills", hidden: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("unified-skills-panel")).toBeInTheDocument();
   });
 });

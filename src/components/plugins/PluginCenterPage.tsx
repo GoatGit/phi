@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { PageTabs } from "@/components/ui/page-tabs";
 import { ReportCardPage } from "@/components/reportcard/ReportCardPage";
+import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
 import {
   usePluginCenterEntries,
   usePluginSummaries,
@@ -33,13 +34,17 @@ interface PluginCenterPageProps {
   pinnedPluginIds: string[];
   /** 插件页右上角的钉住按钮 */
   onTogglePin: (pluginId: string) => void;
+  /** 能开本地终端会话的应用（任务看板用；为空表示当前平台不支持） */
+  terminalApps: string[];
+  /** 在指定应用、指定目录开会话（任务看板用）；失败时抛错 */
+  onStartSession: (root: string, appId: string) => Promise<string>;
 }
 
 /**
  * 插件中心：主页是一排插件卡片，点进去才是某个插件的主页。
  *
- * 卡片与后端的插件清单分开建模（见 `usePluginCatalog`）：成绩单、接棒来自清单，
- * 隐私脱敏、MCP 路由、教训库是宿主自带的配置能力，但在界面上是同一层的东西。
+ * 卡片与后端的插件清单分开建模（见 `usePluginCatalog`）：成绩单、任务看板、接棒
+ * 来自清单，隐私脱敏、MCP 路由、教训库是宿主自带的配置能力，但在界面上是同一层的东西。
  * 插件主页右上角可以把它钉在侧栏一级导航里，钉住状态只存在本地。
  */
 export function PluginCenterPage({
@@ -48,6 +53,8 @@ export function PluginCenterPage({
   onSelectPlugin,
   pinnedPluginIds,
   onTogglePin,
+  terminalApps,
+  onStartSession,
 }: PluginCenterPageProps) {
   const { t } = useTranslation();
   const entries = usePluginCenterEntries();
@@ -120,7 +127,11 @@ export function PluginCenterPage({
           aria-labelledby={`plugin-center-tab-${activePluginId ?? HOME_TAB}`}
         >
           {activePluginId ? (
-            <PluginPage entry={activeEntry} />
+            <PluginPage
+              entry={activeEntry}
+              terminalApps={terminalApps}
+              onStartSession={onStartSession}
+            />
           ) : (
             <PluginHomePage
               entries={entries}
@@ -135,7 +146,15 @@ export function PluginCenterPage({
 }
 
 /** 插件主页：按 id 分派到具体面板；未知插件给一句可恢复的提示。 */
-function PluginPage({ entry }: { entry: PluginCenterEntry | null }) {
+function PluginPage({
+  entry,
+  terminalApps,
+  onStartSession,
+}: {
+  entry: PluginCenterEntry | null;
+  terminalApps: string[];
+  onStartSession: (root: string, appId: string) => Promise<string>;
+}) {
   const { t } = useTranslation();
   if (!entry) {
     return (
@@ -151,6 +170,15 @@ function PluginPage({ entry }: { entry: PluginCenterEntry | null }) {
   }
   if (entry.kind === "panel" && entry.id === "report-card") {
     return <ReportCardPage embedded />;
+  }
+  if (entry.kind === "panel" && entry.id === "task-board") {
+    return (
+      <TaskBoardPage
+        embedded
+        terminalApps={terminalApps}
+        onStartSession={onStartSession}
+      />
+    );
   }
   return <PluginDetailPage entry={entry} />;
 }
@@ -262,12 +290,7 @@ function PluginCard({
         />
       </span>
       {entry.description && (
-        <p
-          className="line-clamp-2 text-body text-fg-2"
-          title={entry.description}
-        >
-          {entry.description}
-        </p>
+        <p className="line-clamp-2 text-body text-fg-2">{entry.description}</p>
       )}
       {disabled && (
         <span className="mt-auto pt-0.5 text-caption text-fg-3">
