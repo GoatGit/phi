@@ -223,6 +223,13 @@ jobs:
       - name: Build subscription sidecar
         run: node scripts/build-subscriptions.mjs
 
+      # zellij 是 macOS 安装包里的 externalBin：后台 worker 跑在它里面，
+      # 关掉终端、关掉应用都不会把它带走。它只在 macOS 上有意义，
+      # 但 macOS 上的任何 cargo/tauri 构建都要求这个文件已经在位。
+      - name: Fetch zellij sidecar
+        if: runner.os == 'macOS'
+        run: node scripts/build-zellij.mjs
+
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |

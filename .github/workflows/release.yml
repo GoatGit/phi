@@ -435,6 +435,10 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      # 后台 worker 跑在 zellij 里：它是 macOS 包的 externalBin，按各自的 target 取。
+      - name: Fetch zellij sidecar
+        run: node scripts/build-zellij.mjs --target=${{ matrix.target }}
+
       # 编译只做一次：编译失败是确定性的，重试没有意义。签名和公证依赖 Apple 的服务，
       # 在 macos-release 里单独重试，不会再重编。
       - name: Set up Python for embedded Ghostty
@@ -652,6 +656,11 @@ jobs:
             macos-binaries/macos-binary-x86_64-apple-darwin/phi-subscriptions-x86_64-apple-darwin
           chmod +x "src-tauri/binaries/$sidecar"
           lipo -info "src-tauri/binaries/$sidecar"
+
+      # universal 包里 externalBin 找的是 `zellij-universal-apple-darwin`：
+      # 两个架构各下一份再 lipo，和上面的 phi-subscriptions 同一套做法。
+      - name: Fetch zellij sidecar
+        run: node scripts/build-zellij.mjs --target=universal-apple-darwin
 
       # 只打 .app（连同 updater 的 .app.tar.gz 和 .sig）：发布用的 DMG 在下面由 create-dmg 制作，
       # Tauri 自己的 DMG 从来不上传。失败只重试这一步，不会重编。
