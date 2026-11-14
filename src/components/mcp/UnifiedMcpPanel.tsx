@@ -658,13 +658,20 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
                   : ""
               }
             />
-            <span className="shrink-0 whitespace-nowrap text-caption tabular-nums text-fg-2">
-              {normalizedSearchQuery
-                ? t("mcpPage.countFiltered", {
-                    shown: filteredServerEntries.length,
-                    count: serverEntries.length,
-                  })
-                : t("mcpPage.count", { count: serverEntries.length })}
+            <span className="flex shrink-0 items-baseline gap-1 whitespace-nowrap tabular-nums">
+              <span className="text-strong font-medium text-fg-1">
+                {normalizedSearchQuery
+                  ? filteredServerEntries.length
+                  : serverEntries.length}
+              </span>
+              <span className="text-caption text-fg-3">
+                {normalizedSearchQuery
+                  ? t("mcpPage.countFiltered", {
+                      shown: filteredServerEntries.length,
+                      count: serverEntries.length,
+                    })
+                  : t("mcpPage.count", { count: serverEntries.length })}
+              </span>
             </span>
             <span className="ms-auto min-w-0 truncate text-caption text-fg-2">
               {t("mcpPage.overwriteNote")}
@@ -723,7 +730,12 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
             </div>
           ) : !hasServers ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 px-10 pb-12 text-center">
-              <h2 className="m-0 text-section">{t("mcpPage.emptyTitle")}</h2>
+              <span className="flex h-10 w-10 items-center justify-center rounded-control bg-subtle text-fg-2">
+                <Server className="h-5 w-5" strokeWidth={1.5} />
+              </span>
+              <h2 className="m-0 mt-1 text-section">
+                {t("mcpPage.emptyTitle")}
+              </h2>
               <div className="flex items-center gap-0.5">
                 <p className="m-0 text-body text-fg-2">
                   {t("mcpPage.emptyBody")}
@@ -732,10 +744,11 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
                   {t("mcpPage.importHelp")}
                 </HelpTip>
               </div>
-              <div className="mt-2 flex gap-2">
+              {/* 两个入口不同权重：导入是多数人的第一步，添加留成次级操作 */}
+              <div className="mt-3 flex items-center gap-2">
                 <Button
                   type="button"
-                  variant="neutral"
+                  variant="solid"
                   size="regular"
                   disabled={controlsDisabled}
                   onClick={() => void handleImport()}
@@ -745,7 +758,7 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
                 </Button>
                 <Button
                   type="button"
-                  variant="neutral"
+                  variant="quiet"
                   size="regular"
                   disabled={controlsDisabled}
                   onClick={openAdd}

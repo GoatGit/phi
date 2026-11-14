@@ -13,7 +13,6 @@ import {
   BookOpen,
   ChartColumn,
   ChevronDown,
-  ClipboardList,
   History,
   Layers,
   MoreHorizontal,
@@ -27,7 +26,7 @@ import {
 } from "lucide-react";
 import type { AppId } from "@/lib/api";
 import type { GlobalPage, View } from "@/lib/navigation";
-import { isAppPage } from "@/lib/navigation";
+import { isAppPage, pluginView } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
 import {
   DropdownMenu,
@@ -37,7 +36,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
-import { usePluginPanels } from "@/hooks/usePluginPanels";
+import {
+  usePluginCenterEntries,
+  type PluginCenterEntry,
+} from "@/hooks/usePluginCatalog";
 import { useSidebarStatus, type AppNavStatus } from "@/hooks/useSidebarStatus";
 import { useSidebarApps } from "@/hooks/useSidebarApps";
 import {
@@ -73,6 +75,8 @@ interface SidebarProps {
   onRemoveSidebarApp: (appId: string) => void;
   /** 打开了「启动时检查应用更新」并且查到了新版本 */
   appsUpdateAvailable?: boolean;
+  /** 钉在侧栏一级导航的插件 id（顺序即显示顺序） */
+  pinnedPlugins?: string[];
   terminalCounts?: Partial<Record<string, number>>;
   /** 路由页当前从侧栏打开的路由专用应用（用于选中态） */
   activeRoutingApp?: string | null;
@@ -363,11 +367,20 @@ function MainDirectory({
   activeRoutingApp = null,
   activeLocalApp = null,
   onSelectLocalApp,
+  pinnedPlugins = [],
   status,
 }: DirectoryProps) {
   const { t } = useTranslation();
   const { hasUpdate } = useUpdate();
-  const pluginPanels = usePluginPanels();
+  const pluginEntries = usePluginCenterEntries();
+  // 钉住顺序就是侧栏顺序；插件被卸载后 id 还在本地，这里自然就不再显示。
+  const pinnedPluginEntries = useMemo(
+    () =>
+      pinnedPlugins
+        .map((id) => pluginEntries.find((entry) => entry.id === id))
+        .filter((entry): entry is PluginCenterEntry => Boolean(entry)),
+    [pinnedPlugins, pluginEntries],
+  );
   const { appStatus, serviceRunning } = status;
   // 只列用户添加过的应用，按“进行中 → 最近有流量 → 已接入路由组 → 其余”排序。
   const sidebarEntries = useSidebarApps(sidebarApps);
@@ -439,20 +452,15 @@ function MainDirectory({
           label={t("tasks.title")}
           onClick={() => onSelectPage("tasks")}
         />
-        {/* 功能插件自带的面板入口：插件被停用就不再出现 */}
-        {pluginPanels.map((panel) => (
+        {/* 钉住的插件：插件中心主页右上角的钉住按钮控制这一层 */}
+        {pinnedPluginEntries.map((entry) => (
           <NavItem
-            key={panel.pluginId}
+            key={entry.id}
             collapsed={collapsed}
-            selected={view === panel.view}
-            icon={panel.entry === "report-card" ? ClipboardList : Blocks}
-            label={
-              panel.title ??
-              (panel.entry === "report-card"
-                ? t("reportCard.title")
-                : panel.entry)
-            }
-            onClick={() => onSelectPage(panel.view)}
+            selected={view === pluginView(entry.id)}
+            icon={entry.icon}
+            label={entry.title}
+            onClick={() => onSelectPage(pluginView(entry.id))}
           />
         ))}
         <NavItem

@@ -19,6 +19,19 @@ import {
   type ReportCard,
 } from "@/lib/api/reportCard";
 import { cn } from "@/lib/utils";
+import {
+  ReliabilityChart,
+  ReliabilityLegend,
+  scaleCeiling,
+} from "./ReliabilityChart";
+import {
+  deliveryTone,
+  failureTone,
+  interruptionTone,
+  TONE_TEXT,
+} from "./reliability";
+import { pluginWidePageClass } from "@/components/plugins/pluginPage";
+import { ReportCardGuide } from "@/components/plugins/pluginGuides";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 /** 与后端 `extract::MIN_SAMPLES` 对齐：样本不够就不报百分比 */
@@ -29,16 +42,21 @@ const WINDOWS = [7, 30, 90] as const;
 interface ReportCardPageProps {
   /** 从别处下钻进来时的返回入口 */
   onBack?: () => void;
+  /** 作为插件中心的一个页签嵌入：不再画自己的页头，窗口切换与刷新放进内容顶部 */
+  embedded?: boolean;
 }
 
 /**
- * 侧栏一级页「成绩单」。
+ * 成绩单。
  *
  * 给人看的是一个模型在**这个人自己的仓库上**表现如何，而不是 benchmark 排名。
  * 只有可靠性：工具调用失败率、被中断率、空交付率、单步耗时、单任务成本。
  * 验收命令与返工观察还没接上，所以这一页明确写着「未证实」，不给质量排序。
  */
-export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
+export function ReportCardPage({
+  onBack,
+  embedded = false,
+}: ReportCardPageProps = {}) {
   const { t, i18n } = useTranslation();
   const locale = getLocaleFromLanguage(getResolvedLang(i18n));
   const [days, setDays] = useState<number>(30);
@@ -82,54 +100,75 @@ export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
   }, [load]);
 
   const rows = card?.rows ?? [];
+  const ceiling = scaleCeiling(
+    rows.flatMap((row) => [
+      row.toolFailureRate ?? 0,
+      row.interruptionRate ?? 0,
+    ]),
+  );
+
+  // 窗口切换与刷新在独立页里放在页头，嵌入插件页签时放进内容顶部。
+  const controls = (
+    <>
+      <SegmentedControl
+        size="sm"
+        aria-label={t("reportCard.windowLabel")}
+        value={String(days)}
+        onValueChange={(value) => setDays(Number(value))}
+        items={WINDOWS.map((value) => ({
+          value: String(value),
+          label: t("reportCard.windowDays", { days: value }),
+        }))}
+      />
+      <Button
+        type="button"
+        variant="quiet"
+        size="icon-compact"
+        onClick={() => void load(true)}
+        disabled={refreshing}
+        aria-label={t("reportCard.refresh")}
+      >
+        <RefreshCw
+          className={cn("h-4 w-4", refreshing && "animate-spin")}
+          strokeWidth={1.75}
+        />
+      </Button>
+    </>
+  );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <AppPageHeader
-        leading={onBack && <PageHeaderBackButton onClick={onBack} />}
-        icon={
-          onBack ? undefined : (
-            <ClipboardList className="h-4 w-4" strokeWidth={1.75} />
-          )
-        }
-        title={t("reportCard.title")}
-        actions={
-          <>
-            <SegmentedControl
-              size="sm"
-              aria-label={t("reportCard.windowLabel")}
-              value={String(days)}
-              onValueChange={(value) => setDays(Number(value))}
-              items={WINDOWS.map((value) => ({
-                value: String(value),
-                label: t("reportCard.windowDays", { days: value }),
-              }))}
-            />
-            <Button
-              type="button"
-              variant="quiet"
-              size="icon-compact"
-              onClick={() => void load(true)}
-              disabled={refreshing}
-              aria-label={t("reportCard.refresh")}
-            >
-              <RefreshCw
-                className={cn("h-4 w-4", refreshing && "animate-spin")}
-                strokeWidth={1.75}
-              />
-            </Button>
-          </>
-        }
-      />
+    <div
+      className={
+        embedded
+          ? cn(pluginWidePageClass, "space-y-4")
+          : "flex min-h-0 flex-1 flex-col"
+      }
+    >
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {controls}
+        </div>
+      ) : (
+        <AppPageHeader
+          leading={onBack && <PageHeaderBackButton onClick={onBack} />}
+          icon={
+            onBack ? undefined : (
+              <ClipboardList className="h-4 w-4" strokeWidth={1.75} />
+            )
+          }
+          title={t("reportCard.title")}
+          actions={controls}
+        />
+      )}
 
       <div
-        id="main-content"
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto scroll-stable px-6 pt-3 pb-10"
+        id={embedded ? undefined : "main-content"}
+        className={
+          embedded
+            ? "space-y-4"
+            : "min-h-0 flex-1 space-y-4 overflow-y-auto scroll-stable px-6 pt-3 pb-10"
+        }
       >
-        <Notice tone="warning" title={t("reportCard.unprovenTitle")}>
-          {t("reportCard.unprovenBody")}
-        </Notice>
-
         {error && (
           <Notice
             tone="danger"
@@ -158,6 +197,13 @@ export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
           />
         ) : null}
 
+        {rows.some((row) => row.sufficient) && (
+          <section className="space-y-3 rounded-panel border border-border bg-surface px-4 py-3.5">
+            <ReliabilityChart rows={rows} maxRate={ceiling} />
+            <ReliabilityLegend />
+          </section>
+        )}
+
         {loading && !card ? (
           <div className={usageTable.skeleton} />
         ) : rows.length === 0 ? (
@@ -170,7 +216,7 @@ export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
         ) : (
           <div className={usageTable.scroller}>
             <table
-              className={cn(usageTable.table, "min-w-[880px]")}
+              className={cn(usageTable.table, "min-w-[720px]")}
               aria-label={t("reportCard.title")}
             >
               <thead>
@@ -218,7 +264,17 @@ export function ReportCardPage({ onBack }: ReportCardPageProps = {}) {
           </div>
         )}
 
-        <p className="text-caption text-fg-3">{t("reportCard.footnote")}</p>
+        {/* 可靠性口径放在表格下面：读数字之前不挡路，想追究口径时找得到 */}
+        <div className="space-y-1 pt-1 text-caption text-fg-3">
+          <p>
+            <span className="text-fg-2">{t("reportCard.unprovenTitle")}</span>
+            {" — "}
+            {t("reportCard.unprovenBody")}
+          </p>
+          <p>{t("reportCard.footnote")}</p>
+        </div>
+
+        {embedded && <ReportCardGuide />}
       </div>
     </div>
   );
@@ -261,14 +317,22 @@ function Summary({
 
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
-      <div className="flex flex-wrap gap-6">
-        {items.map((item) => (
+      <dl className="flex flex-wrap gap-8">
+        {items.map((item, index) => (
           <div key={item.label} className="flex flex-col gap-0.5">
-            <span className="text-caption text-fg-2">{item.label}</span>
-            <span className="text-title tabular-nums">{item.value}</span>
+            <dt className="text-caption text-fg-3">{item.label}</dt>
+            <dd
+              className={cn(
+                "tabular-nums leading-none text-fg-1",
+                // 第一个数是一屏里最想让人看到的那个，其余降一档
+                index === 0 ? "text-metric" : "text-title font-medium",
+              )}
+            >
+              {item.value}
+            </dd>
           </div>
         ))}
-      </div>
+      </dl>
       <span className="text-caption text-fg-3">
         {refreshing
           ? t("reportCard.summary.syncing")
@@ -296,28 +360,43 @@ function ScoreboardRow({
     <tr className={usageTable.row}>
       <td className={usageTable.td}>
         <div className="flex flex-col">
-          <span className="truncate">
+          <span className="truncate text-strong text-fg-1">
             {row.model || t("reportCard.unlabeledModel")}
           </span>
-          <span className="text-caption text-fg-3">{row.providerId}</span>
+          <span className="text-badge text-fg-3">{row.providerId}</span>
         </div>
       </td>
       <td className={usageTable.tdEnd}>{fmtInt(row.tasks, locale)}</td>
       <td className={usageTable.tdEnd}>{fmtInt(row.toolCalls, locale)}</td>
       <td className={usageTable.tdEnd}>
-        {row.sufficient
-          ? percent(row.toolFailureRate)
-          : t("reportCard.insufficient", { samples: row.sampleSize })}
+        {row.sufficient ? (
+          <Metric
+            value={percent(row.toolFailureRate)}
+            tone={TONE_TEXT[failureTone(row.toolFailureRate ?? 0)]}
+          />
+        ) : (
+          t("reportCard.insufficient", { samples: row.sampleSize })
+        )}
       </td>
       <td className={usageTable.tdEnd}>
-        {row.sufficient
-          ? percent(row.interruptionRate)
-          : t("reportCard.insufficient", { samples: row.sampleSize })}
+        {row.sufficient ? (
+          <Metric
+            value={percent(row.interruptionRate)}
+            tone={TONE_TEXT[interruptionTone(row.interruptionRate ?? 0)]}
+          />
+        ) : (
+          t("reportCard.insufficient", { samples: row.sampleSize })
+        )}
       </td>
       <td className={usageTable.tdEnd}>
-        {row.deliveryTasks >= MIN_SAMPLES
-          ? percent(row.emptyDeliveryRate)
-          : t("reportCard.insufficient", { samples: row.deliveryTasks })}
+        {row.deliveryTasks >= MIN_SAMPLES ? (
+          <Metric
+            value={percent(row.emptyDeliveryRate)}
+            tone={TONE_TEXT[deliveryTone(row.emptyDeliveryRate ?? 0)]}
+          />
+        ) : (
+          t("reportCard.insufficient", { samples: row.deliveryTasks })
+        )}
       </td>
       <td className={usageTable.tdEnd}>
         {row.avgStepMs == null ? "—" : duration(row.avgStepMs)}
@@ -333,6 +412,11 @@ function ScoreboardRow({
 function percent(rate: number | null): string {
   if (rate == null) return "—";
   return `${(rate * 100).toFixed(1)}%`;
+}
+
+/** 一行语义数值：颜色带语义，字重比表格正文重一档，便于数字串里报出异常。 */
+function Metric({ value, tone }: { value: string; tone: string }) {
+  return <span className={cn("font-medium", tone)}>{value}</span>;
 }
 
 function duration(ms: number): string {

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   SETTINGS_SECTIONS,
+  isGlobalPage,
   normalizeSettingsSection,
+  parseView,
+  pluginIdFromView,
+  pluginView,
   visibleSettingsSections,
 } from "@/lib/navigation";
 
@@ -34,5 +38,29 @@ describe("visibleSettingsSections", () => {
       expect(sections[0]).toBe("general");
       expect(sections[sections.length - 1]).toBe("about");
     }
+  });
+
+  it("encodes the open plugin in the view so tabs and sidebar share one state", () => {
+    const view = pluginView("report-card");
+    expect(view).toBe("plugin:report-card");
+    expect(pluginIdFromView(view)).toBe("report-card");
+    expect(pluginIdFromView("plugins")).toBeNull();
+    expect(isGlobalPage(view)).toBe(true);
+    expect(parseView(view)).toBe(view);
+  });
+
+  it("keeps plugin ids that contain dots and dashes", () => {
+    const view = pluginView("custom.rules-v2");
+    expect(parseView(view)).toBe(view);
+    expect(pluginIdFromView(view)).toBe("custom.rules-v2");
+  });
+
+  it("maps the retired report-card page onto the plugin tab", () => {
+    expect(parseView("reportCard")).toBe(pluginView("report-card"));
+  });
+
+  it("rejects an empty plugin view instead of treating it as the plugin center", () => {
+    expect(parseView("plugin:")).toBeNull();
+    expect(pluginIdFromView("plugin:")).toBeNull();
   });
 });

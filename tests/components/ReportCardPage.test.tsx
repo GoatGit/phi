@@ -92,16 +92,42 @@ describe("ReportCardPage", () => {
 
     render(<ReportCardPage />);
 
-    await waitFor(() => expect(screen.getByText("gpt-5")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getAllByText("gpt-5").length).toBeGreaterThan(0),
+    );
     // 失败率、中断率、空交付率三列都够样本：14.3% / 12.5% / 0.0%
-    expect(screen.getAllByText("14.3%")).toHaveLength(1);
-    expect(screen.getAllByText("12.5%")).toHaveLength(1);
-    expect(screen.getAllByText("0.0%")).toHaveLength(1);
+    // （表格一行，分布图每行一个标注，所以各可能不止一处）
+    expect(screen.getAllByText("14.3%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("12.5%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("0.0%").length).toBeGreaterThan(0);
     // 样本不足的模型只报样本量，不给百分比
     expect(screen.getByText("tiny")).toBeInTheDocument();
     expect(
       screen.getAllByText("reportCard.insufficient").length,
     ).toBeGreaterThan(0);
+  });
+
+  it("drops its own page header when embedded as a plugin tab", async () => {
+    render(<ReportCardPage embedded />);
+
+    await waitFor(() =>
+      expect(screen.getAllByText("gpt-5").length).toBeGreaterThan(0),
+    );
+    // 页头由插件中心提供；内层不再画一个标题，也不占用 main-content
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "reportCard.windowDays" }),
+    ).toHaveLength(3);
+    expect(document.querySelectorAll("#main-content")).toHaveLength(0);
+  });
+
+  it("gives the table a wide page so it fits without a scrollbar", async () => {
+    const { container } = render(<ReportCardPage embedded />);
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    // 表格页用 1080 版心、表格不再强制 880 最小宽：九列在版心内铺开
+    expect(container.firstElementChild?.className).toContain("max-w-[1080px]");
+    expect(screen.getByRole("table").className).not.toContain("min-w-[880px]");
   });
 
   it("shows the empty state when there are no tasks yet", async () => {
@@ -155,18 +181,61 @@ describe("ReportCardPage", () => {
 
     // 7 天先回，30 天后回：晚到的那份不能把页面改回 30 天
     resolveNarrow(card({ windowDays: 7, rows: [row({ model: "week" })] }));
-    await screen.findByText("week");
+    await waitFor(() =>
+      expect(screen.getAllByText("week").length).toBeGreaterThan(0),
+    );
     resolveWide(card({ rows: [row({ model: "month" })] }));
 
     await waitFor(() => expect(screen.queryByText("month")).toBeNull());
-    expect(screen.getByText("week")).toBeInTheDocument();
+    expect(screen.getAllByText("week").length).toBeGreaterThan(0);
   });
 
   it("labels every scoreboard as reliability, not quality", async () => {
     render(<ReportCardPage />);
 
     await waitFor(() => expect(apiMocks.page).toHaveBeenCalled());
-    expect(screen.getByText("reportCard.unprovenTitle")).toBeInTheDocument();
+    const caveat = screen.getByText("reportCard.unprovenTitle");
+    const table = screen.getByRole("table");
+    // 说明压在表格下面，不再顶在上方占一条黄色警告
+    expect(
+      table.compareDocumentPosition(caveat) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(caveat.closest(".bg-warning-soft")).toBeNull();
     expect(screen.getByText("reportCard.footnote")).toBeInTheDocument();
+  });
+
+  // 首屏要有可视化，否则表格下面大片空白、对比只能一行行看。
+  it("puts a distribution chart above the table", async () => {
+    render(<ReportCardPage embedded />);
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    const caption = screen.getByText("reportCard.chart.title");
+    const table = screen.getByRole("table");
+    expect(
+      caption.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  // 语义色只在越过阈值时出现，避免满屏染色。
+  it("colours only the rates that cross a threshold", async () => {
+    apiMocks.page.mockResolvedValue(
+      card({
+        rows: [
+          row({ model: "steady", toolFailureRate: 0.01, interruptionRate: 0 }),
+          row({ model: "risky", toolFailureRate: 0.2, interruptionRate: 0.1 }),
+        ],
+      }),
+    );
+
+    render(<ReportCardPage embedded />);
+
+    // 稳定模型的失败率不上色（低于阈值），分布图里的那个是图表文字
+    const steadyCells = await screen.findAllByText("1.0%");
+    expect(steadyCells[0].className).toContain("text-fg-1");
+    // 表格里的 20.0% 与分布图里的同一个数都存在，表格那个带语义色
+    const risky = screen
+      .getAllByText("20.0%")
+      .find((node) => node.className.includes("text-danger-text"));
+    expect(risky).toBeDefined();
   });
 });

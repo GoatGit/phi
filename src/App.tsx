@@ -82,6 +82,8 @@ import {
   APP_STORAGE_KEY,
   appPageBelongsTo,
   isAppPage,
+  pluginIdFromView,
+  pluginView,
   readStoredView,
   sharedFeatureAppOf,
   storeView,
@@ -156,8 +158,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
 import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
-import { ReportCardPage } from "@/components/reportcard/ReportCardPage";
 import { PluginCenterPage } from "@/components/plugins/PluginCenterPage";
+import {
+  readPinnedPlugins,
+  storePinnedPlugins,
+  togglePinnedPlugin,
+} from "@/lib/pluginPins";
 import {
   useDisableCurrentOmo,
   useDisableCurrentOmoSlim,
@@ -211,6 +217,9 @@ function App() {
   const [routeAppRequest, setRouteAppRequest] =
     useState<RouteAppRequest | null>(null);
   const [currentView, setCurrentView] = useState<View>(readStoredView);
+  // 钉在侧栏一级导航的插件：纯本地偏好，不进后端配置
+  const [pinnedPlugins, setPinnedPlugins] =
+    useState<string[]>(readPinnedPlugins);
   // 设置分区是页内标签：只在这一屏里记住，不参与导航与持久化
   const [settingsSection, setSettingsSection] =
     useState<SettingsSection>("general");
@@ -254,6 +263,14 @@ function App() {
   useEffect(() => {
     storeView(currentView);
   }, [currentView]);
+
+  useEffect(() => {
+    storePinnedPlugins(pinnedPlugins);
+  }, [pinnedPlugins]);
+
+  const togglePluginPin = useCallback((pluginId: string) => {
+    setPinnedPlugins((previous) => togglePinnedPlugin(previous, pluginId));
+  }, []);
 
   const { data: settingsData } = useSettingsQuery();
   // Windows 一律去掉系统标题栏，用页头里的应用内窗口按钮；Linux 由设置决定
@@ -1566,12 +1583,14 @@ function App() {
 
     const tiles: AppHomeTile[] = [];
 
-    // 首选终端 → 终端打开：动作卡，永远放第一
+    // 首选终端 → 终端打开：动作卡，永远放第一，也是这一页唯一的主宫格
     if (terminals.supported) {
       tiles.push({
         key: "terminal",
         label: t("provider.openTerminal"),
         icon: SquareTerminal,
+        hint: t("appPage.tiles.terminal"),
+        primary: true,
         onSelect: () => terminals.newTerminal(),
       });
     }
@@ -1582,6 +1601,7 @@ function App() {
         key: "install",
         label: t("skills.install"),
         icon: Download,
+        hint: t("appPage.tiles.install"),
         onSelect: () => openSettings("apps"),
       });
     } else if (toolName && appUpdateAvailable) {
@@ -1589,6 +1609,7 @@ function App() {
         key: "update",
         label: t("skills.update"),
         icon: RefreshCw,
+        hint: t("appPage.tiles.update"),
         onSelect: () => openSettings("apps"),
       });
     }
@@ -1597,6 +1618,7 @@ function App() {
       key: "routing",
       label: t("gateway.routing"),
       icon: Route,
+      hint: t("appPage.tiles.routing"),
       onSelect: () => {
         setDrillInReturn(currentViewRef.current);
         openPage("routingOverview");
@@ -1717,6 +1739,8 @@ function App() {
         key: "install",
         label: t("skills.install"),
         icon: Download,
+        hint: t("appPage.tiles.install"),
+        primary: true,
         onSelect: () => openSettings("apps"),
       });
     } else if (toolName && appUpdateAvailable) {
@@ -1724,6 +1748,8 @@ function App() {
         key: "update",
         label: t("skills.update"),
         icon: RefreshCw,
+        hint: t("appPage.tiles.update"),
+        primary: true,
         onSelect: () => openSettings("apps"),
       });
     }
@@ -1731,6 +1757,9 @@ function App() {
       key: "routing",
       label: t("gateway.routing"),
       icon: Route,
+      hint: t("appPage.tiles.routing"),
+      // 路由类应用没有终端可开：路由就是它们唯一的主宫格
+      primary: tiles.length === 0,
       onSelect: () => openLocalAppRouting(localApp),
     });
     return tiles;
@@ -1827,6 +1856,26 @@ function App() {
   // ─── 全局页 ─────────────────────────────────────────────────────────────
 
   const renderGlobalPage = () => {
+    // 插件中心：`plugin:<id>` 是插件主页，`plugins` 是它的主页（卡片列表）。
+    // 两者共用同一个页面，页签高亮与「钉在侧栏」都读同一个视图值。
+    const selectPlugin = (pluginId: string | null) =>
+      setCurrentView(pluginId ? pluginView(pluginId) : "plugins");
+    const pluginPageProps = {
+      onBack: drillInReturn ? exitDrillIn : undefined,
+      onSelectPlugin: selectPlugin,
+      pinnedPluginIds: pinnedPlugins,
+      onTogglePin: togglePluginPin,
+    };
+    const activePluginId = pluginIdFromView(currentView);
+    if (activePluginId) {
+      return (
+        <PluginCenterPage
+          {...pluginPageProps}
+          activePluginId={activePluginId}
+        />
+      );
+    }
+
     switch (currentView) {
       case "routingOverview":
         return (
@@ -1839,12 +1888,7 @@ function App() {
           />
         );
       case "plugins":
-        return (
-          <PluginCenterPage
-            onBack={drillInReturn ? exitDrillIn : undefined}
-            onOpenPanel={(page) => setCurrentView(page)}
-          />
-        );
+        return <PluginCenterPage {...pluginPageProps} activePluginId={null} />;
       case "usage":
         return (
           <UsagePage
@@ -1865,10 +1909,6 @@ function App() {
               return session.id;
             }}
           />
-        );
-      case "reportCard":
-        return (
-          <ReportCardPage onBack={drillInReturn ? exitDrillIn : undefined} />
         );
       case "mcp":
         return (
@@ -1965,6 +2005,7 @@ function App() {
               ]),
           )}
           onSelectPage={openPageFromNav}
+          pinnedPlugins={pinnedPlugins}
           appsUpdateAvailable={
             checkToolUpdatesOnStartup && toolUpdatesAvailable
           }
