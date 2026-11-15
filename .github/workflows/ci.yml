@@ -235,6 +235,15 @@ jobs:
       - name: Build node runtime sidecar
         run: node scripts/build-node-runtime.mjs
 
+      # 还有 beforeBuildCommand 里的 episode 侧车：tauri.conf.json 的 resources 指向
+      # sidecar/dist/router-episode.mjs，缺了同样是 build script 阶段直接失败。
+      # 它需要 sidecar 自己的 node_modules（esbuild），所以先装再打。
+      - name: Install sidecar deps
+        run: npm ci --prefix sidecar --no-audit --no-fund
+
+      - name: Build episode sidecar
+        run: node scripts/build-sidecar.mjs
+
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |
