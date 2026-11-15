@@ -38,6 +38,14 @@ pub async fn list_plugins() -> Result<PluginRuntimeSummary, String> {
     Ok(runtime().summary())
 }
 
+/// 插件协议：清单版本、钩子、类型、内置面板与各项上限。
+///
+/// 插件中心那页协议说明读这一份，数字因此永远等于当前构建的实现。
+#[tauri::command]
+pub async fn get_plugin_protocol() -> Result<crate::plugin::PluginProtocol, String> {
+    Ok(crate::plugin::protocol())
+}
+
 /// 启用/停用插件。覆盖写进 `plugins-state.json`，清单默认值不动。
 #[tauri::command]
 pub async fn set_plugin_enabled(id: String, enabled: bool) -> Result<PluginRuntimeSummary, String> {

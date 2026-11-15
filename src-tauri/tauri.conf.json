@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3080",
-    "beforeDevCommand": "node scripts/build-subscriptions.mjs && pnpm run dev:renderer",
-    "beforeBuildCommand": "node scripts/build-subscriptions.mjs && pnpm run build:renderer"
+    "beforeDevCommand": "node scripts/build-subscriptions.mjs && node scripts/build-sidecar.mjs && pnpm run dev:renderer",
+    "beforeBuildCommand": "node scripts/build-subscriptions.mjs && node scripts/build-sidecar.mjs && node scripts/build-node-runtime.mjs && pnpm run build:renderer"
   },
   "app": {
     "windows": [
@@ -40,7 +40,10 @@
   },
   "bundle": {
     "active": true,
-    "externalBin": ["binaries/phi-subscriptions"],
+    "externalBin": ["binaries/phi-subscriptions", "binaries/phi-node"],
+    "resources": {
+      "../sidecar/dist/router-episode.mjs": "sidecar/router-episode.mjs"
+    },
     "targets": "all",
     "createUpdaterArtifacts": true,
     "icon": [
@@ -56,7 +59,8 @@
       }
     },
     "macOS": {
-      "minimumSystemVersion": "12.0"
+      "minimumSystemVersion": "12.0",
+      "entitlements": "entitlements.plist"
     }
   },
   "plugins": {

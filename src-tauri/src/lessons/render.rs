@@ -260,7 +260,7 @@ mod tests {
         Lesson {
             id: id.into(),
             paths: vec![path.into()],
-            trigger: format!("`cargo test` 退出码 1"),
+            trigger: "`cargo test` 退出码 1".to_string(),
             evidence: "codex 会话 abcdef12（2026-10-08）".into(),
             next_step: "下次：动手前先跑 `cargo test` 确认基线。".into(),
             hits,

@@ -72,6 +72,11 @@ interface PromptPageFrameProps {
     collapsible?: boolean;
   } | null;
   notices?: ReactNode;
+  /**
+   * 工具箱的页签行：有它时页签占用页头标题位，不再画「提示词」标题与图标；
+   * 单独打开这一页时不传，和原来一样。
+   */
+  tabs?: ReactNode;
   children: ReactNode;
 }
 
@@ -90,6 +95,7 @@ export function PromptPageFrame({
   target,
   search,
   notices,
+  tabs,
   children,
 }: PromptPageFrameProps) {
   const { t } = useTranslation();
@@ -98,8 +104,13 @@ export function PromptPageFrame({
     <>
       <AppPageHeader
         leading={onBack && <PageHeaderBackButton onClick={onBack} />}
-        icon={<BookOpen className="h-[18px] w-[18px]" strokeWidth={2} />}
-        title={t("nav.prompts")}
+        icon={
+          tabs ? undefined : (
+            <BookOpen className="h-[18px] w-[18px]" strokeWidth={2} />
+          )
+        }
+        title={tabs ? null : t("nav.prompts")}
+        tabs={tabs}
         titleExtra={
           <HelpTip title={help.title}>{renderSegs(help.text)}</HelpTip>
         }

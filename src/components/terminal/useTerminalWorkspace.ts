@@ -146,18 +146,42 @@ export function useTerminalWorkspace(
   /**
    * 在指定应用、指定目录开一个会话并切到它（任务看板用）。
    * 与 `newTerminal` 的区别：不走启动弹窗，不依赖当前侧栏应用。
+   * `argumentsText` 是已经按 shell 规则转义好的 CLI 参数——任务看板把任务内容
+   * 直接交给 worker，否则会话开起来只是个空终端，还得人再打一遍。
    */
-  const launchSession = async (targetApp: AppId, cwd: string) => {
+  const launchSession = async (
+    targetApp: AppId,
+    cwd: string,
+    argumentsText = "",
+  ) => {
     if (!supportedApps.includes(targetApp)) {
       throw new Error("terminal-unsupported");
     }
-    const session = await terminalApi.create(targetApp, cwd, "", {
+    const session = await terminalApi.create(targetApp, cwd, argumentsText, {
       theme: terminalTheme,
       dark: document.documentElement.classList.contains("dark"),
     });
     upsert(session);
     setSelected((previous) => ({ ...previous, [targetApp]: session.id }));
     return session;
+  };
+  /**
+   * 从别处（任务详情）跳到一个已经存在的会话。
+   *
+   * 会话表只是本地镜像：应用重启后后端不再持有那个会话，表里的旧记录也可能
+   * 已经过期。所以先跟后端对一次，对不上就返回 false，让调用方说清「会话已结束」，
+   * 而不是把人切到一个空白终端页。
+   */
+  const openSession = async (targetApp: AppId, sessionId: string) => {
+    try {
+      const existing = await terminalApi.list();
+      existing.forEach(upsert);
+      if (!existing.some((session) => session.id === sessionId)) return false;
+    } catch {
+      return false;
+    }
+    setSelected((previous) => ({ ...previous, [targetApp]: sessionId }));
+    return true;
   };
   const cancelLaunch = () => {
     if (!launching.current) setLaunchDraft(null);
@@ -517,6 +541,7 @@ export function useTerminalWorkspace(
     showConfig,
     newTerminal,
     launchSession,
+    openSession,
     requestClose,
     close,
     restart,

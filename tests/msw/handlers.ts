@@ -40,6 +40,25 @@ const withJson = async <T>(request: Request): Promise<T> => {
 
 const success = <T>(payload: T) => HttpResponse.json(payload as any);
 
+/** 自动调度的默认设置：关着、影子模式、没有任何运行态。 */
+export const defaultRouterSettings = {
+  enabled: false,
+  shadow: true,
+  triggerStatus: "In Progress",
+  concurrency: 2,
+  dispatchesPerTick: 2,
+  dispatchesPerDay: 40,
+  judgeCallsPerDay: 200,
+  attentionThreshold: 8,
+  workerApps: ["claude"],
+  maxAttempts: 3,
+  trustExitZero: true,
+  leaseSeconds: 90,
+  cooldownSeconds: 120,
+  judgeModel: "jev-latest",
+  episodeModel: "",
+};
+
 export const handlers = [
   http.get(MODELS_DEV_API_URL, () => success({})),
   http.post(`${TAURI_ENDPOINT}/get_migration_result`, () => success(false)),
@@ -70,6 +89,31 @@ export const handlers = [
   ),
 
   http.post(`${TAURI_ENDPOINT}/update_tray_menu`, () => success(true)),
+  // 自动调度：默认是「关着、没有任何运行态」，组件测试想验标记时再按需覆盖。
+  http.post(`${TAURI_ENDPOINT}/router_status`, () =>
+    success({
+      settings: defaultRouterSettings,
+      runs: [],
+      traces: [],
+      today: { dispatches: 0, judgeCalls: 0 },
+    }),
+  ),
+  http.post(`${TAURI_ENDPOINT}/router_settings`, () =>
+    success(defaultRouterSettings),
+  ),
+  http.post(`${TAURI_ENDPOINT}/router_save_settings`, async ({ request }) => {
+    const body = await withJson<{ settings: unknown }>(request);
+    return success(body.settings ?? defaultRouterSettings);
+  }),
+  http.post(`${TAURI_ENDPOINT}/router_plan`, () => success([])),
+  // 手动「开始会话」的指令由 Rust 侧生成；这里给一个已转义的样例。
+  http.post(`${TAURI_ENDPOINT}/task_session_arguments`, () =>
+    success("'读 backlog/tasks/TASK-1.md 这张任务卡，完成任务。'"),
+  ),
+  // 调度模型的下拉要读网关目录；默认给一份空目录，组件测试想验选项时再覆盖。
+  http.post(`${TAURI_ENDPOINT}/get_gateway_catalog`, () =>
+    success({ revision: 0, suppliers: [], policies: [], groups: [] }),
+  ),
 
   http.post(`${TAURI_ENDPOINT}/get_opencode_live_provider_ids`, () =>
     success(getLiveProviderIds("opencode")),

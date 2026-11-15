@@ -85,8 +85,46 @@ export interface SessionExitPreviewResponse {
   decision: SessionExitDecision | null;
 }
 
+/** 清单层面的硬上限。 */
+export interface PluginProtocolLimits {
+  manifestBytes: number;
+  scriptBytes: number;
+  maxPlugins: number;
+  maxRules: number;
+}
+
+/** 脚本沙箱的执行上限。 */
+export interface PluginProtocolSandbox {
+  timeoutMs: number;
+  memoryBytes: number;
+  stackBytes: number;
+  /** 入参与输出各自的字符数上限 */
+  payloadChars: number;
+}
+
+/** 插件协议快照，与 `src-tauri/src/plugin/protocol.rs` 一一对应。 */
+export interface PluginProtocol {
+  manifestFile: string;
+  manifestVersion: number;
+  stateFile: string;
+  requestEntry: string;
+  sessionExitEntry: string;
+  hooks: PluginHook[];
+  kinds: PluginKind[];
+  ruleOps: Array<"remove" | "mask">;
+  builtinPanels: string[];
+  limits: PluginProtocolLimits;
+  sandbox: PluginProtocolSandbox;
+}
+
 export const pluginsApi = {
   list: () => invoke<PluginSummaryResponse>("list_plugins"),
+  /**
+   * 插件协议：清单版本、钩子、类型、内置面板与各项上限。
+   *
+   * 页面上的数字都读这一份，不在文案里另抄一遍——改实现时说明跟着变。
+   */
+  protocol: () => invoke<PluginProtocol>("get_plugin_protocol"),
   setEnabled: (id: string, enabled: boolean) =>
     invoke<PluginSummaryResponse>("set_plugin_enabled", { id, enabled }),
   /** 干跑：不受启用状态影响，也不会真的发请求 */

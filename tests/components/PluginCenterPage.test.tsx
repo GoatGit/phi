@@ -6,9 +6,13 @@ import i18n from "i18next";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import zh from "@/i18n/locales/zh.json";
 import { PluginCenterPage } from "@/components/plugins/PluginCenterPage";
-import type { PluginSummary, PluginSummaryResponse } from "@/lib/api/plugins";
+import type {
+  PluginSummary,
+  PluginProtocol,
+  PluginSummaryResponse,
+} from "@/lib/api/plugins";
 
-const apiMocks = vi.hoisted(() => ({ list: vi.fn() }));
+const apiMocks = vi.hoisted(() => ({ list: vi.fn(), protocol: vi.fn() }));
 
 vi.mock("@/lib/api/plugins", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/plugins")>();
@@ -17,6 +21,7 @@ vi.mock("@/lib/api/plugins", async (importOriginal) => {
     pluginsApi: {
       ...actual.pluginsApi,
       list: (...args: unknown[]) => apiMocks.list(...args),
+      protocol: (...args: unknown[]) => apiMocks.protocol(...args),
     },
   };
 });
@@ -48,6 +53,32 @@ function summary(plugins: PluginSummary[]): PluginSummaryResponse {
   return { root: "/tmp/phi/plugins", plugins, errors: [] };
 }
 
+function protocol(): PluginProtocol {
+  return {
+    manifestFile: "plugin.json",
+    manifestVersion: 1,
+    stateFile: "plugins-state.json",
+    requestEntry: "onRequest",
+    sessionExitEntry: "onSessionExit",
+    hooks: ["request", "session-exit", "panel"],
+    kinds: ["rules", "script", "feature"],
+    ruleOps: ["remove", "mask"],
+    builtinPanels: ["report-card", "task-board"],
+    limits: {
+      manifestBytes: 65536,
+      scriptBytes: 262144,
+      maxPlugins: 128,
+      maxRules: 32,
+    },
+    sandbox: {
+      timeoutMs: 150,
+      memoryBytes: 16 * 1024 * 1024,
+      stackBytes: 256 * 1024,
+      payloadChars: 512 * 1024,
+    },
+  };
+}
+
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -66,6 +97,11 @@ function renderPage(
       onSelectPlugin={onSelectPlugin}
       pinnedPluginIds={[]}
       onTogglePin={onTogglePin}
+      terminalApps={["claude"]}
+      onStartSession={vi.fn()}
+      onOpenSession={vi.fn()}
+      onOpenWorker={vi.fn()}
+      liveSessionIds={[]}
       {...props}
     />,
     { wrapper },
@@ -76,6 +112,7 @@ function renderPage(
 describe("PluginCenterPage", () => {
   beforeEach(() => {
     apiMocks.list.mockResolvedValue(summary([plugin()]));
+    apiMocks.protocol.mockResolvedValue(protocol());
   });
 
   it("lists the five capabilities as cards on the home page", async () => {
@@ -89,14 +126,15 @@ describe("PluginCenterPage", () => {
     expect(screen.getByText("/tmp/phi/plugins")).toBeInTheDocument();
   });
 
-  it("does not repeat status on every card", async () => {
+  it("shows each card's current status", async () => {
     renderPage();
 
-    // 默认状态写在每张卡上只是噪音；只有停用的插件才单独标一句。
+    // 每张卡都能直接看出当前状态：面板类与配置类都是宿主页，
+    // 不需要另行安装，也不需要启停。
     expect(await screen.findByText("成绩单")).toBeInTheDocument();
+    expect(screen.getAllByText("宿主自带").length).toBeGreaterThanOrEqual(5);
+    // 清单里没有对应条目的磁盘插件不下结论。
     expect(screen.queryByText("已启用")).not.toBeInTheDocument();
-    expect(screen.queryByText("内置能力")).not.toBeInTheDocument();
-    expect(screen.queryByText("宿主自带")).not.toBeInTheDocument();
     expect(screen.queryByText("已停用")).not.toBeInTheDocument();
   });
 
@@ -191,6 +229,29 @@ describe("PluginCenterPage", () => {
 
     expect(
       await screen.findByText("这个插件不存在，可能已经被卸载。"),
+    ).toBeInTheDocument();
+  });
+
+  // 协议不是功能，而是写给插件作者的说明；它占一张卡片，点开在插件中心里看。
+  it("opens the plugin protocol from its card and from the add-plugin slot", async () => {
+    const { onSelectPlugin } = renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText("插件协议"));
+    expect(onSelectPlugin).toHaveBeenCalledWith("plugin-protocol");
+
+    await user.click(screen.getByRole("button", { name: "插件协议与 SDK" }));
+    expect(onSelectPlugin).toHaveBeenLastCalledWith("plugin-protocol");
+  });
+
+  it("renders the protocol as a plugin tab", async () => {
+    renderPage({ activePluginId: "plugin-protocol" });
+
+    expect(
+      await screen.findByRole("tab", { name: "插件协议" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "plugin.json" }),
     ).toBeInTheDocument();
   });
 

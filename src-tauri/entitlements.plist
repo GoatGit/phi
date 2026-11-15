@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    侧车里的 node 需要一个可写的可执行内存区来跑 V8 的 JIT。
+    没有这几项、又开着 hardened runtime，node 一启动就报
+    「Failed to reserve virtual memory for CodeRange」，表现为侧车永远起不来、
+    每一轮都静默退回规则版。
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

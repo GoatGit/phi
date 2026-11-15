@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { HoverTip } from "@/components/ui/hover-tip";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import {
@@ -12,8 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  SettingsBlock,
+  SettingsCard,
+  SettingsSwitchRow,
+} from "@/components/settings/SettingsLayout";
 import {
   commandErrorMessage,
   privacyApi,
@@ -26,8 +31,14 @@ import {
 } from "@/lib/api/plugins";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
-import { formPageClass } from "./pluginPage";
-import { PrivacyGuide } from "./pluginGuides";
+import { pluginPageClass } from "./pluginPage";
+import { PluginGuide } from "./PluginGlyph";
+import {
+  PluginEmpty,
+  PluginField,
+  PluginLede,
+  PluginSaveBar,
+} from "./pluginSection";
 
 /** 检测器 → 文案键，顺序与后端 `DetectorKind` 一致。 */
 const DETECTOR_LABEL: Record<DetectorKind, string> = {
@@ -97,11 +108,6 @@ export function PrivacyPanel() {
   }, [load]);
 
   const detectors = useMemo(() => data?.detectors ?? [], [data]);
-
-  // 改动未保存时在保存栏里说一句：试跑读的是已保存的配置，不提醒就会以为规则没生效。
-  const dirty =
-    !!data && !!draft && JSON.stringify(data.config) !== JSON.stringify(draft);
-  const dirtyHint = dirty ? t("pluginCenter.privacy.unsaved") : "";
 
   const patch = useCallback((changes: Partial<PrivacyConfig>) => {
     setDraft((current) => (current ? { ...current, ...changes } : current));
@@ -173,7 +179,7 @@ export function PrivacyPanel() {
 
   if (loading) {
     return (
-      <div className={cn(formPageClass, "text-body text-fg-3")}>
+      <div className={cn(pluginPageClass, "text-body text-fg-3")}>
         {t("pluginCenter.loading")}
       </div>
     );
@@ -181,7 +187,7 @@ export function PrivacyPanel() {
 
   if (error || !draft) {
     return (
-      <div className={cn(formPageClass, "space-y-4")}>
+      <div className={cn(pluginPageClass, "space-y-4")}>
         <Notice
           tone="danger"
           title={t("pluginCenter.privacy.loadFailed")}
@@ -197,67 +203,57 @@ export function PrivacyPanel() {
     );
   }
 
-  return (
-    <div className={cn(formPageClass, "space-y-5")}>
-      <p className="text-caption text-fg-3">
-        {t("pluginCenter.privacy.intro")}
-      </p>
+  // 改过但没保存时，页尾点一句，别让人以为配置已经生效。
+  const dirty = data
+    ? JSON.stringify(draft) !== JSON.stringify(data.config)
+    : false;
 
-      <section
-        aria-label={t("pluginCenter.privacy.scope")}
-        className="divide-y divide-border overflow-hidden rounded-panel border border-border"
-      >
-        <ToggleRow
-          title={t("pluginCenter.privacy.enabled")}
-          hint={t("pluginCenter.privacy.enabledHint")}
+  return (
+    <div className={cn(pluginPageClass, "space-y-5")}>
+      <PluginLede>{t("pluginCenter.privacy.intro")}</PluginLede>
+
+      <SettingsCard>
+        <SettingsSwitchRow
+          label={t("pluginCenter.privacy.enabled")}
+          description={t("pluginCenter.privacy.enabledHint")}
           checked={draft.enabled}
-          onChange={(enabled) => patch({ enabled })}
+          onCheckedChange={(enabled) => patch({ enabled })}
         />
-        <ToggleRow
-          title={t("pluginCenter.privacy.body")}
-          hint={t("pluginCenter.privacy.bodyHint")}
+        <SettingsSwitchRow
+          label={t("pluginCenter.privacy.body")}
+          description={t("pluginCenter.privacy.bodyHint")}
           checked={draft.applyToRequestBody}
           disabled={!draft.enabled}
-          onChange={(applyToRequestBody) => patch({ applyToRequestBody })}
+          onCheckedChange={(applyToRequestBody) =>
+            patch({ applyToRequestBody })
+          }
         />
-        <ToggleRow
-          title={t("pluginCenter.privacy.logs")}
-          hint={t("pluginCenter.privacy.logsHint")}
+        <SettingsSwitchRow
+          label={t("pluginCenter.privacy.logs")}
+          description={t("pluginCenter.privacy.logsHint")}
           checked={draft.redactErrorLogs}
           disabled={!draft.enabled}
-          onChange={(redactErrorLogs) => patch({ redactErrorLogs })}
+          onCheckedChange={(redactErrorLogs) => patch({ redactErrorLogs })}
         />
-      </section>
+      </SettingsCard>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-strong font-medium text-fg-1">
-            {t("pluginCenter.privacy.rules")}
-          </h3>
+      <SettingsBlock
+        title={t("pluginCenter.privacy.rules")}
+        actions={
           <Button variant="ghost" size="compact" onClick={addRule}>
             <Plus className="me-1.5 h-3.5 w-3.5" />
             {t("pluginCenter.privacy.addRule")}
           </Button>
-        </div>
-
+        }
+      >
         {draft.rules.length === 0 ? (
-          <div className="rounded-panel border border-dashed border-border px-4 py-6 text-center text-body text-fg-3">
-            {t("pluginCenter.privacy.noRules")}
-          </div>
+          <PluginEmpty>{t("pluginCenter.privacy.noRules")}</PluginEmpty>
         ) : (
-          <ul className="space-y-2">
+          <SettingsCard>
             {draft.rules.map((rule, index) => (
-              <li
-                key={`${rule.detector}-${index}`}
-                className="space-y-2.5 rounded-panel border border-border bg-surface px-3 py-2.5"
-              >
-                {/* 三个控件各自带一个小标题：空值时的下拉框只显示占位词，
-                    没有标题的话看起来就像没加载出来。 */}
-                <div className="grid grid-cols-[minmax(0,1fr)_112px_148px_auto] items-end gap-2">
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="text-badge text-fg-3">
-                      {t("pluginCenter.privacy.ruleDetector")}
-                    </span>
+              <div key={`${rule.detector}-${index}`} className="px-4 py-3">
+                <div className="grid items-end gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_112px_minmax(0,1fr)_28px]">
+                  <PluginField label={t("pluginCenter.privacy.ruleDetector")}>
                     <Select
                       value={rule.detector}
                       onValueChange={(value) => {
@@ -270,7 +266,7 @@ export function PrivacyPanel() {
                         });
                       }}
                     >
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger>
                         <SelectValue
                           placeholder={t("pluginCenter.privacy.ruleDetector")}
                         />
@@ -286,19 +282,16 @@ export function PrivacyPanel() {
                         ))}
                       </SelectContent>
                     </Select>
-                  </label>
+                  </PluginField>
 
-                  <label className="flex flex-col gap-1">
-                    <span className="text-badge text-fg-3">
-                      {t("pluginCenter.privacy.ruleAction")}
-                    </span>
+                  <PluginField label={t("pluginCenter.privacy.ruleAction")}>
                     <Select
                       value={rule.action}
                       onValueChange={(value) =>
                         patchRule(index, { action: value as RedactionAction })
                       }
                     >
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger>
                         <SelectValue
                           placeholder={t("pluginCenter.privacy.ruleAction")}
                         />
@@ -313,57 +306,58 @@ export function PrivacyPanel() {
                         ))}
                       </SelectContent>
                     </Select>
-                  </label>
+                  </PluginField>
 
-                  <label className="flex flex-col gap-1">
-                    <span className="text-badge text-fg-3">
-                      {t("pluginCenter.privacy.replacement")}
-                    </span>
+                  <PluginField label={t("pluginCenter.privacy.replacement")}>
                     <Input
                       value={rule.replacement ?? ""}
-                      placeholder="[已脱敏]"
-                      disabled={rule.action === "remove"}
+                      placeholder="***"
                       onChange={(event) =>
                         patchRule(index, {
                           replacement: event.target.value || null,
                         })
                       }
                     />
-                  </label>
+                  </PluginField>
 
-                  <Button
-                    variant="ghost"
-                    size="icon-compact"
-                    className="mb-1"
-                    aria-label={t("pluginCenter.privacy.removeRule")}
-                    onClick={() => removeRule(index)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <HoverTip content={t("pluginCenter.privacy.removeRule")}>
+                    <Button
+                      variant="ghost"
+                      size="icon-compact"
+                      aria-label={t("pluginCenter.privacy.removeRule")}
+                      onClick={() => removeRule(index)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </HoverTip>
                 </div>
 
                 {rule.detector === "custom" && (
-                  <Input
-                    className="font-mono text-caption"
-                    value={rule.customPattern ?? ""}
-                    placeholder={t("pluginCenter.privacy.customPatternHint")}
-                    aria-label={t("pluginCenter.privacy.customPatternHint")}
-                    onChange={(event) =>
-                      patchRule(index, { customPattern: event.target.value })
-                    }
-                  />
+                  <div className="mt-2 sm:max-w-[calc(50%-0.375rem)]">
+                    <PluginField
+                      label={t("pluginCenter.privacy.customPatternHint")}
+                    >
+                      <Input
+                        className="font-mono text-caption"
+                        value={rule.customPattern ?? ""}
+                        onChange={(event) =>
+                          patchRule(index, {
+                            customPattern: event.target.value,
+                          })
+                        }
+                      />
+                    </PluginField>
+                  </div>
                 )}
-              </li>
+              </div>
             ))}
-          </ul>
+          </SettingsCard>
         )}
-      </section>
+      </SettingsBlock>
 
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-strong font-medium text-fg-1">
-            {t("pluginCenter.privacy.preview")}
-          </h3>
+      <SettingsBlock
+        title={t("pluginCenter.privacy.preview")}
+        actions={
           <Button
             variant="secondary"
             size="compact"
@@ -375,17 +369,24 @@ export function PrivacyPanel() {
               ? t("pluginCenter.running")
               : t("pluginCenter.privacy.previewRun")}
           </Button>
-        </div>
+        }
+      >
         <p className="text-caption text-fg-3">
           {t("pluginCenter.privacy.previewHint")}
         </p>
-        <Textarea
-          value={sample}
-          onChange={(event) => setSample(event.target.value)}
-          className="min-h-[96px] font-mono text-caption"
-          spellCheck={false}
-          aria-label={t("pluginCenter.privacy.previewInput")}
-        />
+        <SettingsCard>
+          <label className="block space-y-1.5 px-4 py-3">
+            <span className="block text-caption text-fg-3">
+              {t("pluginCenter.privacy.previewInput")}
+            </span>
+            <Textarea
+              value={sample}
+              onChange={(event) => setSample(event.target.value)}
+              className="min-h-[96px] font-mono text-caption"
+              spellCheck={false}
+            />
+          </label>
+        </SettingsCard>
         {preview && (
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
@@ -403,46 +404,24 @@ export function PrivacyPanel() {
             </pre>
           </div>
         )}
-      </section>
+      </SettingsBlock>
 
-      <PrivacyGuide />
+      <PluginGuide
+        pluginId="privacy"
+        what={t("pluginCenter.privacy.about.what")}
+        steps={[1, 2, 3, 4].map((step) =>
+          t(`pluginCenter.privacy.about.step${step}`),
+        )}
+        notes={t("pluginCenter.privacy.about.note")}
+      />
 
-      <div className="flex items-center justify-end gap-3 border-t border-border pt-4">
-        <span className="me-auto text-caption text-fg-3">{dirtyHint}</span>
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving ? t("pluginCenter.saving") : t("pluginCenter.save")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-interface ToggleRowProps {
-  title: string;
-  hint: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (checked: boolean) => void;
-}
-
-function ToggleRow({
-  title,
-  hint,
-  checked,
-  disabled = false,
-  onChange,
-}: ToggleRowProps) {
-  return (
-    <div className="flex items-start justify-between gap-4 bg-surface px-4 py-2.5">
-      <div className="min-w-0 space-y-0.5">
-        <p className="text-strong text-fg-1">{title}</p>
-        <p className="text-caption text-fg-3">{hint}</p>
-      </div>
-      <Switch
-        checked={checked}
-        disabled={disabled}
-        aria-label={title}
-        onCheckedChange={onChange}
+      <PluginSaveBar
+        onSave={() => void save()}
+        label={t("pluginCenter.save")}
+        savingLabel={t("pluginCenter.saving")}
+        saving={saving}
+        dirty={dirty}
+        dirtyLabel={t("pluginCenter.unsaved")}
       />
     </div>
   );

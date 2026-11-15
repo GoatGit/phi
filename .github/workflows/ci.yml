@@ -223,6 +223,27 @@ jobs:
       - name: Build subscription sidecar
         run: node scripts/build-subscriptions.mjs
 
+      # zellij 是 macOS 安装包里的 externalBin：后台 worker 跑在它里面，
+      # 关掉终端、关掉应用都不会把它带走。它只在 macOS 上有意义，
+      # 但 macOS 上的任何 cargo/tauri 构建都要求这个文件已经在位。
+      - name: Fetch zellij sidecar
+        if: runner.os == 'macOS'
+        run: node scripts/build-zellij.mjs
+
+      # 同理：externalBin 里还有随包分发的 node 运行时（侧车跑 pi SDK 用）。
+      # 这个 job 以前没跑过这条路，所以缺了这一步——它一变红就再也没修过。
+      - name: Build node runtime sidecar
+        run: node scripts/build-node-runtime.mjs
+
+      # 还有 beforeBuildCommand 里的 episode 侧车：tauri.conf.json 的 resources 指向
+      # sidecar/dist/router-episode.mjs，缺了同样是 build script 阶段直接失败。
+      # 它需要 sidecar 自己的 node_modules（esbuild），所以先装再打。
+      - name: Install sidecar deps
+        run: npm ci --prefix sidecar --no-audit --no-fund
+
+      - name: Build episode sidecar
+        run: node scripts/build-sidecar.mjs
+
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |
@@ -307,6 +328,20 @@ jobs:
 
       - name: Build subscription sidecar
         run: node scripts/build-subscriptions.mjs
+
+      # 与 backend 矩阵同一个道理：externalBin 里的 node 运行时缺失时，
+      # 自定义 build script 阶段就会直接失败（resource path ... doesn't exist），
+      # 走不到编译。这个 job 以前没跑过这条路。
+      - name: Build node runtime sidecar
+        run: node scripts/build-node-runtime.mjs
+
+      # beforeBuildCommand 里的 episode 侧车：tauri.conf.json 的 resources
+      # 指向 sidecar/dist/router-episode.mjs，它需要 sidecar 自己的 node_modules（esbuild）。
+      - name: Install sidecar deps
+        run: npm ci --prefix sidecar --no-audit --no-fund
+
+      - name: Build episode sidecar
+        run: node scripts/build-sidecar.mjs
 
       - name: Setup WSL2
         uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7

@@ -53,7 +53,30 @@ export interface InjectionPreview {
   version: number;
 }
 
+/** 一个仓库的教训状态。 */
+export interface LessonProject {
+  root: string;
+  /** 目录名，给人看的短名字 */
+  name: string;
+  state: LessonState;
+}
+
+/** 本机会话涉及到的所有仓库。扫一次，全部给出来。 */
+export interface LessonOverview {
+  projects: LessonProject[];
+  /** 扫描过的仓库数（含没有失败记录的） */
+  scannedProjects: number;
+  scannedSessions: number;
+  pendingSessions: number;
+  failures: number;
+  lastScanAt?: number;
+}
+
 export const lessonsApi = {
+  /** 已经扫出来的仓库状态，只读库不重扫 */
+  overview: () => invoke<LessonOverview>("lesson_overview"),
+  /** 扫本机所有会话，把涉及的每个仓库都跑出来 */
+  scan: () => invoke<LessonOverview>("lesson_scan"),
   state: (root: string) => invoke<LessonState>("lesson_state", { root }),
   /** 增量扫一遍本机会话，把新失败沉淀成教训 */
   refresh: (root: string) => invoke<LessonState>("lesson_refresh", { root }),

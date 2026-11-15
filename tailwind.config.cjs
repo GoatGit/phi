@@ -162,6 +162,9 @@ module.exports = {
         "v7-sm": "var(--shadow-sm)",
         "v7-md": "var(--shadow-md)",
         "v7-lg": "var(--shadow-lg)",
+        // 浮在有色底上的卡片（看板卡）：静止就有高度，悬停再抬一档
+        "v7-card": "var(--shadow-card)",
+        "v7-card-hover": "var(--shadow-card-hover)",
       },
       // 只写 border / divide 不带颜色时用主题边框色；不设的话 Tailwind 默认是浅灰 #e4e4e7，深色下成了白线
       borderColor: {

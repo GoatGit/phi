@@ -42,6 +42,9 @@ export function AppPageHeader({
   className,
 }: AppPageHeaderProps) {
   const windowControls = useContext(WindowControlsContext);
+  // 页签占标题位时（用量、设置、插件中心、工具箱）不画空标题，
+  // 标题后的附加内容（帮助、计数）改跟在页签后面。
+  const hasTitle = title !== null && title !== undefined && title !== "";
   return (
     <header
       className={cn(
@@ -54,6 +57,7 @@ export function AppPageHeader({
       style={DRAG_REGION_STYLE as React.CSSProperties}
     >
       {/* Tauri 只认按下的元素自身带拖动属性：标题区、标题、占位条都要带，整条才能拖窗口 */}
+      {/* 标题位固定保留（即使标题为空）：页签行与其它页面左边缘对齐 */}
       <div
         {...DRAG_REGION_ATTR}
         className={cn(
@@ -74,32 +78,45 @@ export function AppPageHeader({
             {icon}
           </span>
         )}
-        <h1
-          {...DRAG_REGION_ATTR}
-          className={cn(
-            "m-0 whitespace-nowrap",
-            variant === "app" ? "text-title" : "text-page",
-            truncateTitle && "min-w-0 truncate",
-          )}
-        >
-          {title}
-        </h1>
-        {(subtitle || titleExtra) && (
-          <div className="flex items-center gap-1" style={NO_DRAG}>
-            {subtitle && (
-              <span className="whitespace-nowrap text-body text-fg-3">
-                {subtitle}
-              </span>
+        {hasTitle && (
+          <h1
+            {...DRAG_REGION_ATTR}
+            className={cn(
+              "m-0 whitespace-nowrap",
+              variant === "app" ? "text-title" : "text-page",
+              truncateTitle && "min-w-0 truncate",
             )}
+          >
+            {title}
+          </h1>
+        )}
+        {subtitle && (
+          <span className="whitespace-nowrap text-body text-fg-3">
+            {subtitle}
+          </span>
+        )}
+        {hasTitle && titleExtra && (
+          <div className="flex items-center gap-1" style={NO_DRAG}>
             {titleExtra}
           </div>
         )}
       </div>
       {tabs}
+      {/* 页签占了标题位时，帮助与计数这类标题附属信息跟在页签后面 */}
+      {!hasTitle && titleExtra && (
+        <div className="flex shrink-0 items-center gap-1" style={NO_DRAG}>
+          {titleExtra}
+        </div>
+      )}
+      {/*
+        页签后面那条占位必须能撑开：操作区永远贴页头最右端。
+        只给了固定宽度时，操作按钮会紧挨着页签停在左侧（钉住按钮就是这么跑偏的）；
+        只有「有页签、没有操作」时留一条窄缝，不把页签行拉满。
+      */}
       {!truncateTitle && (
         <div
           {...DRAG_REGION_ATTR}
-          className={tabs ? "w-5 shrink-0" : "flex-1"}
+          className={tabs && !actions ? "w-5 shrink-0" : "flex-1"}
         />
       )}
       {actions && (

@@ -42,7 +42,50 @@ pub(crate) struct Collected {
 /// 一次刷新最多解析多少个会话：宁可让用户再点一次，也别让「刷新」卡成假死。
 pub(crate) const SCAN_LIMIT: usize = 60;
 
-/// 扫描本机会话里落在 `workspace` 下的失败。
+/// 会话所属的仓库根：从会话 cwd 向上找最近的 `.git`，找不到就用 cwd 本身。
+///
+/// 教训贴仓库长，而会话常常是在仓库的子目录里开的（`cargo test` 在 `src-tauri/`），
+/// 所以归组要先把 cwd 抬到仓库根，否则同一个仓库会散成好几份清单。
+/// 目录已经不在了（worktree 被清掉、临时目录被删）的会话直接跳过：给一份已经
+/// 不存在的目录攒禁区清单，既扫不到文件也没处写 `AGENTS.md`。
+pub(crate) fn project_of(meta: &SessionMeta) -> Option<std::path::PathBuf> {
+    let dir = meta.project_dir.as_deref()?;
+    let resolved = Path::new(dir).canonicalize().ok()?;
+    if let Some(root) = git_root(&resolved) {
+        return Some(root);
+    }
+    Some(resolved)
+}
+
+fn git_root(dir: &Path) -> Option<std::path::PathBuf> {
+    let mut cursor = Some(dir);
+    while let Some(path) = cursor {
+        if path.join(".git").exists() {
+            return Some(path.to_path_buf());
+        }
+        cursor = path.parent();
+    }
+    None
+}
+
+/// 把本机会话按所属仓库去重，得到「本机涉及到的所有仓库」。
+pub(crate) fn projects(sessions: &[SessionMeta]) -> Vec<std::path::PathBuf> {
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    for meta in sessions {
+        let Some(root) = project_of(meta) else {
+            continue;
+        };
+        if !out.contains(&root) {
+            out.push(root);
+        }
+    }
+    out
+}
+
+/// 扫描本机会话里属于 `workspace` 这个仓库的失败。
+///
+/// 会话按「最近的 `.git`」归属，所以同一个仓库的子目录会话不会被算到别的仓库上，
+/// 嵌套仓库里的会话也不会在两个仓库各算一次。
 pub(crate) fn collect(
     workspace: &Path,
     sessions: &[SessionMeta],
@@ -51,7 +94,7 @@ pub(crate) fn collect(
 ) -> Collected {
     let mut candidates: Vec<&SessionMeta> = sessions
         .iter()
-        .filter(|meta| last_active(meta) > since && belongs(meta.project_dir.as_deref(), workspace))
+        .filter(|meta| last_active(meta) > since && project_of(meta).as_deref() == Some(workspace))
         .collect();
     candidates.sort_by_key(|meta| last_active(meta));
 
@@ -97,16 +140,6 @@ pub(crate) fn collect(
 
 fn last_active(meta: &SessionMeta) -> i64 {
     meta.last_active_at.or(meta.created_at).unwrap_or(0)
-}
-
-/// 会话的 cwd 是否在这个仓库里（允许子目录里开的会话）。
-fn belongs(project_dir: Option<&str>, workspace: &Path) -> bool {
-    let Some(dir) = project_dir else {
-        return false;
-    };
-    let path = Path::new(dir);
-    let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    resolved == workspace || resolved.starts_with(workspace)
 }
 
 /// 一段消息里的失败事件。同一个会话里重复出现的同一种失败只算一次。
@@ -364,18 +397,75 @@ mod tests {
     fn sessions_that_cannot_be_read_still_advance_the_watermark() {
         // 没有会话文件、或文件读不出来的会话如果不动水位，刷新会永远卡在同一批最老的
         // 会话上，后面的会话一辈子轮不到。
-        let sessions = vec![
-            meta("s1", 100, None),
-            meta("s2", 200, Some("/nonexistent/phi-lessons-test.jsonl")),
-        ];
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(&repo).expect("mkdir");
+        let repo = repo.canonicalize().expect("repo path");
 
-        let collected = collect(workspace(), &sessions, 0, 10);
+        let mut empty = meta("s1", 100, None);
+        empty.project_dir = Some(repo.to_string_lossy().into_owned());
+        let mut broken = meta("s2", 200, Some("/nonexistent/phi-lessons-test.jsonl"));
+        broken.project_dir = Some(repo.to_string_lossy().into_owned());
+
+        let collected = collect(&repo, &[empty, broken], 0, 10);
 
         assert_eq!(collected.scanned_through, 200);
         assert_eq!(collected.pending_sessions, 0);
         // 读不出来就不算「扫过」，这一点保持不变
         assert_eq!(collected.scanned_sessions, 0);
         assert!(collected.events.is_empty());
+    }
+
+    #[test]
+    fn sessions_are_grouped_by_the_nearest_git_root() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join("src/deep")).expect("mkdir");
+        std::fs::create_dir(repo.join(".git")).expect("git dir");
+        std::fs::create_dir_all(dir.path().join("scratch")).expect("mkdir");
+
+        let mut inside = meta("s1", 100, None);
+        inside.project_dir = Some(repo.join("src/deep").to_string_lossy().into_owned());
+        let mut loose = meta("s2", 200, None);
+        loose.project_dir = Some(dir.path().join("scratch").to_string_lossy().into_owned());
+
+        let found = projects(&[inside.clone(), loose.clone()]);
+        assert_eq!(found.len(), 2, "两个目录各算一个仓库");
+        assert!(found.contains(&repo.canonicalize().expect("repo path")));
+
+        // 子目录里的会话归到仓库根，不会在「仓库」和「子目录」各算一次
+        let collected = collect(
+            &repo.canonicalize().expect("repo path"),
+            &[inside, loose],
+            0,
+            10,
+        );
+        assert_eq!(collected.scanned_through, 100);
+    }
+
+    #[test]
+    fn sessions_in_vanished_directories_are_skipped() {
+        // worktree 被清掉、临时目录被删：给一份已经不存在的目录攒清单没意义
+        let mut ghost = meta("s1", 100, Some("/nonexistent/session.jsonl"));
+        ghost.project_dir = Some("/nonexistent/phi-lessons-worktree".into());
+
+        assert!(projects(&[ghost]).is_empty());
+    }
+
+    #[test]
+    fn a_nested_repo_takes_its_own_sessions() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outer = dir.path().join("outer");
+        let inner = outer.join("inner");
+        std::fs::create_dir_all(&inner).expect("mkdir");
+        std::fs::create_dir(outer.join(".git")).expect("outer git");
+        std::fs::create_dir(inner.join(".git")).expect("inner git");
+
+        let mut session = meta("s1", 100, None);
+        session.project_dir = Some(inner.to_string_lossy().into_owned());
+
+        let found = projects(&[session]);
+        assert_eq!(found, vec![inner.canonicalize().expect("inner path")]);
     }
 
     #[test]

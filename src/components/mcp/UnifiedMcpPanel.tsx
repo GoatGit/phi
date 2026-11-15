@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, type ReactNode } from "react";
 import { useDelayedFlag } from "@/hooks/useDelayedFlag";
 import { useTranslation } from "react-i18next";
 import { Download, MoreHorizontal, Pencil, Plus, Server } from "lucide-react";
@@ -107,6 +107,11 @@ interface UnifiedMcpPanelProps {
   onInteractionBlockedChange?: (blocked: boolean) => void;
   /** 从应用页下钻进来时的返回 */
   onBack?: () => void;
+  /**
+   * 工具箱的页签行：有它时页签占用页头标题位，面板不再画自己的标题与图标。
+   * 单独打开这一页时不传，和原来一样。
+   */
+  tabs?: ReactNode;
 }
 
 interface ImportReport {
@@ -122,6 +127,7 @@ interface ImportReport {
 const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
   onInteractionBlockedChange,
   onBack,
+  tabs,
 }) => {
   const { t } = useTranslation();
   const appIds = useVisibleAppIds(MCP_APP_IDS);
@@ -573,8 +579,11 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
     <>
       <AppPageHeader
         leading={onBack && <PageHeaderBackButton onClick={onBack} />}
-        icon={<Server className="h-5 w-5" strokeWidth={1.5} />}
-        title="MCP"
+        icon={
+          tabs ? undefined : <Server className="h-5 w-5" strokeWidth={1.5} />
+        }
+        title={tabs ? null : "MCP"}
+        tabs={tabs}
         titleExtra={
           <HelpTip title={t("mcpPage.helpTitle")}>{t("mcpPage.help")}</HelpTip>
         }

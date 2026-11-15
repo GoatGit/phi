@@ -27,7 +27,8 @@ const MAX_NAME_CHARS: usize = 128;
 const MAX_VERSION_CHARS: usize = 32;
 const MAX_DESCRIPTION_CHARS: usize = 512;
 const MAX_AUTHOR_CHARS: usize = 128;
-const MAX_RULES: usize = 32;
+/// 单个插件最多能带的声明式规则数。
+pub const MAX_RULES: usize = 32;
 const MAX_RULE_PATH_SEGMENTS: usize = 32;
 const MAX_RULE_PATH_CHARS: usize = 256;
 const MAX_PATTERN_CHARS: usize = 512;
@@ -151,7 +152,7 @@ pub struct PluginManifest {
 ///
 /// 宿主持有这些面板的组件，插件只能引用这里的 id——功能插件永远不携带自己的
 /// 前端代码，所以启用一个功能插件不会扩大攻击面，也不需要为它加 CSP 例外。
-pub const BUILTIN_PANELS: &[&str] = &["report-card"];
+pub const BUILTIN_PANELS: &[&str] = &["report-card", "task-board"];
 
 const MAX_PANEL_ENTRY_CHARS: usize = 64;
 

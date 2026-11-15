@@ -198,7 +198,8 @@
       "clearFilter": "重置筛选",
       "attempts": "{{count}} 次尝试",
       "latestOutlet": "最近出口",
-      "usageCost": "用量 / 估算费用"
+      "usageCost": "用量 / 估算费用",
+      "toggleHint": "共 {{count}} 条，展开查看每次请求的选路与耗时"
     },
     "errors": {
       "generic": "操作失败：{{detail}}",
@@ -413,6 +414,7 @@
       "empty": "暂无请求，到达后展示各应用最近请求的实际调用路径",
       "pause": "暂停回放",
       "replay": "回放",
+      "resume": "继续回放",
       "showAll": "显示完整轨迹",
       "step": "第 {{current}} / {{total}} 步",
       "diagram": "各应用最近请求经过 PHI 与路由组到达模型的路由流转图",
@@ -433,6 +435,7 @@
       "lineUnknown": "点状虚线 = 结果未确认",
       "idle": "未运行",
       "noGroup": "未接入路由组",
+      "connected": "已接入路由",
       "laneCount": "{{count}} 条应用线",
       "legacyPolicy": "历史策略",
       "focusApp": "高亮 {{app}} 的流转线",
@@ -452,6 +455,7 @@
       }
     },
     "routingStatus": {
+      "filtered": "已筛选 {{summary}}",
       "title": "路由状态",
       "description": "每 5 秒自动刷新",
       "filter": "筛选",
@@ -5676,8 +5680,11 @@
       "loadFailures": "这些插件没能加载",
       "addPlugin": {
         "title": "添加插件",
-        "body": "把带 plugin.json 的文件夹放进插件目录，再刷新一次。"
-      }
+        "body": "把带 plugin.json 的文件夹放进插件目录，再刷新一次。",
+        "protocol": "插件协议与 SDK"
+      },
+      "enabled": "已启用",
+      "alwaysOn": "宿主自带"
     },
     "pin": {
       "pin": "钉在侧栏",
@@ -5691,16 +5698,24 @@
       "rules": "规则数",
       "sourceDir": "来自 {{dir}}",
       "previewRequest": "试跑请求改写",
-      "previewSessionExit": "试跑接棒决策"
+      "previewSessionExit": "试跑接棒决策",
+      "about": {
+        "whatFallback": "这个插件住在 phi 的插件目录里，按自己的钩子参与运行。",
+        "step1": "「启用」决定它是否参与运行；停用后清单和配置都留着，随时能再打开。",
+        "step2": "多个同类钩子的插件按「优先级」升序排队，数字小的先给出决策。",
+        "step3": "装了请求改写或接棒钩子时，用「试跑」喂一段样本，看它怎么判；试跑不改真实请求，也不重启会话。",
+        "note": "插件文件放在插件目录里，改完脚本刷新插件中心就会重新加载。"
+      },
+      "tryRun": "试跑"
     },
     "cards": {
       "reportCard": {
         "title": "成绩单",
-        "description": "想知道哪个模型在你自己仓库上更少翻车，就看这一页：失败率、中断率、单任务成本排在一起。"
+        "description": "看每个模型在你自己仓库上的表现：失败率、中断率、单任务成本排在一起，哪个更稳一眼就能分出来。"
       },
       "sessionBaton": {
         "title": "接棒",
-        "description": "会话跑到一半断掉时自动接上：额度用完了续原会话，上下文爆了换个会话交接。"
+        "description": "会话跑到一半断了就自动接着跑：额度用完续原会话，上下文爆了开新会话并把进度交接过去。"
       },
       "privacy": {
         "title": "隐私脱敏",
@@ -5708,33 +5723,48 @@
       },
       "mcpRouter": {
         "title": "MCP 路由",
-        "description": "同一个 MCP 服务器在各客户端里统一叫法：别名、命名空间、对谁可见。"
+        "description": "同一个 MCP 服务器要在多个客户端里用，名字、别名和谁能看见，都在这页统一改。"
       },
       "lessons": {
         "title": "教训库",
-        "description": "把踩过的坑记成仓库的禁区清单，下次会话开始时自动带上。"
+        "description": "踩过的坑记成仓库清单，下次开会话自动带上，少走回头路。"
+      },
+      "taskBoard": {
+        "title": "任务看板",
+        "description": "仓库里的 Backlog.md 变成看板：拖动改状态，任务能直接开成终端会话，花掉的用量也记在这条任务上。"
+      },
+      "protocol": {
+        "title": "插件协议",
+        "description": "要写三方插件就看这一页：目录怎么摆、清单有哪些字段、脚本 SDK 怎么调、装上去要几步。"
       }
     },
     "lessons": {
+      "about": {
+        "what": "教训库把本机会话里失败过的地方整理成仓库级的清单：哪一步炸过、下次动哪个文件之前要小心。全程不调模型，按固定模板生成。",
+        "step1": "点「扫描全部会话」，phi 会把本机所有会话涉及的仓库都过一遍。",
+        "step2": "在某个仓库上打开「写进 AGENTS.md」，下次这个仓库的会话开头就会读到这些教训。",
+        "step3": "「看要写什么」可以先看注入的内容和占用字数，确认之后再打开开关。",
+        "step4": "不认同的教训删掉并写清理由；删掉的会在下方单独列出，可以随时恢复。",
+        "note": "注入只在会话开头读一次，不逐轮追加；字数额度满了以后，先保留证据更硬的那几条。"
+      },
       "intro": "把失败会话沉淀成仓库级的禁区清单：哪一步炸过、动哪个文件之前要小心，都在这一页。",
       "sourceHint": "来源是本机托管的会话记录——工具调用报错、退出码非 0。全程不调模型，按固定模板生成。",
-      "noWorkspaceTitle": "还没有可用的仓库",
-      "noWorkspaceBody": "教训贴着仓库长。先到「任务」页登记一个仓库，它的禁区清单就会出现在这里。",
-      "repo": "仓库",
-      "repoPlaceholder": "选一个仓库",
-      "scan": "扫描会话",
+      "scan": "扫描全部会话",
       "scanning": "扫描中…",
       "loadFailed": "教训库读取失败",
       "scannedAt": "上次扫描 {{time}}",
       "neverScanned": "还没扫描过",
+      "discovered": "已发现 {{count}} 个仓库",
       "scanSummary": "扫过 {{sessions}} 个会话，{{failures}} 处失败",
       "pending": "还有 {{count}} 个会话待扫",
+      "lessonCount": "{{count}} 条",
       "injectionTitle": "写进 AGENTS.md",
-      "injectionHint": "打开后，phi 会把禁区清单写进仓库的 {{file}}，只维护自己那两块注释标记之间的内容，别的地方一个字不动。",
       "injectionMeta": "{{used}}/{{budget}} 字 · lessons v{{version}}",
       "injectionStale": "文件里的块与当前教训不一致，再扫描一次即可对齐",
       "preview": "看要写什么",
-      "empty": "还没有教训。跑几个任务、真失败过，才会长出第一条。",
+      "emptyHint": "还没扫过。点「扫描全部会话」，phi 会把本机所有会话涉及的仓库都过一遍。",
+      "emptyScanned": "扫过的仓库里还没有一条教训。跑几个任务、真失败过，才会长出第一条。",
+      "allDismissed": "这个仓库的教训都被删掉了。",
       "hits": "命中 {{count}} 次",
       "dismiss": "删掉这条",
       "dismissedTitle": "已删掉的教训",
@@ -5749,7 +5779,7 @@
       "cancel": "取消",
       "errors": {
         "invalidDirectory": "仓库路径无效",
-        "notRegistered": "这个仓库还没在任务页登记",
+        "notRegistered": "这个仓库还没在任务看板里登记",
         "reasonRequired": "删除理由不能为空",
         "notFound": "这条教训已经不在了"
       }
@@ -5770,11 +5800,19 @@
       "toggleFailed": "切换插件失败：{{message}}"
     },
     "privacy": {
-      "intro": "把凭据和容易被误用的个人信息在本机替换掉。请求体默认不改写——改 prompt 是行为变化，需要你自己打开。",
+      "about": {
+        "what": "隐私脱敏在本机拦下凭据和个人信息，命中的内容会被替换成占位文本或整段删掉。请求体默认不改写，因为改 prompt 会改变模型看到的东西。",
+        "step1": "想让它生效，先打开「启用脱敏」。",
+        "step2": "在「检测规则」里选检测器，再决定是替换还是删除；替换成什么由「占位文本」决定。",
+        "step3": "要拦 prompt 里的内容，才打开「改写发往上游的请求体」；只关心本地诊断材料就保持关闭。",
+        "step4": "保存之后去「试跑」贴一段真实文本，确认命中的位置和替换结果。",
+        "note": "试跑读的是已保存的配置。脱敏只作用于之后发出的请求，已经发出去的内容收不回来。"
+      },
+      "intro": "发出去之前，把凭据和容易被误用的个人信息在本机换成占位文本。改写请求体默认关着：一改，模型看到的内容就变了，要不要开由你决定。",
       "enabled": "启用脱敏",
       "enabledHint": "关闭后请求体与错误摘要都不处理",
-      "body": "改写发往上游的请求体",
-      "bodyHint": "开启后 prompt 里命中的内容会被替换成占位文本",
+      "body": "改写发出去的请求体",
+      "bodyHint": "开启后，发出去的内容里命中的片段会被换成占位文本",
       "logs": "脱敏本地错误摘要",
       "logsHint": "只影响本地诊断材料，不影响任何功能",
       "rules": "检测规则",
@@ -5807,11 +5845,17 @@
         "creditCard": "银行卡号",
         "ipAddress": "IP 地址",
         "custom": "自定义"
-      },
-      "scope": "脱敏范围",
-      "unsaved": "有改动还没保存，试跑用的仍是上次保存的配置"
+      }
     },
     "router": {
+      "about": {
+        "what": "MCP 路由决定每个 MCP 服务器写进客户端配置时叫什么名字、对哪些客户端可见。它不改服务器本身，只改名字和可见性。",
+        "step1": "「启用路由中心」关掉时，所有服务器按原名直通，下面配好的规则保留但不生效。",
+        "step2": "点「添加路由」选一个服务器。想换名字就填别名；想加统一前缀就填命名空间。",
+        "step3": "在「可见客户端」里勾选放行的客户端；一个都不勾表示全部客户端都能用。",
+        "step4": "点「保存并应用」写回各客户端配置，再到「投影预览」核对实际生效的名字。",
+        "note": "路由只能收窄不能放宽：服务器本身没勾某个客户端，这里勾了也不会出现。预览读的也是已保存的配置。"
+      },
       "intro": "同一个 MCP 服务器在不同客户端里的名字与可见性在这里统一。没有配置路由时，所有服务器按原名直通。",
       "enabled": "启用路由中心",
       "enabledHint": "关闭时所有服务器按原名直通",
@@ -5822,12 +5866,15 @@
       "addRoute": "添加路由",
       "removeRoute": "删除这条路由",
       "serverPlaceholder": "选择服务器",
-      "aliasPlaceholder": "别名（留空则用命名空间）",
+      "server": "服务器",
+      "alias": "别名",
+      "aliasPlaceholder": "如 desktop-control",
       "namespacePlaceholder": "命名空间",
       "priority": "撞名优先级",
       "apps": "可见客户端",
       "appsHint": "都不勾 = 全部客户端",
       "tagsPlaceholder": "标签，用逗号分隔",
+      "tags": "标签",
       "catalog": "投影预览",
       "catalogEmpty": "还没有 MCP 服务器",
       "catalogAll": "全部客户端",
@@ -5841,12 +5888,8 @@
       "applyFailed": "配置已保存，但重新投影失败：{{message}}",
       "saveFailed": "保存失败：{{message}}",
       "loadFailed": "MCP 路由配置读取失败",
-      "serverLabel": "服务器",
-      "aliasLabel": "别名",
-      "aliasExample": "留空则用命名空间",
-      "namespaceLabel": "命名空间",
-      "namespaceExample": "仅在没有别名时生效",
-      "enableLabel": "启用"
+      "namespaceInputPlaceholder": "如 fs",
+      "namespaceWithAliasLabel": "命名空间（有别名时不用）"
     },
     "guide": {
       "what": "作用",
@@ -5897,6 +5940,95 @@
         "step3": "需要多个仓库一起看时，在插件中心把看板钉到侧栏。",
         "notes": "看板只改状态，不改代码；任务完成后仍然回到对应会话里收尾。"
       }
+    },
+    "unsaved": "有未保存的改动",
+    "protocol": {
+      "lede": "写一个三方插件只要两样东西：一个目录、一份 plugin.json。要改请求就加声明式规则或脚本，要在界面挂页面就指名宿主已有的面板。",
+      "hint": "下面的数字取自当前这次构建：清单版本 v{{version}}，最多 {{maxPlugins}} 个插件。",
+      "loadFailed": "插件协议读取失败",
+      "copy": "复制",
+      "copied": "已复制",
+      "layout": {
+        "title": "一个插件就是一个目录",
+        "note": "目录里没有 plugin.json 会被跳过；同一个 id 只认先加载到的那个，后出现的记一条加载错误。"
+      },
+      "manifest": {
+        "title": "plugin.json",
+        "field": "字段",
+        "requiredColumn": "必填",
+        "meaning": "说明",
+        "note": "未知字段会被拒绝，这是刻意的：拼错的键若被悄悄忽略，插件就成了「装上了但什么都不做」。清单最多 {{kb}} KB，脚本最多 {{scriptKb}} KB。"
+      },
+      "required": {
+        "yes": "是",
+        "no": "否",
+        "script": "仅脚本",
+        "rules": "仅规则",
+        "feature": "仅功能"
+      },
+      "fields": {
+        "manifestVersion": "清单结构版本，不写就按当前版本（v{{version}}）处理。",
+        "id": "稳定标识：小写字母或数字开头，只能用 小写字母、数字、- _ .。",
+        "name": "展示名，卡片和页签都用它。",
+        "version": "插件自己的版本号，自由填写。",
+        "description": "一句话说清它做什么，显示在卡片上。",
+        "author": "作者署名，显示在插件详情里。",
+        "kind": "rules（默认）/ script / feature，见下一节。",
+        "hooks": "参与哪些钩子（{{hooks}}）；空数组等于不生效。",
+        "priority": "排队顺序，数值小的先跑，同值按 id 字典序。",
+        "enabledByDefault": "没被用户改过时的默认开关。",
+        "entry": "脚本入口，相对插件目录、必须以 .js 结尾。",
+        "rules": "声明式规则，最多 {{maxRules}} 条。",
+        "panel": "功能插件挂哪个内置面板：{{panels}}。"
+      },
+      "kinds": {
+        "title": "三类插件",
+        "kind": "类型",
+        "hooks": "能挂的钩子",
+        "how": "怎么生效",
+        "rules": {
+          "how": "清单里写规则，宿主编译执行，不跑代码。"
+        },
+        "script": {
+          "how": "沙箱里跑 entry 指向的脚本，导出 onRequest 或 onSessionExit。"
+        },
+        "feature": {
+          "how": "只在界面挂一个宿主内置面板，不参与请求，也不带前端代码。"
+        },
+        "note": "钩子决定它什么时候被叫到，类型决定它用什么方式回答。组合限制由清单校验兜住：规则插件不能声明 session-exit，脚本插件不能再带规则，功能插件只能声明 panel。启用的请求插件按 priority 依次跑，每个经过代理的请求都会过一遍。"
+      },
+      "rules": {
+        "title": "声明式规则",
+        "note": "路径用点分写法，* 同时匹配对象的键与数组元素，数字段表示数组下标（messages.0.content）。mask 只改字符串值；remove 删键或数组元素，不接受 pattern。"
+      },
+      "script": {
+        "title": "脚本 SDK",
+        "note": "沙箱不注入运行时：没有 require / import、没有网络、没有文件，也拿不到应用 id 与端点。脚本只做三件事——读入参、返回结果、返回 null 表示不动或弃权。",
+        "requestTitle": "改写请求体（onRequest）",
+        "requestNote": "只拿到请求体本身；返回新对象才会替换，原样返回等于没改。",
+        "exitTitle": "接棒决策（onSessionExit）",
+        "decisionField": "字段",
+        "decisionValue": "取值",
+        "decision": {
+          "action": "resume 接棒，record 只记录；必填。",
+          "mode": "same-session 续原会话，fresh-session 开新会话；省略时按内置判定。",
+          "reason": "一句理由，必填，超过 200 字会被截断。"
+        },
+        "eventNote": "事件里有 app、cwd、exitCode、failureKind（quota / context / provider / crash）、reason、hasTarget、attempts、lastKind、maxAttempts、autoResume、evidence、successes。字段只增不改，按名读取即可。",
+        "limitsNote": "沙箱上限：单次 {{timeout}} ms、堆 {{memory}} MB、栈 {{stack}} KB、入参与输出各 {{payload}}K 字符；每次执行都是新的运行时，不留状态。超时、抛错、输出不是合法 JSON，都只让这一次不生效。"
+      },
+      "install": {
+        "title": "装一个三方插件",
+        "step1": "在插件目录下建一个文件夹，名字建议和 id 一致：",
+        "step2": "放一份 plugin.json；要用脚本再放 main.js，并让 entry 指向它。",
+        "step3": "回到插件中心点「刷新」，卡片出现就能打开、启用、试跑。",
+        "step4": "不要了就删掉那个文件夹。启停只写 {{stateFile}}，不会改你的文件。",
+        "sdkNote": "仓库 plugins-sdk/ 里有类型声明 phi-plugin.d.ts 和两个可直接抄的示例（mask-emails、baton-policy）。它只给编辑器看，沙箱里并不加载它。"
+      },
+      "fails": {
+        "title": "出错时谁兜底",
+        "note": "插件是增强，不是依赖：加载失败、正则非法、脚本抛错或超时，都只让那一次不生效，请求照旧发往上游，错误显示在插件中心顶部。插件也拿不到宿主能力——重启会话、写文件这类动作由宿主执行。"
+      }
     }
   },
   "reportCard": {
@@ -5938,58 +6070,45 @@
     "chart": {
       "title": "可靠性分布",
       "aria": "{{model}}：失败率 {{failure}}，中断率 {{interruption}}",
-      "scale": "条长按本窗口最大 {{max}} 归一，颜色深浅表示失败率高低"
+      "scale": "条长按本窗口最大 {{max}} 归一，颜色深浅表示失败率高低",
+      "ok": "成功",
+      "failed": "失败",
+      "interrupted": "中断",
+      "calls": "调用",
+      "empty": "还没有可画的工具调用样本，先看下面的表格。",
+      "tooFewSamples": "样本不足",
+      "omitted": "另有 {{count}} 个模型还没有工具调用样本，只在下面的表格里列出。"
     },
     "legend": {
       "calm": "稳定",
       "watch": "需关注",
       "bad": "明显偏高"
+    },
+    "about": {
+      "what": "成绩单只看可靠性：工具调用失败率、被中断率、空交付率、单步耗时和单任务成本。数据来自你自己仓库里的会话，不是 benchmark 排名。",
+      "step1": "先选统计窗口：7 天看最近，30 天和 90 天看趋势。",
+      "step2": "先看上面的汇总和图找异常，再到表格里追到具体数字。",
+      "step3": "样本不足的格子只给样本量、不给百分比——不到 5 个样本，任何比率都不可信。",
+      "step4": "点「重新扫描」重新解析会话；平时打开页面会自己同步。",
+      "note": "没有验收命令和返工数据，所以这里只比「谁更少翻车」，不判「谁更管用」。数据都留在本机。"
     }
   },
   "tasks": {
-    "relay": {
-      "title": "编排接力",
-      "gate2": "门 2 · 实现成立",
-      "gate3": "门 3 · 复查成立",
-      "notRun": "未跑",
-      "runGate2": "跑门 2",
-      "runGate3": "跑门 3",
-      "runGate2Hint": "执行卡片里的验收命令，并核对改动有没有越界",
-      "runGate3Hint": "核对复查意见里的证据锚点能不能对上源码",
-      "noAccept": "卡片没有 phi.accept，门 2 没有可执行的验收命令",
-      "noContract": "这张卡没有 phi 契约：补上 phi 块（accept / touched / role）之后，门 2 与门 3 才有可判定的东西。",
-      "verdictAt": "最近判定",
-      "role": "接力角色",
-      "touched": "允许改动",
-      "forbidden": "禁止改动",
-      "changed": "当前改动",
-      "changedCount": "{{value}} 个文件",
-      "claims": "证据锚点",
-      "claimCount": "{{value}} 条",
-      "budget": "预算",
-      "tokens": "{{value}} tokens",
-      "minutes": "{{value}} 分钟",
-      "accept": "验收",
-      "timeout": "超时",
-      "exitCode": "退出码 {{code}}（期望 {{expect}}）",
-      "latest": "最近一次判定：门 {{gate}}，耗时 {{ms}}ms",
-      "emptyHistory": "还没跑过门判定。",
-      "gateDone": "门 {{gate}} 判定：{{status}}",
-      "rule": {
-        "forbidden": "禁止改动",
-        "out-of-scope": "越界"
-      },
-      "status": {
-        "pass": "通过",
-        "fail": "未通过",
-        "invalid": "证据不成立"
-      }
+    "about": {
+      "what": "任务看板把仓库里的 backlog 目录读成看板。任务仍然是普通的 markdown 文件，backlog 命令行和其他 agent 照样能读写。",
+      "step1": "先选一个仓库；目录里还没有 backlog 时，点「初始化 backlog」建出 config.yml 和 tasks/。",
+      "step2": "在 To Do 栏顶部点「新建任务」，一句话就是一张卡片；卡片可以直接拖动改状态。",
+      "step3": "点开卡片看详情：正文、依赖与关联会话；卡片仍然是仓库里的 markdown 文件。",
+      "step4": "在详情里「开始会话」，会话记录和用量会回挂到这张卡上。",
+      "step5": "右上角「自动调度」打开后，卡片拖进「进行中」就交给选定的应用，跑完自动结算；先开影子模式只看它判断得对不对。",
+      "note": "看板只读写仓库里的 backlog 文件。从看板移出仓库不会删除任何任务。"
     },
     "title": "任务",
     "workspace": "仓库",
     "newTask": "新建任务",
+    "newTaskPlaceholder": "输入任务标题，Ctrl+Enter 创建",
+    "newTaskSend": "创建任务",
     "refresh": "刷新",
-    "moreActions": "更多操作",
     "addWorkspace": "添加仓库",
     "removeWorkspace": "移出看板",
     "removeWorkspaceMessage": "只从 phi 的看板里移除这个仓库，仓库里的任务文件不会被改动。",
@@ -6025,6 +6144,71 @@
     "archiveTitle": "归档这个任务？",
     "archiveMessage": "任务文件会被移到 backlog/archive/tasks/，内容不变。",
     "archived": "已归档",
+    "router": {
+      "button": "自动调度",
+      "title": "自动调度",
+      "loading": "正在读取调度状态…",
+      "loadFailed": "读不到调度状态：{{error}}",
+      "modeOff": "已关闭",
+      "modeShadow": "影子模式",
+      "modeOn": "已开启",
+      "enabled": "自动派活",
+      "enabledHint": "卡片进入触发列就交给选定的应用，跑完自动结算。",
+      "shadow": "影子模式",
+      "shadowHint": "照常判断并记录，但不派发。先跑几轮看判断对不对。",
+      "triggerStatus": "触发列",
+      "concurrency": "同时最多",
+      "concurrencyUnit": "{{count}} 个",
+      "workers": "派给",
+      "noWorkers": "这台机器没有可用终端，暂时无法自动派活。",
+      "episodeModel": "调度模型",
+      "episodeModelRules": "按规则（不用模型）",
+      "episodeModelHint": "用模型判断该动哪张卡、派给谁。请求走 phi 自己的网关。",
+      "episodeModelNoGroup": "还没有包含 pi 的路由组。去「路由」把 pi 接入一个组，这里才会出现选项。",
+      "quota": "今天已派发 {{dispatches}} 次，判官 {{judge}} 次",
+      "runNow": "跑一轮",
+      "runNowHint": "只判断这一轮",
+      "resultDispatched": "派发 {{count}} 张：{{tasks}}",
+      "resultNeedsYou": "{{count}} 张在等你",
+      "resultNone": "这一轮没有动作",
+      "skipped": {
+        "disabled": "自动调度是关闭的",
+        "noTasks": "没有找到任务",
+        "noCandidates": "没有可派的卡片",
+        "quota": "今天的派发次数用完了",
+        "concurrency": "在跑的任务已达上限",
+        "capacity": "这一轮没有空位"
+      },
+      "state": {
+        "idle": "未开始",
+        "queued": "排队中",
+        "dispatched": "已派发",
+        "working": "运行中",
+        "done": "已完成",
+        "failed": "上次失败",
+        "needsYou": "等你看",
+        "paused": "已暂停",
+        "shadow": "影子"
+      },
+      "section": "自动调度",
+      "idleHint": "还没有交给自动调度",
+      "workerLine": "由 {{app}} 执行",
+      "attempts": "第 {{count}} 次尝试",
+      "start": "开始",
+      "pause": "暂停",
+      "resume": "恢复",
+      "startHint": "立刻派发，不等下一轮",
+      "started": "已交给自动调度",
+      "planTitle": "执行计划",
+      "planEmpty": "这一轮没有拆分子任务",
+      "planDeps": "依赖 {{deps}}",
+      "saveFailed": "保存失败：{{error}}",
+      "actionFailed": "操作失败：{{error}}",
+      "confirmDecision": "下一步怎么处理？",
+      "confirmContinue": "继续执行（重新排队）",
+      "confirmComplete": "确认完成（移到 Done）",
+      "confirmSubmit": "提交确认"
+    },
     "errors": {
       "noBacklog": "这个目录里没有 backlog/config.yml",
       "stale": "任务文件已被其它工具改动，已重新读取",
@@ -6036,16 +6220,8 @@
       "terminalUnsupported": "当前平台不支持本地终端",
       "invalidWorkspace": "这个仓库的 backlog 配置读不出来"
     },
-    "create": {
-      "title": "新建任务",
-      "description": "会写成一份新的 markdown 任务文件，与 backlog 命令行同格式。",
-      "titleLabel": "标题",
-      "titlePlaceholder": "一句话说清要做什么",
-      "descriptionLabel": "描述",
-      "acceptanceLabel": "验收标准（一行一条）",
-      "acceptancePlaceholder": "完成时应该能被验证的结果",
-      "submit": "创建",
-      "hint": "创建后可以在详情里开始会话，会话与用量会回挂到这个任务上。"
-    }
+    "openSession": "打开终端",
+    "sessionEnded": "会话已结束",
+    "sessionClosed": "接不上这次运行的终端了：它可能已经结束，或者运行它的 zellij 会话被清理过。重新开始一次会开新的会话。"
   }
 }

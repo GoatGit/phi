@@ -19,6 +19,7 @@ import {
   SessionExitPreviewDialog,
 } from "./PluginPreviewDialogs";
 import { pluginPageClass } from "./pluginPage";
+import { SessionBatonGuide } from "./pluginGuides";
 
 /** 钩子标签。未知钩子原样展示，方便插件作者自己扩展时先看到它。 */
 function hookLabel(hook: PluginHook, t: (key: string) => string): string {
@@ -182,6 +183,8 @@ export function PluginDetailPage({ entry }: { entry: PluginCenterEntry }) {
           onClose={() => setPreview(null)}
         />
       )}
+
+      {entry.id === "session-baton" && <SessionBatonGuide />}
     </div>
   );
 }

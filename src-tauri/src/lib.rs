@@ -36,7 +36,6 @@ pub mod mode;
 mod model_capabilities;
 mod openclaw_config;
 mod opencode_config;
-mod orchestration;
 mod panic_hook;
 mod pi_config;
 pub mod plugin;
@@ -51,6 +50,7 @@ mod services;
 mod session_manager;
 mod settings;
 mod store;
+mod super_agent;
 mod tasks;
 
 mod terminal;
@@ -1217,6 +1217,10 @@ pub fn run() {
             // 接棒：监听托管会话的退出记账，并把内置策略插件补进插件中心。
             exit_hook::service::start(app.handle().clone());
 
+            // 自动调度（super-agent）：按节拍跑 tick。开关与配额都在 tick 里判断，
+            // 定时器只负责节拍。
+            super_agent::runtime::spawn(app.handle().clone());
+
             // 初始化 SkillService
             let skill_service = SkillService::new();
             app.manage(commands::skill::SkillServiceState(Arc::new(skill_service)));
@@ -1471,9 +1475,9 @@ pub fn run() {
             tasks::commands::task_archive,
             tasks::commands::task_link_session,
             tasks::commands::task_unlink_session,
-            orchestration::commands::task_relay,
-            orchestration::commands::task_gate_run,
             lessons::commands::lesson_state,
+            lessons::commands::lesson_overview,
+            lessons::commands::lesson_scan,
             lessons::commands::lesson_refresh,
             lessons::commands::lesson_matches,
             lessons::commands::lesson_dismiss,
@@ -1481,6 +1485,17 @@ pub fn run() {
             lessons::commands::lesson_injection_preview,
             lessons::commands::lesson_set_injection,
             report_card::commands::report_card_page,
+            super_agent::commands::router_settings,
+            super_agent::commands::router_save_settings,
+            super_agent::commands::router_status,
+            super_agent::commands::router_tick,
+            super_agent::commands::router_pause_task,
+            super_agent::commands::router_resume_task,
+            super_agent::commands::router_resolve_task,
+            super_agent::commands::router_start_task,
+            super_agent::commands::router_plan,
+            super_agent::commands::task_session_arguments,
+            super_agent::commands::task_open_worker,
             commands::get_gateway_catalog,
             commands::gateway_subscription_action,
             commands::connect_gateway_subscription,
@@ -1613,6 +1628,7 @@ pub fn run() {
             commands::resync_mcp_to_apps,
             // Plugin system: request-body stages discovered from <config>/plugins
             commands::list_plugins,
+            commands::get_plugin_protocol,
             commands::set_plugin_enabled,
             commands::preview_plugin_request,
             // Privacy redaction: request-body stage + error-log scrubbing

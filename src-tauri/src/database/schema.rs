@@ -25,10 +25,10 @@ impl Database {
         crate::gateway::create_tables(conn)?;
         crate::access::create_tables(conn)?;
         crate::tasks::create_tables(conn)?;
-        crate::orchestration::create_tables(conn)?;
         crate::lessons::create_tables(conn)?;
         crate::exit_hook::create_tables(conn)?;
         crate::report_card::create_tables(conn)?;
+        crate::super_agent::create_tables(conn)?;
         // 1. Providers 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS providers (
@@ -623,6 +623,28 @@ impl Database {
                         log::info!("迁移数据库从 v25 到 v26（成绩单的会话事实表）");
                         Self::migrate_v25_to_v26(conn)?;
                         Self::set_user_version(conn, 26)?;
+                    }
+                    26 => {
+                        log::info!("迁移数据库从 v26 到 v27（移除编排接力的门判定记录表）");
+                        Self::migrate_v26_to_v27(conn)?;
+                        Self::set_user_version(conn, 27)?;
+                    }
+                    27 => {
+                        log::info!("迁移数据库从 v27 到 v28（自动调度的运行态、租约与 trace）");
+                        Self::migrate_v27_to_v28(conn)?;
+                        Self::set_user_version(conn, 28)?;
+                    }
+                    28 => {
+                        log::info!(
+                            "迁移数据库从 v28 到 v29（运行态改为按仓库 + 任务做主键，补影标记）"
+                        );
+                        Self::migrate_v28_to_v29(conn)?;
+                        Self::set_user_version(conn, 29)?;
+                    }
+                    29 => {
+                        log::info!("迁移数据库从 v29 到 v30（记录 worker 落在哪个运行时里）");
+                        Self::migrate_v29_to_v30(conn)?;
+                        Self::set_user_version(conn, 30)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1746,12 +1768,13 @@ impl Database {
         crate::tasks::create_tables(conn)
     }
 
-    /// v23 -> v24: 编排接力的门判定记录表。
+    /// v23 -> v24: 空迁移。
     ///
-    /// 只新建表，`IF NOT EXISTS` 即可幂等。任务卡片里的 `phi:` 契约与
-    /// `phi_verdict` 结论都在 git 里，不进数据库。
-    fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
-        crate::orchestration::create_tables(conn)
+    /// 这一步原本建编排接力的门判定记录表（`task_gate_runs`）。编排接力已整体
+    /// 移除，新库不再建这张表，v26 -> v27 会把老库里的表删掉。版本号保持不变，
+    /// 因为已经升到 v24 的库不会再走这里。
+    fn migrate_v23_to_v24(_conn: &Connection) -> Result<(), AppError> {
+        Ok(())
     }
 
     /// v24 -> v25: 教训库的三张表（教训、按会话计数的命中记录、工作区设置）。
@@ -1766,6 +1789,84 @@ impl Database {
     /// 都是新建表，`IF NOT EXISTS` 即可幂等；已有会话的解析结果由首次同步补齐。
     fn migrate_v25_to_v26(conn: &Connection) -> Result<(), AppError> {
         crate::report_card::create_tables(conn)
+    }
+
+    /// v26 -> v27: 删掉编排接力的门判定记录表。
+    ///
+    /// 功能整体移除后这张表再没有读写方，留着只是孤儿数据，所以在这里清掉。
+    /// 表不存在时也照常通过，新装的库不会走到这一步。
+    /// v27 -> v28: 自动调度的四张表（设置、运行态、租约、trace）与规划节点。
+    /// 建表语句由 `super_agent::create_tables` 提供，新库与老库走同一份定义。
+    fn migrate_v27_to_v28(conn: &Connection) -> Result<(), AppError> {
+        crate::super_agent::create_tables(conn)
+    }
+
+    /// v28 -> v29: 运行态与租约改为 (root, task_id) 复合主键，并补上影子标记列。
+    ///
+    /// 为什么必须重建表：`CREATE TABLE IF NOT EXISTS` 不会给已经存在的表补列或改主键，
+    /// 而 v28 是先建表、后才发现「任务 id 只在仓库内唯一」的。
+    fn migrate_v28_to_v29(conn: &Connection) -> Result<(), AppError> {
+        // 影子标记是 v28 之后才加进建表语句的，老库要先补上再整体搬迁。
+        let has_shadow: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('router_task_runs') WHERE name = 'shadow'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        if has_shadow == 0 {
+            // 表可能压根不存在（从更早版本直接升上来），补列失败就交给建表兜底。
+            let _ = conn.execute(
+                "ALTER TABLE router_task_runs ADD COLUMN shadow INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
+        }
+
+        conn.execute_batch("DROP TABLE IF EXISTS router_leases;")
+            .map_err(|e| AppError::Database(format!("v28 -> v29 清理租约失败: {e}")))?;
+
+        let has_runs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'router_task_runs'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        if has_runs > 0 {
+            conn.execute_batch("ALTER TABLE router_task_runs RENAME TO router_task_runs_v28;")
+                .map_err(|e| AppError::Database(format!("v28 -> v29 重命名运行态表失败: {e}")))?;
+        }
+
+        // 重新按最终定义建表（也会补上租约表），再把老数据搬回来。
+        crate::super_agent::create_tables(conn)?;
+
+        if has_runs > 0 {
+            conn.execute_batch(
+                "INSERT OR REPLACE INTO router_task_runs
+                    (task_id, root, state, worker_app, session_id, attempts, detail,
+                     card_fingerprint, shadow, updated_at)
+                 SELECT task_id, root, state, worker_app, session_id, attempts, detail,
+                        card_fingerprint, shadow, updated_at
+                 FROM router_task_runs_v28;
+                 DROP TABLE router_task_runs_v28;",
+            )
+            .map_err(|e| AppError::Database(format!("v28 -> v29 搬迁运行态失败: {e}")))?;
+        }
+        Ok(())
+    }
+
+    /// v29 -> v30: 新增 worker 归属表。
+    ///
+    /// 只是新建表，`IF NOT EXISTS` 幂等。升级前派发的 worker 没有归属记录，
+    /// 会在 probe 时落到「交给托管终端查」那条退路上，不需要回填。
+    fn migrate_v29_to_v30(conn: &Connection) -> Result<(), AppError> {
+        crate::super_agent::create_tables(conn)
+    }
+
+    fn migrate_v26_to_v27(conn: &Connection) -> Result<(), AppError> {
+        conn.execute("DROP TABLE IF EXISTS task_gate_runs", [])
+            .map_err(|e| AppError::Database(format!("删除门判定记录表失败: {e}")))?;
+        Ok(())
     }
 
     /// 插入默认模型定价数据
@@ -4133,6 +4234,92 @@ mod tests {
             |row| row.get(0),
         )?;
         assert_eq!(synced, 3);
+        Ok(())
+    }
+
+    /// v28 的自动调度表把 task_id 当唯一键、也没有影子标记列；v29 必须重建这两张表，
+    /// 否则 `SELECT ... shadow` 会直接报「no such column」。
+    #[test]
+    fn migrate_v28_to_v29_rebuilds_router_tables_and_keeps_rows() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE router_task_runs (
+                task_id TEXT PRIMARY KEY,
+                root TEXT NOT NULL,
+                state TEXT NOT NULL,
+                worker_app TEXT,
+                session_id TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                detail TEXT,
+                card_fingerprint TEXT,
+                updated_at INTEGER NOT NULL
+             );
+             INSERT INTO router_task_runs
+                (task_id, root, state, worker_app, session_id, attempts, detail,
+                 card_fingerprint, updated_at)
+             VALUES ('TASK-1', '/repo', 'queued', 'claude', NULL, 1, NULL, '12:ab', 10);
+             CREATE TABLE router_leases (
+                task_id TEXT PRIMARY KEY, holder TEXT NOT NULL, expires_at INTEGER NOT NULL
+             );
+             INSERT INTO router_leases VALUES ('TASK-1', 'me', 99);",
+        )?;
+        Database::set_user_version(&conn, 28)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        // 老行搬过来了，影子标记缺省为 0。
+        let (state, shadow): (String, i64) = conn.query_row(
+            "SELECT state, shadow FROM router_task_runs WHERE task_id = 'TASK-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(state, "queued");
+        assert_eq!(shadow, 0);
+        // 主键换成 (root, task_id)：同一个任务 id 可以在两个仓库各存一行。
+        conn.execute(
+            "INSERT INTO router_task_runs
+                (task_id, root, state, worker_app, session_id, attempts, detail,
+                 card_fingerprint, shadow, updated_at)
+             VALUES ('TASK-1', '/other', 'working', 'codex', NULL, 2, NULL, NULL, 0, 11)",
+            [],
+        )?;
+        let rows: i64 = conn.query_row("SELECT COUNT(*) FROM router_task_runs", [], |row| {
+            row.get(0)
+        })?;
+        assert_eq!(rows, 2);
+        // 租约表被重建（旧租约只有 task_id，没有仓库没法安全迁移）。
+        let lease_columns: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('router_leases') WHERE name = 'root'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(lease_columns, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v26_to_v27_drops_the_gate_run_table_and_keeps_task_tables() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE providers (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+             INSERT INTO providers (id, name) VALUES ('p-1', 'kept');
+             CREATE TABLE task_gate_runs (id TEXT PRIMARY KEY, root TEXT NOT NULL);
+             INSERT INTO task_gate_runs (id, root) VALUES ('r-1', '/repo');",
+        )?;
+        Database::set_user_version(&conn, 26)?;
+
+        Database::apply_schema_migrations_on_conn(&conn)?;
+
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        // 门判定记录表被删掉了。
+        assert!(!Database::table_exists(&conn, "task_gate_runs")?);
+        // 其它表和数据不受影响。
+        let kept: String =
+            conn.query_row("SELECT name FROM providers WHERE id = 'p-1'", [], |row| {
+                row.get(0)
+            })?;
+        assert_eq!(kept, "kept");
         Ok(())
     }
 

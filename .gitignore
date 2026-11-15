@@ -50,6 +50,13 @@ __pycache__/
 
 # Generated subscription engine sidecars
 /src-tauri/binaries/phi-subscriptions-*
+# 自带 node 运行时（构建时下载，115 MB，不进仓库）
+/src-tauri/binaries/phi-node-*
+# 自带 zellij（构建时下载，后台 worker 跑在它里面；一架构约 64 MB，不进仓库）
+/src-tauri/binaries/zellij-*
+# 侧车产物（由 scripts/build-sidecar.mjs 生成）
+/sidecar/dist/
+/sidecar/node_modules/
 # Go build output from subscriptions/bridge (same binary, built locally)
 /subscriptions/bridge/phi-subscriptions
 
