@@ -4,6 +4,7 @@
 //! 登记表。这样前端即使拿到任意路径也读不了别人的目录。
 
 use crate::store::AppState;
+use crate::super_agent::model::RouterSettings;
 use crate::tasks::model::{Board, NewTask, TaskDetail, TaskLink, WorkspaceInfo};
 use crate::tasks::{board, document, repository};
 use crate::Database;
@@ -135,13 +136,58 @@ pub fn task_detail(
 
 #[tauri::command]
 pub fn task_create(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     root: String,
     input: NewTask,
 ) -> Result<TaskDetail, String> {
     let workspace = open(&state, &root)?;
+    // 读不到调度设置不该拦住建卡：自动派发是附加能力，设置表出问题时
+    // 退回默认值（未启用）就够，用户仍然能把卡建出来。
+    let settings = state.db.router_settings().unwrap_or_else(|error| {
+        log::warn!("router settings read failed, auto-start skipped: {error}");
+        crate::super_agent::model::RouterSettings::default()
+    });
+    let (input, auto_started) = auto_start_input(&settings, &workspace.config.statuses, input);
     let detail = repository::create(&workspace, &input)?;
-    detail_with_links(&state, &workspace, &detail.task.id)
+    let detail = detail_with_links(&state, &workspace, &detail.task.id)?;
+    // 自动调度开着的时候，新建的卡已经落进触发列：立刻踢一轮，不用干等下一个
+    // 节拍。否则用户建完看到的是一张不会动的卡，只能自己再拖一次或按「开始」。
+    if auto_started {
+        crate::super_agent::runtime::kick(&app);
+    }
+    Ok(detail)
+}
+
+/// 自动调度在跑的时候，新建的卡直接落进触发列。
+///
+/// 两处默认值叠在一起会让人以为调度器坏了：新建只收标题，状态走工作区的默认列
+/// （`To Do`）；自动调度只认触发列（默认 `In Progress`）。所以「建完就等」永远
+/// 等不到派发。这里的取舍是「新建 ＝ 交给调度器」。
+///
+/// 总开关关着或影子模式时不动它：影子模式不会真的派发，把卡挪进执行列只是骗人。
+/// 用户显式指定了状态也尊重用户。
+fn auto_start_input(
+    settings: &RouterSettings,
+    statuses: &[String],
+    input: NewTask,
+) -> (NewTask, bool) {
+    if !settings.enabled || settings.shadow || input.status.is_some() {
+        return (input, false);
+    }
+    if !statuses
+        .iter()
+        .any(|status| status == &settings.trigger_status)
+    {
+        return (input, false);
+    }
+    (
+        NewTask {
+            status: Some(settings.trigger_status.clone()),
+            ..input
+        },
+        true,
+    )
 }
 
 #[tauri::command]
@@ -210,4 +256,85 @@ pub fn task_unlink_session(
             session_id.trim(),
         )
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::auto_start_input;
+    use crate::super_agent::model::RouterSettings;
+    use crate::tasks::model::NewTask;
+
+    fn statuses() -> Vec<String> {
+        vec!["To Do".into(), "In Progress".into(), "Done".into()]
+    }
+
+    fn new_task() -> NewTask {
+        NewTask {
+            title: "整理今天的AI新闻".into(),
+            description: None,
+            status: None,
+            priority: None,
+            assignees: None,
+            labels: None,
+            dependencies: None,
+            acceptance: None,
+        }
+    }
+
+    fn running() -> RouterSettings {
+        RouterSettings {
+            enabled: true,
+            shadow: false,
+            ..RouterSettings::default()
+        }
+    }
+
+    #[test]
+    fn new_task_enters_trigger_column_when_router_runs() {
+        let (input, auto) = auto_start_input(&running(), &statuses(), new_task());
+        assert!(auto, "调度器在跑时新建的卡应当直接交给它");
+        assert_eq!(input.status.as_deref(), Some("In Progress"));
+    }
+
+    #[test]
+    fn shadow_mode_keeps_the_default_column() {
+        let settings = RouterSettings {
+            shadow: true,
+            ..running()
+        };
+        let (input, auto) = auto_start_input(&settings, &statuses(), new_task());
+        assert!(!auto, "影子模式不会派发，挪进执行列只会骗人");
+        assert!(input.status.is_none());
+    }
+
+    #[test]
+    fn disabled_router_keeps_the_default_column() {
+        let settings = RouterSettings {
+            enabled: false,
+            ..running()
+        };
+        let (_, auto) = auto_start_input(&settings, &statuses(), new_task());
+        assert!(!auto);
+    }
+
+    #[test]
+    fn explicit_status_wins() {
+        let input = NewTask {
+            status: Some("Done".into()),
+            ..new_task()
+        };
+        let (kept, auto) = auto_start_input(&running(), &statuses(), input);
+        assert!(!auto, "用户自己写了状态就不该被改写");
+        assert_eq!(kept.status.as_deref(), Some("Done"));
+    }
+
+    #[test]
+    fn unknown_trigger_column_falls_back() {
+        let settings = RouterSettings {
+            trigger_status: "执行中".into(),
+            ..running()
+        };
+        let (_, auto) = auto_start_input(&settings, &statuses(), new_task());
+        assert!(!auto, "触发列不在看板上时不能写一个不存在的状态");
+    }
 }

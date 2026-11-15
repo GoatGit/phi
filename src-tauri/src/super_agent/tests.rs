@@ -370,7 +370,9 @@ async fn dispatch_failure_keeps_the_reason_and_counts_the_attempt() {
 }
 
 #[tokio::test]
-async fn environment_failure_asks_a_human_instead_of_retrying() {
+async fn environment_failure_retries_until_the_budget_is_used() {
+    // 环境类错误（没窗口、平台不支持）不是「人按了暂停」，所以不能一次失败就永久
+    // 停住——环境修好后它应该自己重新跑起来；真的一直失败才是人的事。
     let workspace = workspace(1, "In Progress");
     let dispatcher = RecordingDispatcher {
         fail_with: Some("unsupported-platform".into()),
@@ -389,7 +391,44 @@ async fn environment_failure_asks_a_human_instead_of_retrying() {
         .router_run(&workspace.root, "TASK-1")
         .expect("run")
         .expect("row");
+    assert_eq!(run.state, RunState::Failed);
+    assert!(run.detail.expect("detail").contains("unsupported-platform"));
+    assert!(report.needs_you.is_empty(), "还没用完预算就先不打扰人");
+
+    // 只剩最后一次机会：再失败就转人工，不无限重试。
+    let past = crate::super_agent::store::now_ms() - 10 * 60 * 1000;
+    workspace
+        .db
+        .put_router_run(
+            &workspace.root,
+            "TASK-1",
+            RunWrite {
+                state: RunState::Failed,
+                worker_app: Some("claude"),
+                session_id: None,
+                attempts: 2,
+                detail: Some("dispatch-failed:unsupported-platform"),
+                card_fingerprint: None,
+                shadow: false,
+            },
+            past,
+        )
+        .expect("run");
+    let report = run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
     assert_eq!(run.state, RunState::NeedsYou);
+    assert_eq!(run.attempts, 3);
     assert_eq!(report.needs_you, vec!["TASK-1".to_string()]);
 }
 
@@ -507,6 +546,40 @@ async fn decisions_for_unknown_tasks_or_duplicates_are_dropped() {
 }
 
 #[tokio::test]
+async fn an_episode_without_any_decision_leaves_a_visible_queued_state() {
+    let workspace = workspace(1, "In Progress");
+    // 侧车超时、模型没给出任何结论：这一轮不派发，但卡上必须有痕迹。
+    // 否则看板上它就是一张「空徽标」的卡，和从没派发过一模一样。
+    let episode = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: Vec::new(),
+            unfinished: true,
+        },
+    };
+    let dispatcher = RecordingDispatcher::default();
+    let report = run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &episode,
+    )
+    .await;
+    assert_eq!(dispatcher.count(), 0);
+    assert!(report
+        .degraded
+        .iter()
+        .any(|note| note == "undecided:TASK-1"));
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Queued);
+    assert!(run.detail.unwrap_or_default().contains("没有给出结论"));
+}
+
+#[tokio::test]
 async fn nominating_an_unlisted_worker_becomes_a_question() {
     let workspace = workspace(1, "In Progress");
     let episode = FixedEpisode {
@@ -619,6 +692,277 @@ async fn trace_records_every_tick() {
     assert_eq!(traces[0].trigger, "test");
     assert!(traces[0].shadow);
     assert_eq!(traces[0].decisions.len(), 1);
+}
+
+/// 一张卡「没在跑、没完成、也不是人停的」，就该重新排队。
+///
+/// 这里的情况是运行记录说 `done`，卡片却还挂在执行列上——只能是人把它拖回来的。
+#[tokio::test]
+async fn a_done_run_that_is_back_in_the_trigger_column_is_queued_again() {
+    let workspace = workspace(1, "In Progress");
+    workspace
+        .db
+        .put_router_run(
+            &workspace.root,
+            "TASK-1",
+            RunWrite {
+                state: RunState::Done,
+                worker_app: Some("claude"),
+                session_id: None,
+                attempts: 2,
+                detail: Some("worker 退出码 0，任务已移到 Done"),
+                card_fingerprint: None,
+                shadow: false,
+            },
+            crate::super_agent::store::now_ms(),
+        )
+        .expect("run");
+    let dispatcher = RecordingDispatcher::default();
+    let report = run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+    assert_eq!(dispatcher.count(), 1, "回到执行列就该重新派发");
+    assert!(report.degraded.iter().any(|note| note == "requeued:TASK-1"));
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Dispatched);
+    assert_eq!(run.attempts, 1, "重排之后重试预算从零开始");
+}
+
+/// 人改过卡片（补信息、换列）就不该还卡在「等你看」：
+/// 重试预算按「同一版卡片」算，卡片换了一版，预算就归零。
+#[tokio::test]
+async fn editing_the_card_clears_the_retry_budget() {
+    let workspace = workspace(1, "In Progress");
+    workspace
+        .db
+        .put_router_run(
+            &workspace.root,
+            "TASK-1",
+            RunWrite {
+                state: RunState::NeedsYou,
+                worker_app: Some("claude"),
+                session_id: None,
+                attempts: 3,
+                detail: Some("worker 退出码 1"),
+                // 上一次运行结束时的指纹，与现在的卡片不一样 = 之后人动过。
+                card_fingerprint: Some("stale-fingerprint"),
+                shadow: false,
+            },
+            crate::super_agent::store::now_ms(),
+        )
+        .expect("run");
+    let dispatcher = RecordingDispatcher::default();
+    run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+    assert_eq!(dispatcher.count(), 1, "卡片被改过，预算清零后应重新派发");
+    assert_eq!(
+        workspace
+            .db
+            .router_run(&workspace.root, "TASK-1")
+            .unwrap()
+            .unwrap()
+            .attempts,
+        1
+    );
+}
+
+/// 失败后按退避重试：刚到点不能立刻再派，冷却过后必须派。
+#[tokio::test]
+async fn a_failed_card_is_retried_after_the_backoff() {
+    let workspace = workspace(1, "In Progress");
+    let now = crate::super_agent::store::now_ms();
+    let failed_at = || RunWrite {
+        state: RunState::Failed,
+        worker_app: Some("claude"),
+        session_id: None,
+        attempts: 1,
+        detail: Some("worker 退出码 1"),
+        card_fingerprint: None,
+        shadow: false,
+    };
+
+    workspace
+        .db
+        .put_router_run(&workspace.root, "TASK-1", failed_at(), now)
+        .expect("run");
+    let dispatcher = RecordingDispatcher::default();
+    let report = run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+    assert_eq!(dispatcher.count(), 0);
+    assert!(report
+        .filtered
+        .iter()
+        .any(|filtered| filtered.reason == "cooling-down"));
+
+    // 冷却时间（默认 120s）已经过去：同一张卡必须被重新派发。
+    let past = now - 200_000;
+    workspace
+        .db
+        .put_router_run(&workspace.root, "TASK-1", failed_at(), past)
+        .expect("run");
+    run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+    assert_eq!(dispatcher.count(), 1);
+}
+
+/// 卡死看门狗：进程永远不死（交互式 CLI 停在提示符）也要能被停下来重派。
+#[test]
+fn a_worker_that_never_ends_is_stopped_and_retried() {
+    let workspace = workspace(1, "In Progress");
+    let journal_dir = tempfile::tempdir().expect("journal dir");
+    let journal = journal_dir.path().join("session-exit.log");
+    let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3399";
+    let started = crate::super_agent::store::now_ms() - 2 * 60 * 60 * 1000;
+    workspace
+        .db
+        .put_router_run(
+            &workspace.root,
+            "TASK-1",
+            RunWrite {
+                state: RunState::Working,
+                worker_app: Some("claude"),
+                session_id: Some(session),
+                attempts: 1,
+                detail: None,
+                card_fingerprint: None,
+                shadow: false,
+            },
+            started,
+        )
+        .expect("run");
+    let workers = RecordingDispatcher::default();
+    workers.alive.lock().unwrap().push(session.to_string());
+
+    let mut report = empty_report();
+    crate::super_agent::tick::reconcile(
+        &workspace.db,
+        &settings(false),
+        crate::super_agent::store::now_ms(),
+        &journal,
+        &workers,
+        &mut report,
+    );
+
+    assert_eq!(
+        workers.cancelled.lock().unwrap().clone(),
+        vec![session.to_string()],
+        "卡死的 worker 要先停掉，否则它一直占着并发位"
+    );
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Failed);
+    assert_eq!(run.attempts, 2);
+    assert!(run.detail.expect("detail").contains("没有结束"));
+    assert!(report
+        .degraded
+        .iter()
+        .any(|note| note.starts_with("stalled:TASK-1")));
+}
+
+/// 还在跑的 worker 不能被看门狗误伤：上限没到就得继续等。
+#[test]
+fn a_worker_inside_the_stall_limit_keeps_running() {
+    let workspace = workspace(1, "In Progress");
+    let journal_dir = tempfile::tempdir().expect("journal dir");
+    let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3400";
+    dispatch_run(&workspace.db, &workspace.root, session, None);
+    let workers = RecordingDispatcher::default();
+    workers.alive.lock().unwrap().push(session.to_string());
+
+    crate::super_agent::tick::reconcile(
+        &workspace.db,
+        &settings(false),
+        crate::super_agent::store::now_ms(),
+        &journal_dir.path().join("session-exit.log"),
+        &workers,
+        &mut empty_report(),
+    );
+    assert!(workers.cancelled.lock().unwrap().is_empty());
+    assert_eq!(
+        workspace
+            .db
+            .router_run(&workspace.root, "TASK-1")
+            .unwrap()
+            .unwrap()
+            .state,
+        RunState::Working
+    );
+}
+
+/// 收尾时记的是「运行结束后」的指纹：worker 自己改卡不能被当成人的改动，
+/// 否则每次失败都会清零重试预算，变成无限重试。
+#[test]
+fn a_worker_that_edits_the_card_does_not_look_like_a_human_edit() {
+    let workspace = workspace(1, "In Progress");
+    let journal_dir = tempfile::tempdir().expect("journal dir");
+    let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3401";
+    let before = crate::super_agent::snapshot::task_fingerprint(&workspace.root, "TASK-1")
+        .expect("fingerprint");
+    dispatch_run(&workspace.db, &workspace.root, session, Some(&before));
+
+    let tasks = std::path::Path::new(&workspace.root).join("backlog/tasks");
+    let path = std::fs::read_dir(&tasks)
+        .expect("tasks dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "md"))
+        .expect("task file");
+    let mut body = std::fs::read_to_string(&path).expect("read");
+    body.push_str("\n结论：改完了，测试通过。\n");
+    std::fs::write(&path, body).expect("write");
+
+    let journal = journal_with(&journal_dir, session, 1, &workspace.root);
+    crate::super_agent::tick::reconcile(
+        &workspace.db,
+        &settings(false),
+        crate::super_agent::store::now_ms(),
+        &journal,
+        &RecordingDispatcher::default(),
+        &mut empty_report(),
+    );
+    let after = crate::super_agent::snapshot::task_fingerprint(&workspace.root, "TASK-1")
+        .expect("fingerprint");
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Failed);
+    assert_eq!(
+        run.card_fingerprint.as_deref(),
+        Some(after.as_str()),
+        "收尾要把运行结束后的指纹写回去"
+    );
 }
 
 #[tokio::test]
@@ -1365,4 +1709,109 @@ fn blocked_dependencies_keep_the_card_queued() {
     );
     assert!(outcome.survivors.is_empty());
     assert_eq!(outcome.filtered[0].reason, "blocked-by:TASK-2");
+}
+/// 在卡里补一行正文：测「worker 改了卡」这件事最直接的做法就是改文件。
+fn append_to_card(root: &str, text: &str) {
+    let tasks = std::path::Path::new(root).join("backlog/tasks");
+    let path = std::fs::read_dir(&tasks)
+        .expect("tasks dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "md"))
+        .expect("task file");
+    let mut body = std::fs::read_to_string(&path).expect("read");
+    body.push_str(text);
+    std::fs::write(&path, body).expect("write");
+}
+
+/// 卡里写着「需要你决定：…」时，退出码 0 是「停下来等人」而不是「没干完」。
+///
+/// 这两件事从退出码上看一模一样。混成一件的后果是：调度器每隔一个冷却时间把
+/// 同一个问题再问一遍，钱花两遍、卡片一个字没动；人真正想点的「回答它」反而
+/// 始终等不到。
+#[test]
+fn a_worker_that_asked_a_question_waits_for_a_human_instead_of_retrying() {
+    let workspace = workspace(1, "In Progress");
+    let journal_dir = tempfile::tempdir().expect("journal dir");
+    let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3320";
+    let fingerprint = crate::super_agent::snapshot::task_fingerprint(&workspace.root, "TASK-1")
+        .expect("fingerprint");
+    dispatch_run(&workspace.db, &workspace.root, session, Some(&fingerprint));
+    append_to_card(
+        &workspace.root,
+        "\n需要你决定：这次只改前端，还是把后端接口一起换掉？\n",
+    );
+    let journal = journal_with(&journal_dir, session, 0, &workspace.root);
+
+    crate::super_agent::tick::reconcile(
+        &workspace.db,
+        &settings(false),
+        crate::super_agent::store::now_ms(),
+        &journal,
+        &RecordingDispatcher::default(),
+        &mut empty_report(),
+    );
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::NeedsYou);
+    let detail = run.detail.expect("detail");
+    assert!(detail.contains("等你回话"), "detail: {detail}");
+    assert!(
+        detail.contains("这次只改前端"),
+        "问题本身要出现在看板上，人不用去翻终端：{detail}"
+    );
+    assert_eq!(run.attempts, 1, "等人回话不该消耗重试预算");
+}
+
+/// 卡片里没有那行标记时保持原样：退出码 0 但没进 Done = 没干完，冷却后重派。
+#[test]
+fn a_worker_that_stopped_without_asking_still_retries() {
+    let workspace = workspace(1, "In Progress");
+    let journal_dir = tempfile::tempdir().expect("journal dir");
+    let session = "3f2504e0-4f89-11d3-9a0c-0305e82c3321";
+    let fingerprint = crate::super_agent::snapshot::task_fingerprint(&workspace.root, "TASK-1")
+        .expect("fingerprint");
+    dispatch_run(&workspace.db, &workspace.root, session, Some(&fingerprint));
+    append_to_card(&workspace.root, "\n结论：改到一半，还没验证。\n");
+    let journal = journal_with(&journal_dir, session, 0, &workspace.root);
+
+    crate::super_agent::tick::reconcile(
+        &workspace.db,
+        &settings(false),
+        crate::super_agent::store::now_ms(),
+        &journal,
+        &RecordingDispatcher::default(),
+        &mut empty_report(),
+    );
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Failed);
+}
+
+/// 派发指令里必须带上「需要你决定」这个约定：工人不知道格式，结算就永远分辨不出
+/// 「等人回话」和「没干完」。
+#[test]
+fn the_task_prompt_states_the_needs_human_marker() {
+    let prompt = crate::super_agent::model::task_prompt("backlog/tasks/task-1.md");
+    assert!(prompt.contains(crate::super_agent::model::NEEDS_HUMAN_MARKER));
+    assert_eq!(
+        crate::super_agent::model::human_question("## 说明\n- 需要你决定：要发布到哪个环境？\n")
+            .as_deref(),
+        Some("要发布到哪个环境？")
+    );
+    // 没有标记、标记后面没内容、或者只是正文里随口提到，都不算在问人。
+    assert_eq!(
+        crate::super_agent::model::human_question("结论：做完了"),
+        None
+    );
+    assert_eq!(
+        crate::super_agent::model::human_question("需要你决定："),
+        None
+    );
 }

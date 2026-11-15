@@ -345,9 +345,20 @@ impl Episode for SidecarEpisode {
                 let line = match recv_within(&mut *channel, deadline).await {
                     Ok(Some(line)) => line,
                     // 子进程自己退出了：没有 finish，但已经收下的决策照用。
+                    // 一条都没收下就是「什么都没判断出来」，交给规则版，别让整轮空转。
+                    Ok(None) if session.decisions.is_empty() => {
+                        break Err("sidecar-exited-without-decision".to_string())
+                    }
                     Ok(None) => break Ok(()),
                     Err(reason) if reason == TIMEOUT => {
                         session.note("deadline-exceeded");
+                        // 到点但一条决策都没拿到：这一轮实际上什么都没判断出来。
+                        // 返回 Ok 会让 tick 既不派发也不在卡上留任何状态，用户只看到
+                        // 「卡片躺在执行列里，什么都没发生」。退回规则版才有活干。
+                        // 已经拿到决策时照用（见模块注释第 1 条），不因为没收到 finish 就扔掉。
+                        if session.decisions.is_empty() {
+                            break Err(TIMEOUT.to_string());
+                        }
                         break Ok(());
                     }
                     Err(reason) => break Err(reason),
@@ -771,6 +782,35 @@ mod tests {
         fn kill(&mut self) {}
     }
 
+    /// 送完预置的帧就装死：用来看「超时，但已经拿到决策」的行为。
+    struct StallAfter {
+        inbound: VecDeque<String>,
+        sent: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl Channel for StallAfter {
+        fn send<'a>(&'a mut self, line: String) -> BoxFuture<'a, Result<(), String>> {
+            Box::pin(async move {
+                if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                    self.sent.lock().unwrap().push(value);
+                }
+                Ok(())
+            })
+        }
+
+        fn recv<'a>(&'a mut self) -> BoxFuture<'a, Result<Option<String>, String>> {
+            Box::pin(async move {
+                if let Some(line) = self.inbound.pop_front() {
+                    return Ok(Some(line));
+                }
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                Ok(None)
+            })
+        }
+
+        fn kill(&mut self) {}
+    }
+
     fn scripted(frames: Vec<Value>) -> (SidecarEpisode, Arc<Mutex<Vec<Value>>>) {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let lines: VecDeque<String> = frames.iter().map(|frame| frame.to_string()).collect();
@@ -991,11 +1031,14 @@ mod tests {
             calls: AtomicUsize::new(0),
             probability: Some(0.9),
         };
-        let (episode, sent) = scripted(vec![call(
-            "c1",
-            "judge",
-            json!({ "kind": "noul", "instructions": "值得动吗", "taskId": "TASK-1" }),
-        )]);
+        let (episode, sent) = scripted(vec![
+            call(
+                "c1",
+                "judge",
+                json!({ "kind": "noul", "instructions": "值得动吗", "taskId": "TASK-1" }),
+            ),
+            json!({ "type": "episode.done" }),
+        ]);
         let mut episode_input = input(&candidates, &settings);
         episode_input.judge = Some(&judge);
         episode_input.judge_calls = 0;
@@ -1015,15 +1058,18 @@ mod tests {
             calls: AtomicUsize::new(0),
             probability: None,
         };
-        let (episode, sent) = scripted(vec![call(
-            "c1",
-            "judge",
-            json!({
-                "kind": "choice",
-                "instructions": "派给谁",
-                "options": ["claude", "gemini"],
-            }),
-        )]);
+        let (episode, sent) = scripted(vec![
+            call(
+                "c1",
+                "judge",
+                json!({
+                    "kind": "choice",
+                    "instructions": "派给谁",
+                    "options": ["claude", "gemini"],
+                }),
+            ),
+            json!({ "type": "episode.done" }),
+        ]);
         let mut episode_input = input(&candidates, &settings);
         episode_input.judge = Some(&judge);
         episode.run(episode_input).await.expect("episode");
@@ -1086,11 +1132,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_stalled_child_hits_the_deadline_and_keeps_what_it_already_decided() {
+    async fn a_stalled_child_that_decided_nothing_fails_so_the_caller_falls_back() {
         let settings = RouterSettings::default();
         let candidates = vec![candidate("TASK-1", "改个错字")];
 
-        /// 收下第一帧之后永远不再说话。
+        /// 收下请求后永远不再说话。
         struct Silent {
             sent: Arc<Mutex<Vec<Value>>>,
         }
@@ -1121,12 +1167,45 @@ mod tests {
                 Box::pin(async move { Ok(Box::new(Silent { sent }) as Box<dyn Channel>) })
             }),
         );
+        // 一条决策都没有的「超时」不是「模型认为不该动」，是这一轮什么都没判断出来。
+        // 返回 Ok 会让 tick 空转一轮（不派发、卡上也不留状态），必须退回规则版。
+        let error = episode
+            .run(input(&candidates, &settings))
+            .await
+            .expect_err("deadline without decisions should fail");
+        assert!(matches!(error, EpisodeError::Failed(reason) if reason == TIMEOUT));
+    }
+
+    #[tokio::test]
+    async fn a_stalled_child_hits_the_deadline_and_keeps_what_it_already_decided() {
+        let settings = RouterSettings::default();
+        let candidates = vec![candidate("TASK-1", "改个错字")];
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let handle = sent.clone();
+        let episode = SidecarEpisode::with_factory(
+            Duration::from_millis(150),
+            Box::new(move || {
+                let sent = handle.clone();
+                Box::pin(async move {
+                    Ok(Box::new(StallAfter {
+                        inbound: VecDeque::from(vec![call(
+                            "c1",
+                            "nominate_worker",
+                            json!({ "taskId": "TASK-1", "appId": "claude" }),
+                        )
+                        .to_string()]),
+                        sent,
+                    }) as Box<dyn Channel>)
+                })
+            }),
+        );
         let outcome = episode
             .run(input(&candidates, &settings))
             .await
-            .expect("deadline degrades");
+            .expect("deadline keeps the decision");
 
         assert!(outcome.decisions.unfinished);
+        assert_eq!(outcome.decisions.decisions.len(), 1);
         assert!(outcome
             .steps
             .iter()

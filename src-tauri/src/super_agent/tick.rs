@@ -99,8 +99,11 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
         report.skipped = Some("no-tasks".into());
         return finish(ctx.db, report, steps, started);
     }
-    let statuses: HashMap<(String, String), String> = scan
-        .candidates
+    // 巡检：看板上的事实优先于运行记录。一张卡还挂在执行列上，运行记录却说它
+    // 「完成 / 失败 / 等人确认」，那它既没在跑、也没完成——正是该被重新派发的那类。
+    let mut candidates = scan.candidates;
+    supervise(ctx.db, &settings, &mut candidates, ctx.now, &mut report);
+    let statuses: HashMap<(String, String), String> = candidates
         .iter()
         .map(|candidate| {
             (
@@ -113,7 +116,7 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
             )
         })
         .collect();
-    let filtered = prefilter::apply(scan.candidates, &settings, &statuses, ctx.now);
+    let filtered = prefilter::apply(candidates, &settings, &statuses, ctx.now);
     report.candidates = filtered.survivors.len();
     report.filtered = filtered.filtered;
     steps.push(format!("prefilter {} survivors", report.candidates));
@@ -239,6 +242,36 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
             ctx.now,
             &mut report,
         );
+
+        // 有候选、却没有一条决策落在这张卡上：这一轮等于什么都没判断出来。
+        // 不留状态的话，卡在看板上就是一个空徽标，和从没派发过一模一样，
+        // 用户只能得出「调度器死了」的结论。写一条 queued 至少看得出它还在排队；
+        // 下一轮仍会重试（prefilter 不拦 Queued）。
+        for candidate in &group {
+            if decisions
+                .iter()
+                .any(|decision| decision.task_id == candidate.task_id)
+            {
+                continue;
+            }
+            let _ = ctx.db.put_router_run(
+                &candidate.root,
+                &candidate.task_id,
+                store::RunWrite {
+                    state: RunState::Queued,
+                    worker_app: None,
+                    session_id: None,
+                    attempts: candidate.attempts(),
+                    detail: Some("调度器这一轮没有给出结论，下一轮重试"),
+                    card_fingerprint: Some(&candidate.fingerprint),
+                    shadow: settings.shadow,
+                },
+                ctx.now,
+            );
+            report
+                .degraded
+                .push(format!("undecided:{}", candidate.task_id));
+        }
     }
 
     finish(ctx.db, report, steps, started)
@@ -290,6 +323,96 @@ fn finish(
     })
 }
 
+/// 看板巡检：把「运行记录」和「看板上的事实」对齐。
+///
+/// 只处理一种矛盾——卡片还挂在执行列（`trigger_status`）上，运行记录却说它已经
+/// 结束（`done` / `failed` / `needs-you`）。那就是「没在跑、没完成、也不是人停的」：
+/// 记录里的结论属于上一次运行，看板则说明它还在这轮里。
+///
+/// 两个触发条件都不是机器能自己造出来的：
+/// - 记录说 `done`，卡片却不在完成列——只能是人把它拖回来的；
+/// - 记录说失败 / 等人确认，而卡片在上次运行结束后被改过——人改了内容或挪了列。
+///
+/// 重排时把重试预算清零。预算限制的是「同一版卡片被反复派发」，不是这张卡本身；
+/// 人一动手就说明它换了一版。
+pub(crate) fn supervise(
+    db: &Database,
+    settings: &RouterSettings,
+    candidates: &mut [Candidate],
+    now: i64,
+    report: &mut TickReport,
+) {
+    for candidate in candidates.iter_mut() {
+        let Some(run) = candidate.run.as_mut() else {
+            continue;
+        };
+        // 正在跑、或者人按了暂停：都不归这里管。
+        if run.state.is_running() || run.state == RunState::Paused {
+            continue;
+        }
+        // 只看执行列：其它列的卡本来就不该自动派发，写一条「排队中」只会让人误会。
+        if candidate.status != settings.trigger_status {
+            continue;
+        }
+        let fingerprint_changed = run
+            .card_fingerprint
+            .as_deref()
+            .is_some_and(|before| before != candidate.fingerprint);
+        let reopened = run.state == RunState::Done && !prefilter::done_status(&candidate.status);
+        let reconsidered =
+            matches!(run.state, RunState::Failed | RunState::NeedsYou) && fingerprint_changed;
+        if !reopened && !reconsidered {
+            continue;
+        }
+        let detail = if reopened {
+            "任务又回到执行列，重新排队"
+        } else {
+            "卡片已被改动，重新排队并清零重试预算"
+        };
+        run.state = RunState::Queued;
+        run.session_id = None;
+        run.attempts = 0;
+        run.detail = Some(detail.to_string());
+        run.card_fingerprint = Some(candidate.fingerprint.clone());
+        run.updated_at = now;
+        let persisted = db.put_router_run(
+            &run.root,
+            &run.task_id,
+            store::RunWrite {
+                state: RunState::Queued,
+                worker_app: run.worker_app.as_deref(),
+                session_id: None,
+                attempts: 0,
+                detail: Some(detail),
+                card_fingerprint: Some(&candidate.fingerprint),
+                shadow: run.shadow,
+            },
+            now,
+        );
+        if let Err(error) = persisted {
+            log::error!("router requeue failed task={}: {error}", candidate.task_id);
+            report
+                .degraded
+                .push(format!("requeue-failed:{}", candidate.task_id));
+            continue;
+        }
+        // 重新排队意味着上一次运行的租约作废，否则新的一轮会被自己的旧租约拦住。
+        let _ = db.release_router_lease(&run.root, &run.task_id);
+        report
+            .degraded
+            .push(format!("requeued:{}", candidate.task_id));
+    }
+}
+
+/// 卡片正文里 worker 留下的「需要你决定」那一行。
+///
+/// 读不到卡片就当没有：结算不能因为一次读文件失败而崩溃，也不能凭空造一个问题出来。
+fn card_question(root: &str, task_id: &str) -> Option<String> {
+    let workspace = crate::tasks::document::open(std::path::Path::new(root)).ok()?;
+    let detail = crate::tasks::repository::read(&workspace, task_id).ok()?;
+    crate::super_agent::model::human_question(&detail.body)
+}
+
 /// 结算已经结束的 worker。
 ///
 /// 先看退出记账，再看托管会话还在不在。顺序不能反：`session.sh` 在 CLI 退出后会
@@ -338,17 +461,71 @@ pub(crate) fn reconcile(
             .as_deref()
             .map(|session| workers.probe(session))
             .unwrap_or(WorkerState::Unknown);
+        // 卡死看门狗。界面停在提示符、进程却永远不死的 worker（交互式 TUI 跑完一轮
+        // 就是这样）在运行时那里一直是 `Alive`：不留这道上限，它就永远占着一个
+        // 并发位，后面的卡一张也派不出去——表现就是「调度器停了」。
+        let stalled = settings.stall_seconds > 0
+            && now.saturating_sub(run.updated_at) >= settings.stall_seconds.saturating_mul(1000);
         if record.is_none() && alive == WorkerState::Alive {
-            // 还没有退出记录、运行时也说还在跑：worker 真的还在。
-            if run.state == RunState::Dispatched {
-                let _ = db.set_router_state(
-                    &run.root,
-                    &run.task_id,
-                    RunState::Working,
-                    run.detail.as_deref(),
-                    now,
-                );
+            if !stalled {
+                // 还没有退出记录、运行时也说还在跑：worker 真的还在。
+                if run.state == RunState::Dispatched {
+                    let _ = db.set_router_state(
+                        &run.root,
+                        &run.task_id,
+                        RunState::Working,
+                        run.detail.as_deref(),
+                        now,
+                    );
+                }
+                continue;
             }
+            // 超过上限还没结束：先停掉，再按失败结算，让它进入重试而不是占着位置。
+            if let Some(session) = run.session_id.as_deref() {
+                if let Err(error) = workers.cancel(session) {
+                    log::warn!("router stall cancel failed task={}: {error}", run.task_id);
+                }
+            }
+            let attempts = run.attempts + 1;
+            let minutes = (settings.stall_seconds / 60).max(1);
+            let (state, detail) = if attempts >= settings.max_attempts {
+                (
+                    RunState::NeedsYou,
+                    format!(
+                        "worker 超过 {minutes} 分钟没有结束，已尝试 {attempts} 次，请确认下一步"
+                    ),
+                )
+            } else {
+                (
+                    RunState::Failed,
+                    format!("worker 超过 {minutes} 分钟没有结束，已停掉它，等冷却后重派"),
+                )
+            };
+            let persisted = db.put_router_run(
+                &run.root,
+                &run.task_id,
+                store::RunWrite {
+                    state,
+                    worker_app: run.worker_app.as_deref(),
+                    session_id: None,
+                    attempts,
+                    detail: Some(&detail),
+                    card_fingerprint: run.card_fingerprint.as_deref(),
+                    shadow: run.shadow,
+                },
+                now,
+            );
+            if let Err(error) = persisted {
+                log::error!("router stall settle failed task={}: {error}", run.task_id);
+                report
+                    .degraded
+                    .push(format!("reconcile-write-failed:{}", run.task_id));
+                continue;
+            }
+            let _ = db.release_router_lease(&run.root, &run.task_id);
+            report
+                .degraded
+                .push(format!("stalled:{}:{}", run.task_id, state.as_str()));
             continue;
         }
 
@@ -368,15 +545,26 @@ pub(crate) fn reconcile(
                 let card_changed = current
                     .zip(run.card_fingerprint.as_deref())
                     .is_some_and(|(current, before)| current != before);
-                if settings.trust_exit_zero
-                    && card_changed
-                    && task
-                        .as_ref()
-                        .is_some_and(|task| task.status.eq_ignore_ascii_case("done"))
-                {
+                let done = task
+                    .as_ref()
+                    .is_some_and(|task| task.status.eq_ignore_ascii_case("done"));
+                // worker 在卡里写了「需要你决定：…」：这是停下来等人回话，不是失败。
+                // 重派只会拿着同一版卡片把同一个问题再问一遍——钱花两遍，一个字没变。
+                let question = if card_changed && !done {
+                    task.as_ref()
+                        .and_then(|task| card_question(&run.root, &task.task_id))
+                } else {
+                    None
+                };
+                if settings.trust_exit_zero && card_changed && done {
                     (
                         RunState::Done,
                         "worker 退出码 0，任务已移到 Done".to_string(),
+                    )
+                } else if let Some(question) = question {
+                    (
+                        RunState::NeedsYou,
+                        format!("worker 停下来等你回话：{question}。把答案补进卡片正文，再选「继续执行」"),
                     )
                 } else if settings.trust_exit_zero
                     && task
@@ -436,7 +624,9 @@ pub(crate) fn reconcile(
                 session_id: None,
                 attempts: run.attempts,
                 detail: Some(&detail),
-                card_fingerprint: run.card_fingerprint.as_deref(),
+                // 记下「这次运行结束后」的卡片指纹：下一次比较的是它，于是
+                // worker 自己改卡不会被当成「有人动过」，只有之后的外部改动才算。
+                card_fingerprint: current.or(run.card_fingerprint.as_deref()),
                 shadow: run.shadow,
             },
             now,
@@ -710,18 +900,16 @@ fn apply(
                         report.dispatched.push(candidate.task_id.clone());
                     }
                     Err(error) => {
-                        // 环境类错误（没窗口、平台不支持）不是 worker 的错，转人工；
-                        // 其它错误按失败退避重试。
-                        let environment = matches!(
-                            error.as_str(),
-                            "no-window" | "unsupported-platform" | "unsupported-app"
-                        ) || error.starts_with("zellij-");
-                        let state =
-                            if environment || candidate.attempts() + 1 >= settings.max_attempts {
-                                RunState::NeedsYou
-                            } else {
-                                RunState::Failed
-                            };
+                        // 派发失败一律按失败重试，包括环境类错误（没有窗口、平台不支持、
+                        // zellij 起不来）。这张卡既没在跑也没完成，也不是人停的；环境修好
+                        // 后下一轮就该派出去。真的一直失败，重试预算会把它转成「等你看」，
+                        // 而不是在第一次失败就永久停在那里。
+                        let attempts = candidate.attempts() + 1;
+                        let state = if attempts >= settings.max_attempts {
+                            RunState::NeedsYou
+                        } else {
+                            RunState::Failed
+                        };
                         let _ = db.put_router_run(
                             &candidate.root,
                             &candidate.task_id,
@@ -729,17 +917,16 @@ fn apply(
                                 state,
                                 worker_app: Some(&app_id),
                                 session_id: None,
-                                attempts: candidate.attempts() + 1,
+                                attempts,
                                 detail: Some(&format!("dispatch-failed:{error}")),
-                                card_fingerprint: candidate
-                                    .run
-                                    .as_ref()
-                                    .and_then(|run| run.card_fingerprint.as_deref()),
+                                // 记录里存的永远是「写入这一刻」的卡片指纹：巡检靠
+                                // 它区分「之后有人动过」与「机器自己写的」。
+                                card_fingerprint: Some(&candidate.fingerprint),
                                 shadow: false,
                             },
                             now,
                         );
-                        if environment {
+                        if state == RunState::NeedsYou {
                             report.needs_you.push(candidate.task_id.clone());
                         }
                         report
@@ -775,10 +962,7 @@ fn apply(
                             .and_then(|run| run.session_id.as_deref()),
                         attempts: candidate.attempts(),
                         detail: Some(&detail),
-                        card_fingerprint: candidate
-                            .run
-                            .as_ref()
-                            .and_then(|run| run.card_fingerprint.as_deref()),
+                        card_fingerprint: Some(&candidate.fingerprint),
                         shadow: settings.shadow,
                     },
                     now,

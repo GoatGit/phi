@@ -29,6 +29,41 @@ pub fn cli(app: &str) -> Option<(&'static str, &'static [&'static str])> {
 pub fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
+
+/// 后台 worker 的非交互启动参数。
+///
+/// 这不是风格选择，是「调度器能不能知道任务停了」的前提：交互式 TUI 跑完一轮会
+/// 停在提示符等人，进程不死、也没有退出码——卡片就只能永远显示「运行中」，一直
+/// 占着并发位，后面的卡一张也派不出去。换到这些 CLI 自己的非交互模式后，跑完就
+/// 带退出码退出，`exit_hook` 的 journal 与 pane 双重佐证才真的成立。
+///
+/// 没把握的 CLI 一律返回 `None`，保持原来的交互式启动；卡死由调度器的
+/// `stall_seconds` 上限兜底，不会比改动前更差。
+pub fn worker_flags(app: &str) -> Option<&'static [&'static str]> {
+    Some(match app {
+        // `exec` 默认就是 approval=never，但要显式要 workspace-write，否则它只能读。
+        "codex" => &["exec", "-s", "workspace-write", "--skip-git-repo-check"],
+        // 非交互模式下没人能点「允许」：至少要放开编辑，否则它一个字都改不了。
+        "claude" => &["-p", "--permission-mode", "acceptEdits"],
+        "gemini" => &["-p", "--approval-mode", "auto_edit"],
+        "opencode" => &["run"],
+        _ => return None,
+    })
+}
+
+/// worker 的完整 arguments：非交互参数在前，指令在后，每一段单独转义。
+///
+/// 与 `prepare_with` 的 `arguments` 同一种格式，所以两条派发路径（zellij 与托管
+/// 终端）不需要各写一套：谁能把 CLI 非交互地跑起来，谁就拿到同一份参数。
+pub fn worker_arguments(app: &str, prompt: &str) -> String {
+    let mut parts: Vec<String> = worker_flags(app)
+        .unwrap_or(&[])
+        .iter()
+        .map(|part| quote(part))
+        .collect();
+    parts.push(quote(prompt));
+    parts.join(" ")
+}
 #[cfg(any(target_os = "macos", test))]
 fn session_command(shell: &str, executable: &str, args: &[String]) -> String {
     [
@@ -262,6 +297,37 @@ pub fn prepare_raw(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn workers_run_in_their_non_interactive_mode() {
+        // 交互式 TUI 跑完一轮会停在提示符，进程不死也没有退出码；调度器靠退出
+        // 记账判定「是不是停了」，所以后台 worker 必须走 CLI 自己的非交互模式。
+        let prompt = "读 backlog/tasks/task-1 - 芳芳说的发生.md 这张任务卡";
+        assert_eq!(
+            parse_arguments(&worker_arguments("codex", prompt)).unwrap(),
+            vec![
+                "exec",
+                "-s",
+                "workspace-write",
+                "--skip-git-repo-check",
+                prompt
+            ]
+        );
+        // 非交互模式没人能点「允许」：至少要能改文件。
+        assert!(worker_flags("claude")
+            .unwrap()
+            .contains(&"--permission-mode"));
+        assert!(worker_flags("claude").unwrap().contains(&"acceptEdits"));
+        assert_eq!(worker_flags("gemini").unwrap()[1], "--approval-mode");
+        assert_eq!(worker_flags("opencode").unwrap(), &["run"]);
+        // 没有验证过非交互模式的 CLI 一字不加：宁可由卡死看门狗兜底，
+        // 也不能凭空塞一个它不认的参数。
+        assert_eq!(worker_flags("pi"), None);
+        assert_eq!(
+            parse_arguments(&worker_arguments("pi", prompt)).unwrap(),
+            vec![prompt]
+        );
+    }
+
     #[test]
     fn capabilities_are_not_proxy_apps() {
         assert_eq!(CLI_APPS.len(), 9);

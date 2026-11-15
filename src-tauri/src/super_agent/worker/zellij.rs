@@ -206,8 +206,8 @@ impl WorkerRuntime for ZellijWorkers {
         crate::terminal::is_cli_app(&spec.app_id)?;
         let session_id = uuid::Uuid::new_v4().to_string();
         let journal = crate::exit_hook::journal_path();
-        // 与托管终端同一句话、同一套转义：两条入口不能各说一套。
-        let arguments = crate::terminal::quote_argument(&spec.prompt());
+        // 与托管终端同一句话、同一份参数：两条入口不能各说一套。
+        let arguments = crate::terminal::worker_arguments(&spec.app_id, &spec.prompt());
         let launch = crate::terminal::prepare_worker(
             &spec.app_id,
             &spec.root,
@@ -283,7 +283,15 @@ impl WorkerRuntime for ZellijWorkers {
             Ok(panes) => match panes.iter().find(|state| state.pane_id == pane) {
                 // pane 已经不在了：停了，但没有退出码。
                 None => WorkerState::Unknown,
-                Some(state) if state.exited => WorkerState::Exited(state.exit_status.unwrap_or(0)),
+                // exited 但没有退出码时不能补个 0：调用方会把它当成「跑成功了」，
+                // 一条真实的失败就变成完成。缺数就如实说不知道，交给 journal 判。
+                Some(state) if state.exited => match state.exit_status {
+                    Some(code) => WorkerState::Exited(code),
+                    None => {
+                        log::debug!("router probe exited pane without status pane={pane}");
+                        WorkerState::Unknown
+                    }
+                },
                 // held：命令结束了、pane 还留着（zellij 在我们没拿退出码时会这样）。
                 // 它是「停了但没数」，交给 journal 去判，不要当成还在跑。
                 Some(state) if state.held => WorkerState::Unknown,
@@ -300,6 +308,28 @@ impl WorkerRuntime for ZellijWorkers {
         let Some(record) = self.record(session_id) else {
             return Ok(None);
         };
+        let Some(pane) = record.pane_id.as_deref() else {
+            return Ok(None);
+        };
+        // 这个 worker 的 pane 已经不在了：不能把人挂到同一个 session 里**别的**
+        // worker 的画面上，那样标题写着 A、里面演的是 B。
+        let panes = self.panes().unwrap_or_default();
+        if viewer_pane(&panes, pane).is_none() {
+            log::debug!("router viewer: pane already gone pane={pane}");
+            return Ok(None);
+        }
+        // `attach` 显示的是会话当前焦点的那块 pane，它自己不带「挂哪一块」的参数。
+        // 所以先把焦点挪到目标上，否则点 A 任务的「打开终端」会看到 B 任务的画面。
+        //
+        // 失效的 pane 不会在这里被揭穿：实测 `focus-pane-id` 对不存在的 pane
+        // 也返回 0、stderr 为空。真正起作用的是上面那次 `list-panes` 检查；
+        // 这里的失败判断只当一道保险，zellij 将来改了行为也不会把人挂到错的 pane 上。
+        let focused = self.run(&["--session", SESSION, "action", "focus-pane-id", pane])?;
+        if !focused.status.success() {
+            let reason = String::from_utf8_lossy(&focused.stderr);
+            log::debug!("router viewer: focus failed pane={pane}: {}", reason.trim());
+            return Ok(None);
+        }
         let config = self.ensure_config()?;
         let mut environment = BTreeMap::new();
         environment.insert(
@@ -325,6 +355,8 @@ impl WorkerRuntime for ZellijWorkers {
                 .into_owned(),
             argv,
             environment,
+            // 查看器只是旁路：界面的状态跟着 worker 走，不跟着这个窗格走。
+            worker_session: record.session_id.clone(),
         }))
     }
 }
@@ -369,12 +401,27 @@ impl ZellijWorkers {
             return Ok(());
         }
         // 已经不在的 pane 视作已停：这条路径要能被重入。
+        //
+        // 只认「pane 没了」与「session 没了」这两种说法。早先这里还认任意含
+        // `Session` 的错误，等于把 zellij 的真实失败（连不上 server、参数不认）
+        // 也当成已关闭——取消会假装成功，worker 其实还在后台跑。
         let reason = String::from_utf8_lossy(&output.stderr);
-        if reason.contains("not found") || reason.contains("Session") {
+        if reason.contains("not found") || reason.contains("no active session") {
             return Ok(());
         }
         Err(format!("zellij-close-pane-failed:{}", reason.trim()))
     }
+}
+
+/// 查看器要挂到哪一块 pane 上。
+///
+/// 目标 pane 还在就挂它；不在了宁可什么都不挂（调用方报「会话已结束」），
+/// 也不要落到 session 里当前焦点的另一块 pane 上。
+fn viewer_pane(panes: &[PaneState], pane: &str) -> Option<String> {
+    panes
+        .iter()
+        .find(|state| state.pane_id == pane)
+        .map(|state| state.pane_id.clone())
 }
 
 /// 一个 pane 的可判定部分。
@@ -512,6 +559,22 @@ mod tests {
         assert_eq!(pane_number("terminal_3"), 3);
         assert_eq!(pane_number("terminal_12"), 12);
         assert_eq!(pane_number("weird"), 0);
+    }
+
+    #[test]
+    fn the_viewer_only_attaches_to_its_own_pane() {
+        let listing = r#"[
+          {"id": 1, "is_plugin": false, "exited": true, "exit_status": 0},
+          {"id": 2, "is_plugin": false, "exited": false}
+        ]"#;
+        let panes = parse_panes(listing).unwrap();
+        // 目标 pane 还在：挂它（哪怕它已经退出了——退出结果正是要给人看的）。
+        assert_eq!(
+            viewer_pane(&panes, "terminal_1").as_deref(),
+            Some("terminal_1")
+        );
+        // 目标 pane 没了：别落到会话里别的 worker 上。
+        assert_eq!(viewer_pane(&panes, "terminal_9"), None);
     }
 
     #[test]

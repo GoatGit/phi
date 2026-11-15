@@ -23,6 +23,12 @@ pub struct Snapshot {
     pub generation: u32,
     pub sequence: u64,
     pub error_code: Option<String>,
+    /// 这个窗格是哪个 worker 的查看器（只有查看器才有）。
+    ///
+    /// 查看器活着不代表 worker 活着：`zellij attach` 这个客户端会一直挂着，
+    /// 它自己退出也杀不掉里面的 worker。界面要靠这个字段去问 worker 的状态，
+    /// 不能把这个窗格的 phase 当成任务进度。
+    pub worker_session: Option<String>,
 }
 #[derive(Default)]
 struct Registry {
@@ -88,6 +94,7 @@ pub(crate) fn register_test_session(id: &str) {
         generation: 1,
         sequence: 1,
         error_code: None,
+        worker_session: None,
     });
 }
 
@@ -118,6 +125,14 @@ pub(crate) fn parse_arguments(value: &str) -> Result<Vec<String>, String> {
 /// 把单个参数安全地拼回命令串，供 `parse_arguments` 再拆一次。
 pub(crate) fn quote_argument(value: &str) -> String {
     launch::quote(value)
+}
+
+/// 后台 worker 的启动参数：非交互模式 + 一句指令。
+///
+/// 自动派发与看板上的「开始」都必须用它：两条入口各说一套，就会出现
+/// 「机器派的知道干完就退出、人点的那个永远停在提示符」这种分叉。
+pub(crate) fn worker_arguments(app: &str, prompt: &str) -> String {
+    launch::worker_arguments(app, prompt)
 }
 
 /// 同一个应用下不重名的窗格标题。
@@ -243,6 +258,7 @@ pub fn terminal_create(
             generation: 1,
             sequence: 1,
             error_code: None,
+            worker_session: None,
         };
         state.requests.insert(request_id, snapshot.id.clone());
         state.sessions.push(snapshot.clone());
@@ -328,11 +344,28 @@ where
     });
 }
 
+/// 同一个 worker 已经开着的查看器。
+///
+/// 只认还活着的（checking / starting / running）：已经退出的查看器留着只是历史，
+/// 再点「打开终端」必须重开一个，否则人会点到一个断开的空壳。
+fn existing_viewer(sessions: &[Snapshot], worker_session: &str) -> Option<Snapshot> {
+    sessions
+        .iter()
+        .find(|session| {
+            session.worker_session.as_deref() == Some(worker_session)
+                && matches!(session.phase.as_str(), "checking" | "starting" | "running")
+        })
+        .cloned()
+}
+
 /// 后台开一个「查看器」窗格：不做 CLI 解析，直接把 argv 交给 PTY。
 ///
 /// 目前只有一处用处：worker 跑在 zellij 里，要把它显示在 phi 界面上，
 /// 就挂一个 `zellij attach` 的客户端——关掉这个窗格只是断开查看，
 /// worker 本身照旧在 zellij 的 server 里跑。
+///
+/// 同一个 worker 已经有活的查看器时直接把它交回去：一个 worker 挂两个客户端，
+/// 两个标签页会抢同一块画面（zellij 的焦点是会话级的），看起来就像又挂错了 pane。
 pub(crate) fn open_viewer(
     app: &tauri::AppHandle,
     app_id: &str,
@@ -340,6 +373,7 @@ pub(crate) fn open_viewer(
     cwd: &str,
     argv: Vec<String>,
     environment: std::collections::BTreeMap<String, String>,
+    worker_session: &str,
 ) -> Result<Snapshot, String> {
     if !cfg!(target_os = "macos") {
         return Err("unsupported-platform".into());
@@ -350,6 +384,10 @@ pub(crate) fn open_viewer(
         let mut state = registry().lock().unwrap();
         if state.closing {
             return Err("application-exiting".into());
+        }
+        // 已经开着同一块 worker 的画面：别再加一个客户端。
+        if let Some(existing) = existing_viewer(&state.sessions, worker_session) {
+            return Ok(existing);
         }
         if state.sessions.len() >= 32 {
             return Err("terminal-limit".into());
@@ -365,6 +403,7 @@ pub(crate) fn open_viewer(
             generation: 1,
             sequence: 1,
             error_code: None,
+            worker_session: Some(worker_session.to_string()),
         };
         state.sessions.push(snapshot.clone());
         snapshot
@@ -425,6 +464,7 @@ pub(crate) fn resume_spawn(
             generation: 1,
             sequence: 1,
             error_code: None,
+            worker_session: None,
         };
         state.sessions.push(snapshot.clone());
         snapshot
@@ -621,4 +661,49 @@ pub async fn prepare_restart(app: &tauri::AppHandle) -> Result<bool, String> {
     })
     .map_err(|_| "terminal-shutdown-failed")?;
     receive.await.map_err(|_| "terminal-shutdown-failed".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn viewer(id: &str, worker: &str, phase: &str) -> Snapshot {
+        Snapshot {
+            id: id.into(),
+            app_id: "codex".into(),
+            title: "zellij".into(),
+            launch_cwd: "/tmp".into(),
+            launch_args: String::new(),
+            phase: phase.into(),
+            generation: 1,
+            sequence: 1,
+            error_code: None,
+            worker_session: Some(worker.into()),
+        }
+    }
+
+    #[test]
+    fn a_live_viewer_is_reused_instead_of_opening_a_second_client() {
+        // 两个客户端挂同一个 zellij session 会抢同一块画面（焦点是会话级的），
+        // 看起来就像又挂错了 pane；同一个 worker 只给一个查看器。
+        let sessions = vec![
+            viewer("a", "session-1", "running"),
+            viewer("b", "session-2", "running"),
+        ];
+        assert_eq!(
+            existing_viewer(&sessions, "session-1").map(|session| session.id),
+            Some("a".into())
+        );
+        assert_eq!(
+            existing_viewer(&sessions, "session-3").map(|session| session.id),
+            None
+        );
+
+        // 已经退出的查看器只是历史，不是可复用的窗口。
+        let stale = vec![viewer("c", "session-4", "exited")];
+        assert_eq!(
+            existing_viewer(&stale, "session-4").map(|session| session.id),
+            None
+        );
+    }
 }

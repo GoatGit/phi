@@ -5586,6 +5586,13 @@
       "failed": "終端機啟動失敗",
       "exited": "程序已結束"
     },
+    "viewer": {
+      "alive": "任務程序還在執行",
+      "exited": "任務程序已結束（退出碼 {{code}}）",
+      "exitedNoCode": "任務程序已結束，沒有取得退出碼",
+      "unknown": "查不到任務程序的狀態",
+      "hint": "這個視窗只是用來看，關掉它不會結束任務"
+    },
     "errors": {
       "missing-cli": "安裝 CLI 後即可直接在 PHI 內使用。",
       "invalid-directory": "工作目錄不存在或無法存取，請選擇其他目錄。",

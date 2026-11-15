@@ -29,6 +29,7 @@ const settings: RouterSettings = {
   attentionThreshold: 8,
   workerApps: ["claude"],
   maxAttempts: 3,
+  stallSeconds: 3600,
   trustExitZero: true,
   leaseSeconds: 90,
   cooldownSeconds: 120,

@@ -32,6 +32,8 @@ export interface RouterSettings {
   /** 允许被派发的 worker（应用 id），第一个是默认值。 */
   workerApps: string[];
   maxAttempts: number;
+  /** 一次运行最多跑多久（秒），超过就当作卡死：停掉并按失败重派。0 表示不设上限。 */
+  stallSeconds: number;
   /** 退出码 0 且卡片被改过才判完成；关掉之后一律转人工确认。 */
   trustExitZero: boolean;
   leaseSeconds: number;
@@ -143,6 +145,12 @@ export interface OpenedWorker {
   appId: string;
 }
 
+/** 一个 worker 自己的状态；`unknown` 是「查不到」，不能当成「还在跑」。 */
+export interface WorkerSnapshot {
+  state: "alive" | "exited" | "unknown";
+  exitCode: number | null;
+}
+
 export const superAgentApi = {
   settings: () => invoke<RouterSettings>("router_settings"),
   saveSettings: (settings: RouterSettings) =>
@@ -186,4 +194,11 @@ export const superAgentApi = {
    */
   openWorker: (root: string, taskId: string) =>
     invoke<OpenedWorker>("task_open_worker", { root, taskId }),
+  /**
+   * 查一个 worker 自己的状态。
+   *
+   * 查看器窗格自己会一直开着（它是 zellij 客户端），所以它活着不能当任务在跑。
+   */
+  workerState: (sessionId: string) =>
+    invoke<WorkerSnapshot>("router_worker_state", { sessionId }),
 };

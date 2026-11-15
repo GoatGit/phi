@@ -5586,6 +5586,13 @@
       "failed": "Terminal failed to start",
       "exited": "Process exited"
     },
+    "viewer": {
+      "alive": "Task process still running",
+      "exited": "Task process exited (code {{code}})",
+      "exitedNoCode": "Task process exited without an exit code",
+      "unknown": "Can't tell whether the task process is still running",
+      "hint": "This window is only a view; closing it does not stop the task"
+    },
     "errors": {
       "missing-cli": "Install the CLI to use it directly inside PHI.",
       "invalid-directory": "The working directory is missing or inaccessible. Choose another directory.",

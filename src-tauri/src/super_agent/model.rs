@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_ATTENTION_THRESHOLD: usize = 8;
 /// 单个任务连续失败多少次之后不再自动派发，转人工。
 pub const DEFAULT_MAX_ATTEMPTS: u32 = 3;
+/// 一次运行的上限（秒）。一小时足够跑完一件正常任务；再久要么卡死、要么该由人来判断。
+pub const DEFAULT_STALL_SECONDS: i64 = 3600;
 
 /// Router 的开关、配额与阈值。整份存进 `router_settings` 一行 JSON。
 ///
@@ -36,8 +38,14 @@ pub struct RouterSettings {
     pub attention_threshold: usize,
     /// 允许被派发的 worker（应用 id），第一个作为默认值。
     pub worker_apps: Vec<String>,
-    /// 连续失败多少次之后转人工。
+    /// 连续失败多少次（同一版卡片）之后不再自动派发，转人工。
+    /// 卡片被改动或被拖回执行列时这个计数会清零：预算管的是「同一版卡片」，
+    /// 不是这张卡——人一动手就是新的一版。
     pub max_attempts: u32,
+    /// 一次运行最多跑多久（秒），超过就当作卡死：停掉它，按失败重试。
+    /// 交互式 CLI 跑完一轮会停在提示符、进程不死，没有上限它就永远占着并发位。
+    /// 0 表示不设上限。
+    pub stall_seconds: i64,
     /// 是否自动结算退出码 0：Done 判完成，触发列未完成则按退避重试；关闭时转人工。
     pub trust_exit_zero: bool,
     /// 租约有效期（秒）。过期后下一次 tick 自动回收，避免任务永远停在 dispatched。
@@ -66,6 +74,7 @@ impl Default for RouterSettings {
             attention_threshold: DEFAULT_ATTENTION_THRESHOLD,
             worker_apps: vec!["claude".into(), "codex".into()],
             max_attempts: DEFAULT_MAX_ATTEMPTS,
+            stall_seconds: DEFAULT_STALL_SECONDS,
             trust_exit_zero: true,
             lease_seconds: 90,
             cooldown_seconds: 120,
@@ -357,11 +366,34 @@ impl DispatchSpec {
 /// 自动派发与看板上手动「开始会话」必须说同一句话：两条入口各写一份，
 /// 迟早会出现「机器派活知道读哪张卡、人点的会话两眼一抹黑」。
 /// 路径是相对仓库根的，而两种入口都以仓库根当 cwd，所以这里不需要绝对路径。
+///
+/// 「需要人决定」要求用固定开头的单独一行（[`NEEDS_HUMAN_MARKER`]）：worker 停下来
+/// 等人回话与「干完了但没挪列」从退出码上看不出区别（都是 0），卡片正文里这行
+/// 标记是唯一能区分两者的东西。不写这行的就会被当成没干完，冷却后重派——
+/// 那就变成同一个问题每几分钟问你一次。
 pub fn task_prompt(file: &str) -> String {
     format!(
         "读 {file} 这张任务卡，完成任务。改完在卡片正文里补一句结论（改了什么、验证了什么）；\
-         如果缺只有人才能给的信息，不要猜，把问题写进正文并停下。"
+         如果缺只有人才能给的信息，不要猜：在正文里另起一行写「{NEEDS_HUMAN_MARKER}<问题>」，然后停下等人回答。"
     )
+}
+
+/// 卡片里表示「我停下来等人回话」的那一行的开头。
+pub const NEEDS_HUMAN_MARKER: &str = "需要你决定：";
+
+/// 从卡片正文里找出 worker 留下的问题。
+///
+/// 只认以标记开头的那一行，且只要标记之后的内容：这一行是给人读的问题，也是
+/// 结算时判断「该等还是该重派」的依据。多行只取第一行——它就是 worker 最想说的那句。
+pub fn human_question(body: &str) -> Option<String> {
+    body.lines().find_map(|line| {
+        let line = line.trim().trim_start_matches(['*', '-', '>']).trim();
+        let question = line.strip_prefix(NEEDS_HUMAN_MARKER)?.trim();
+        if question.is_empty() {
+            return None;
+        }
+        Some(question.chars().take(160).collect::<String>())
+    })
 }
 
 /// 派发结果：成功时带会话 id，失败时带原因。

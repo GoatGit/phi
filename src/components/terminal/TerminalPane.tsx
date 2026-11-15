@@ -1,8 +1,10 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { terminalApi, type TerminalSession } from "@/lib/api/terminal";
+import { superAgentApi, type WorkerSnapshot } from "@/lib/api/superAgent";
 import { useTerminalTheme } from "./TerminalThemeMenu";
+import { viewerStatusLabel } from "./viewerStatus";
 import {
   terminalOverlays,
   nextTerminalRevision,
@@ -38,6 +40,31 @@ export function TerminalPane({
   const { t } = useTranslation();
   const container = useRef<HTMLDivElement>(null);
   const [theme] = useTerminalTheme();
+  // 查看器窗格跑的是 zellij 客户端，worker 退了它也还在。所以它的状态只能问 worker
+  // 自己：拿这个窗格的 phase 当任务进度，就会出现「EXIT CODE: 0 下面写着运行中」。
+  const viewerWorker = session.workerSession ?? null;
+  const [worker, setWorker] = useState<WorkerSnapshot | null>(null);
+  useEffect(() => {
+    if (!viewerWorker) return;
+    let disposed = false;
+    const read = () => {
+      void superAgentApi
+        .workerState(viewerWorker)
+        .then((next) => {
+          if (!disposed) setWorker(next);
+        })
+        .catch(() => {
+          // 查不到只是少一行说明，不能让一个终端窗格报错。
+        });
+    };
+    read();
+    const timer = setInterval(read, 5000);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [viewerWorker]);
+  const viewerLabel = viewerStatusLabel(worker);
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const scheduleRef = useRef<() => void>(() => {});
@@ -241,7 +268,17 @@ export function TerminalPane({
         className="flex h-7 shrink-0 items-center border-t border-border px-6 text-caption text-fg-3"
         role="status"
       >
-        {t(`terminal.phase.${session.phase}`)}
+        {viewerWorker ? (
+          <>
+            {t(viewerLabel.key, viewerLabel.options)}
+            <span aria-hidden="true" className="mx-1.5">
+              ·
+            </span>
+            {t("terminal.viewer.hint")}
+          </>
+        ) : (
+          t(`terminal.phase.${session.phase}`)
+        )}
       </div>
     </section>
   );

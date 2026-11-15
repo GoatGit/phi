@@ -5586,6 +5586,13 @@
       "failed": "终端启动失败",
       "exited": "进程已退出"
     },
+    "viewer": {
+      "alive": "任务进程还在跑",
+      "exited": "任务进程已退出（退出码 {{code}}）",
+      "exitedNoCode": "任务进程已退出，没有拿到退出码",
+      "unknown": "查不到任务进程的状态",
+      "hint": "这个窗口只是用来看，关掉它不会结束任务"
+    },
     "errors": {
       "missing-cli": "安装 CLI 后即可在 PHI 内直接使用。",
       "invalid-directory": "工作目录不存在或无法访问，请选择其他目录。",

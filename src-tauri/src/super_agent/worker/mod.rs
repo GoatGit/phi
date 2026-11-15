@@ -90,6 +90,9 @@ pub(crate) struct ViewerPlan {
     pub cwd: String,
     pub argv: Vec<String>,
     pub environment: BTreeMap<String, String>,
+    /// 这是哪个 worker 的查看器。界面的状态跟着它走：查看器这个客户端会一直
+    /// 挂着，它活着不代表 worker 还在跑。
+    pub worker_session: String,
 }
 
 pub(crate) trait WorkerRuntime: Send + Sync {

@@ -18,6 +18,13 @@ export interface TerminalSession {
   generation: number;
   sequence: number;
   errorCode: string | null;
+  /**
+   * 这个窗格是哪个 worker 的查看器（只有查看器才有）。
+   *
+   * 查看器活着不代表 worker 活着：`zellij attach` 客户端会一直挂着。
+   * 状态要问 worker 自己（`superAgentApi.workerState`），不能拿 phase 当任务进度。
+   */
+  workerSession?: string | null;
 }
 export interface TerminalPresentation {
   id: string | null;

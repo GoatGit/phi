@@ -11,7 +11,7 @@ use crate::super_agent::model::{DispatchSpec, RouterSettings, RouterStatus, RunS
 use crate::super_agent::runtime;
 use crate::super_agent::store::{self, RunWrite};
 use crate::super_agent::tick::{self, TickContext};
-use crate::super_agent::worker::WorkerRuntime;
+use crate::super_agent::worker::{WorkerRuntime, WorkerState};
 
 #[tauri::command]
 pub fn router_settings(state: State<'_, AppState>) -> Result<RouterSettings, String> {
@@ -87,7 +87,12 @@ pub fn task_session_arguments(
 ) -> Result<String, String> {
     let candidate = tick::resolve_task(&state.db, Some(&root), &task_id)
         .ok_or_else(|| "task-not-found".to_string())?;
-    Ok(crate::terminal::quote_argument(
+    // 人点的「开始」与自动派发要是同一份参数，包括非交互模式；否则同一个任务
+    // 从机器派发会结束，从人手里派发会停在提示符，调度器还以为它在跑。
+    let settings = state.db.router_settings().map_err(|e| e.to_string())?;
+    let app = settings.default_worker().unwrap_or("codex");
+    Ok(crate::terminal::worker_arguments(
+        app,
         &crate::super_agent::model::task_prompt(&candidate.file),
     ))
 }
@@ -134,6 +139,7 @@ pub fn task_open_worker(
                 &plan.cwd,
                 plan.argv,
                 plan.environment,
+                &plan.worker_session,
             )?
             .id,
             app_id: plan.app_id,
@@ -144,6 +150,51 @@ pub fn task_open_worker(
         }),
         None => Err("session-ended".into()),
     }
+}
+
+/// 一个 worker 现在的状态，给「查看器」页脚用。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerSnapshot {
+    /// `alive` | `exited` | `unknown`
+    pub state: String,
+    /// 只有真的知道时才给：补一个 0 会把失败说成成功。
+    pub exit_code: Option<i32>,
+}
+
+/// 查一个 worker 自己的状态。
+///
+/// 为什么需要这条：跑在 zellij 里的 worker 在 phi 界面上是「查看器窗格」，
+/// 那个窗格是 `zellij attach` 客户端，worker 退出了它也还挂着。拿窗格的 phase
+/// 当任务状态，就会在一块写着 `EXIT CODE: 0` 的画面下面顶着「运行中」。
+///
+/// 退出记账是唯一事实，pane 的退出码只是旁证：两者顺序不能反。
+#[tauri::command]
+pub fn router_worker_state(
+    app: tauri::AppHandle,
+    session_id: String,
+) -> Result<WorkerSnapshot, String> {
+    let workers = runtime::workers_for(&app);
+    let probe = workers.probe(&session_id);
+    let journal =
+        crate::exit_hook::journal::last_exit(&crate::exit_hook::journal_path(), &session_id)
+            .map(|record| record.exit_code)
+            .or(match probe {
+                WorkerState::Exited(code) => Some(code),
+                _ => None,
+            });
+    let state = match journal {
+        Some(_) => "exited",
+        None => match probe {
+            WorkerState::Alive => "alive",
+            // 查不到就是不知道：既不说「还在跑」，也不说「已经退出」。
+            _ => "unknown",
+        },
+    };
+    Ok(WorkerSnapshot {
+        state: state.to_string(),
+        exit_code: journal,
+    })
 }
 
 /// 读一张卡的规划 DAG（`plan_task` 的产物）。规则版 episode 不拆任务，所以通常是空的；
