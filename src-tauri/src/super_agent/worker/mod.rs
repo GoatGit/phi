@@ -31,6 +31,7 @@ pub(crate) use zellij::ZellijWorkers;
 pub(crate) struct ZellijWorkers;
 
 #[cfg(not(target_os = "macos"))]
+#[allow(dead_code)]
 impl ZellijWorkers {
     fn detect(_app: &tauri::AppHandle) -> Option<Self> {
         None
@@ -139,7 +140,9 @@ impl Workers {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            None
+            // 占位实现永远返回 None；这里调用它而不是直接写 None，
+            // 是为了让「这个后端在别的平台不存在」这件事只有一处表达。
+            ZellijWorkers::detect(&self.app)
         }
     }
 }
