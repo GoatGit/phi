@@ -346,8 +346,11 @@ mod tests {
     }
     /// worker 的监督脚本只有两个职责：记账、把退出码原样交回去。
     /// 少了后者，pane 会被判成「成功退出」，一次真实的失败就变成了「完成」。
+    ///
+    /// 条件必须与 [`WORKER_SUPERVISOR`] 一致：那个常量只在 macOS 下定义，
+    /// 用 `cfg(unix)` 会让 Linux 的 Backend Checks 在引用处直接编不过。
     #[test]
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     fn worker_supervisor_records_the_exit_code_and_hands_it_back() {
         let dir = tempfile::tempdir().unwrap();
         let journal = dir.path().join("journal.log");
@@ -376,7 +379,7 @@ mod tests {
 
     /// 没有记账环境变量时不写文件、也不改变退出码：手动开的标签页不走这条路。
     #[test]
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     fn worker_supervisor_is_inert_without_the_journal_contract() {
         let output = std::process::Command::new("/bin/sh")
             .args([
