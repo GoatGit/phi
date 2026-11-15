@@ -83,16 +83,19 @@ pub struct ExitHookEnv<'a> {
 /// 客户端的环境变量不会被带进 pane（实测 `FOO=bar zellij action new-pane`
 /// 里看不到 FOO）。所以 CLI 自己的配置目录、PATH、退出记账路径都必须写进
 /// argv 本身——`/usr/bin/env K=V ...` 是唯一不需要再拼引号的做法。
+#[cfg(target_os = "macos")]
 pub struct WorkerLaunch {
     pub argv: Vec<String>,
     pub cwd: PathBuf,
 }
 
 /// `session.sh` 的同门师弟：跑 CLI、记退出码、不落回交互式 shell。
+#[cfg(target_os = "macos")]
 pub const WORKER_SUPERVISOR: &str = include_str!("worker.sh");
 
 /// 启动一个 CLI 要的全部事实。托管 PTY 与 zellij pane 共用这一份解析，
 /// 免得两条路径对「用哪个可执行文件、带哪些环境变量」各说一套。
+#[cfg(target_os = "macos")]
 struct Resolved {
     cwd: PathBuf,
     executable: PathBuf,
@@ -102,6 +105,7 @@ struct Resolved {
     custom: Option<(&'static str, String)>,
 }
 
+#[cfg(target_os = "macos")]
 fn resolve(app: &str, cwd: &str, arguments: &str) -> Result<Resolved, String> {
     let (tool, args) = cli(app).ok_or("unsupported-app")?;
     let extra_args = parse_arguments(arguments)?;
@@ -194,6 +198,7 @@ pub fn prepare_with(
 }
 
 /// 后台 worker 的 argv：环境变量内联、监督脚本内联、CLI 作为最后一个可执行文件。
+#[cfg(target_os = "macos")]
 pub fn prepare_worker(
     app: &str,
     cwd: &str,

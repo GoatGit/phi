@@ -1,6 +1,7 @@
 //! Session metadata is backend-owned. Native objects never cross an IPC or
 //! worker-thread boundary. Navigation only changes presentation, not ownership.
 mod launch;
+#[cfg(target_os = "macos")]
 pub(crate) use launch::{prepare_worker, ExitHookEnv};
 #[cfg(target_os = "macos")]
 mod native;
@@ -379,8 +380,10 @@ pub(crate) fn open_viewer(
             launch::prepare_raw(&directory, &argv, environment)
         });
     }
+    // 非 macOS 上没有 Ghostty surface：参数在这里就算用掉了，函数开头已经
+    // 返回 unsupported-platform，这一支只为让签名跨平台一致。
     #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    let _ = (window, argv, environment);
     Ok(snapshot)
 }
 /// 接棒用的入口：不经过前端，直接在后台新开一个托管窗格。

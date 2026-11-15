@@ -15,9 +15,11 @@
 //!   （没随包带上、也没装）时用它，行为与以前一致。
 
 mod terminal;
+#[cfg(target_os = "macos")]
 mod zellij;
 
 pub(crate) use terminal::TerminalWorker;
+#[cfg(target_os = "macos")]
 pub(crate) use zellij::ZellijWorkers;
 
 use std::collections::BTreeMap;
@@ -35,6 +37,7 @@ use crate::super_agent::store::{WorkerBackend, WorkerRecord};
 pub(crate) enum WorkerState {
     Alive,
     /// 已经退出，带退出码（zellij 的 pane 记得住，托管 PTY 记不住）。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Exited(i32),
     /// 运行时查不到这个 worker：pane 没了、session 没了，或者根本没有归属记录。
     Unknown,
@@ -44,6 +47,7 @@ pub(crate) enum WorkerState {
 ///
 /// zellij 的 worker 不在 phi 的终端表里，所以要现开一个「查看器」窗格
 /// 挂上去；关掉它只是断开查看。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Debug)]
 pub(crate) struct ViewerPlan {
     /// 挂到哪个应用的终端页签下：worker 本来就是那个 CLI，查看器也跟着它走，
@@ -95,8 +99,17 @@ impl Workers {
 
     /// 有 zellij 就用它。没有（没随包带上、系统里也没装）就退回托管终端：
     /// Windows / Linux 上后一步会如实报 unsupported-platform，和改动前一致。
+    ///
+    /// phi 的终端子系统本身只有 macOS 实现，所以 zellij 后端也只在 macOS 编译。
     fn zellij(&self) -> Option<ZellijWorkers> {
-        ZellijWorkers::detect(&self.app)
+        #[cfg(target_os = "macos")]
+        {
+            ZellijWorkers::detect(&self.app)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
     }
 }
 

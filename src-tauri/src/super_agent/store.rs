@@ -513,6 +513,8 @@ pub(crate) fn decisions_json(decisions: &[Decision]) -> String {
 /// `Terminal` 是旧路径（托管 PTY），应用退出就一起结束。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkerBackend {
+    /// 跑在 zellij 里。非 macOS 上不会产生这条记录。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Zellij,
     Terminal,
 }
@@ -541,7 +543,11 @@ pub(crate) struct WorkerRecord {
     pub root: String,
     pub task_id: String,
     pub backend: WorkerBackend,
+    /// 下面的会话名与 pane id 只有 zellij 后端用得上：托管终端在自己进程里，
+    /// 不需要这两列。别的平台上它们照写（为空），只是没人读。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub session_name: Option<String>,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub pane_id: Option<String>,
     pub app_id: String,
     pub created_at: i64,
