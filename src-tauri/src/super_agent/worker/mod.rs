@@ -22,6 +22,37 @@ pub(crate) use terminal::TerminalWorker;
 #[cfg(target_os = "macos")]
 pub(crate) use zellij::ZellijWorkers;
 
+/// 非 macOS：zellij 后端不存在。
+///
+/// 保留同名同方法的占位实现，是为了让上面那套路由代码不必在四处写 cfg；
+/// 它永远 `detect` 不到，调用点照旧落到托管终端或如实报 unsupported-platform。
+#[cfg(not(target_os = "macos"))]
+#[allow(dead_code)]
+pub(crate) struct ZellijWorkers;
+
+#[cfg(not(target_os = "macos"))]
+impl ZellijWorkers {
+    fn detect(_app: &tauri::AppHandle) -> Option<Self> {
+        None
+    }
+
+    fn dispatch(&self, _spec: &DispatchSpec) -> Result<DispatchOutcome, String> {
+        Err("unsupported-platform".into())
+    }
+
+    fn cancel(&self, _session_id: &str) -> Result<(), String> {
+        Err("zellij-missing".into())
+    }
+
+    fn probe(&self, _session_id: &str) -> WorkerState {
+        WorkerState::Unknown
+    }
+
+    fn viewer(&self, _session_id: &str) -> Result<Option<ViewerPlan>, String> {
+        Err("zellij-missing".into())
+    }
+}
+
 use std::collections::BTreeMap;
 
 use tauri::Manager;
