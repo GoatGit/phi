@@ -1,7 +1,6 @@
 //! Session metadata is backend-owned. Native objects never cross an IPC or
 //! worker-thread boundary. Navigation only changes presentation, not ownership.
 mod launch;
-#[cfg(target_os = "macos")]
 pub(crate) use launch::{prepare_worker, ExitHookEnv};
 #[cfg(target_os = "macos")]
 mod native;

@@ -15,11 +15,9 @@
 //!   （没随包带上、也没装）时用它，行为与以前一致。
 
 mod terminal;
-#[cfg(target_os = "macos")]
 mod zellij;
 
 pub(crate) use terminal::TerminalWorker;
-#[cfg(target_os = "macos")]
 pub(crate) use zellij::ZellijWorkers;
 
 use std::collections::BTreeMap;
@@ -95,17 +93,10 @@ impl Workers {
         }
     }
 
+    /// 有 zellij 就用它。没有（没随包带上、系统里也没装）就退回托管终端：
+    /// Windows / Linux 上后一步会如实报 unsupported-platform，和改动前一致。
     fn zellij(&self) -> Option<ZellijWorkers> {
-        // phi 的终端子系统本身只有 macOS 实现；别的平台上这条分支永远是空的，
-        // 于是 dispatch 退回托管终端并如实报 unsupported-platform。
-        #[cfg(target_os = "macos")]
-        {
-            ZellijWorkers::detect(&self.app)
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            None
-        }
+        ZellijWorkers::detect(&self.app)
     }
 }
 

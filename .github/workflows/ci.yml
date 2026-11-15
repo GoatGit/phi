@@ -230,6 +230,11 @@ jobs:
         if: runner.os == 'macOS'
         run: node scripts/build-zellij.mjs
 
+      # 同理：externalBin 里还有随包分发的 node 运行时（侧车跑 pi SDK 用）。
+      # 这个 job 以前没跑过这条路，所以缺了这一步——它一变红就再也没修过。
+      - name: Build node runtime sidecar
+        run: node scripts/build-node-runtime.mjs
+
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |
