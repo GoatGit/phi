@@ -281,7 +281,17 @@ pub fn task_set_schedule(
         schedule.as_deref(),
         &fingerprint,
     )?;
-    arm_schedule(&state.db, &workspace.root.to_string_lossy(), &detail.task);
+    let key = workspace.root.to_string_lossy().into_owned();
+    if detail.task.schedule.is_none() {
+        // 排期被取消了：上次触发时刻也一起忘掉，否则再加回来会沿用旧起点立刻补跑。
+        if let Err(error) = state.db.clear_router_schedule(&key, &detail.task.id) {
+            log::warn!(
+                "router schedule clear failed task={}: {error}",
+                detail.task.id
+            );
+        }
+    }
+    arm_schedule(&state.db, &key, &detail.task);
     // 排期刚设好：马上踢一轮，到点的那种（每日 / 一次性）当场就能跑起来。
     crate::super_agent::runtime::kick(&app);
     detail_with_links(&state, &workspace, &detail.task.id)
