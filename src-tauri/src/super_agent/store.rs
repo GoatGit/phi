@@ -480,6 +480,20 @@ impl Database {
         Ok(())
     }
 
+    /// 卡片没有排期了：把触发记录一起丢掉。
+    ///
+    /// 留着它会让「取消排期 → 过几天又加回来」沿用那个很旧的起点，下一轮巡检
+    /// 立刻补跑一次——用户刚设好的排期不该当场开跑。
+    pub(crate) fn clear_router_schedule(&self, root: &str, task_id: &str) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "DELETE FROM router_schedules WHERE root = ?1 AND task_id = ?2",
+            params![root, task_id],
+        )
+        .map_err(error)?;
+        Ok(())
+    }
+
     // ---------------------------------------------------------- plan nodes
 
     /// 规划节点整体替换。当前只有 `plan_task` 会写它（episode 的 sidecar 版），
