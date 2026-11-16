@@ -20,8 +20,10 @@ import {
   FolderMinus,
   FolderPlus,
   GripVertical,
+  Paperclip,
   Plus,
   RefreshCw,
+  Repeat,
   Send,
   SquareKanban,
 } from "lucide-react";
@@ -59,9 +61,15 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { AutoRouterPanel } from "./AutoRouterPanel";
 import { RunStateBadge } from "./RunStateBadge";
+import { scheduleLabel } from "./schedule";
 import { TaskDetailSheet } from "./TaskDetailSheet";
 
 const ROOT_STORAGE_KEY = "phi.task.workspace";
+/**
+ * 看板自己会变：worker 改卡片、调度器挪列、排期到点。
+ * 20 秒读一次文件，比盯着界面的人眼快，也不会把磁盘扫热。
+ */
+const BOARD_REFRESH_MS = 20_000;
 
 interface TaskBoardPageProps {
   /** 能开本地终端会话的应用（为空表示当前平台不支持） */
@@ -332,6 +340,29 @@ export function TaskBoardPage({
     void handleSetStatus(task, overId.slice("column:".length));
   };
 
+  // 轮询只在看板/详情真的开着时跑；用户正在编辑输入框也不受影响——
+  // 这里只替换 detail 数据，排期编辑器的本地状态留在组件里。
+  const openTaskId = detail?.task.id ?? null;
+  useEffect(() => {
+    if (!activeRoot) return;
+    const root = activeRoot;
+    const timer = window.setInterval(() => {
+      void tasksApi
+        .board(root)
+        .then(setBoard)
+        .catch(() => {
+          // 轮询失败不打扰用户：下一次刷新会再试，手动刷新仍有明确报错。
+        });
+      if (openTaskId) {
+        void tasksApi
+          .detail(root, openTaskId)
+          .then(setDetail)
+          .catch(() => {});
+      }
+    }, BOARD_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [activeRoot, openTaskId]);
+
   const renderEmptyState = () => (
     <div className="flex min-h-0 flex-1 items-center justify-center p-8">
       <div className="max-w-md text-center">
@@ -535,6 +566,36 @@ export function TaskBoardPage({
     void runRouterAction(() => superAgentApi.resume(activeRoot, taskId));
   };
 
+  /** 改排期：持续任务（每隔一段时间）或定时任务（指定时刻）。 */
+  const handleSetSchedule = (
+    recurrence: string | null,
+    schedule: string | null,
+  ) => {
+    if (!activeRoot || !detail) return;
+    const taskId = detail.task.id;
+    const fingerprint = detail.task.fingerprint;
+    void runRouterAction(async () => {
+      const fresh = await tasksApi.setSchedule(
+        activeRoot,
+        taskId,
+        recurrence,
+        schedule,
+        fingerprint,
+      );
+      setDetail(fresh);
+      await loadBoard(activeRoot);
+      toast.success(t("tasks.schedule.saved"));
+    });
+  };
+
+  /** 在文件管理器中显示产物。路径由后端校验必须在仓库内。 */
+  const handleRevealArtifact = (path: string) => {
+    if (!activeRoot) return;
+    void tasksApi
+      .revealArtifact(activeRoot, path)
+      .catch((error) => toast.error(taskErrorMessage(error, t)));
+  };
+
   // 页头那排操作：独立页放在页头，嵌进插件中心时放在内容顶部。
   // 选仓库和管仓库是一件事，合成同一个下拉：仓库列表 + 添加 + 移出。
   const headerActions =
@@ -686,6 +747,8 @@ export function TaskBoardPage({
             await loadBoard(activeRoot);
           });
         }}
+        onSetSchedule={handleSetSchedule}
+        onRevealArtifact={handleRevealArtifact}
         onClose={() => {
           setDetail(null);
         }}
@@ -859,9 +922,29 @@ function TaskCardView({
               })}
             </span>
           ) : null}
+          {task.schedule ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-subtle px-1.5 py-[1px] text-fg-2">
+              <Repeat
+                aria-hidden="true"
+                className="h-2.5 w-2.5"
+                strokeWidth={1.5}
+              />
+              {scheduleLabel(t, task.schedule)}
+            </span>
+          ) : null}
           {task.acceptanceTotal > 0 ? (
             <span className="tabular-nums">
               {task.acceptanceDone}/{task.acceptanceTotal}
+            </span>
+          ) : null}
+          {task.artifactCount > 0 ? (
+            <span className="inline-flex items-center gap-0.5 tabular-nums">
+              <Paperclip
+                aria-hidden="true"
+                className="h-2.5 w-2.5"
+                strokeWidth={1.5}
+              />
+              {task.artifactCount}
             </span>
           ) : null}
           {task.assignees.map((assignee) => (

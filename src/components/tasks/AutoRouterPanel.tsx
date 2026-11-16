@@ -45,6 +45,22 @@ interface AutoRouterPanelProps {
 /** 「按规则」在下拉里的占位值。空字符串是 Radix Select 不接受的选项值。 */
 const RULE_ONLY = "__rules__";
 
+/** 巡检节拍的可选值（秒）。比 15 秒更密只是空转磁盘。 */
+const MONITOR_INTERVALS = [30, 60, 120, 300];
+/** 「等你看」的忍耐时长（秒）。0 表示一直等。 */
+const NEEDS_YOU_WINDOWS = [600, 1800, 3600, 14400, 0];
+
+function durationText(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  seconds: number,
+): string {
+  if (seconds <= 0) return t("tasks.router.forever");
+  if (seconds < 60) return t("tasks.router.seconds", { count: seconds });
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return t("tasks.router.minutes", { count: minutes });
+  return t("tasks.router.hours", { count: Math.round(minutes / 60) });
+}
+
 function skippedText(t: (key: string) => string, code: string): string {
   switch (code) {
     case "disabled":
@@ -305,6 +321,60 @@ export function AutoRouterPanel({
                       {[1, 2, 3, 4].map((count) => (
                         <SelectItem key={count} value={String(count)}>
                           {t("tasks.router.concurrencyUnit", { count })}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-caption text-fg-2">
+                    {t("tasks.router.monitorInterval")}
+                  </span>
+                  <Select
+                    value={String(settings.monitorIntervalSeconds)}
+                    disabled={busy}
+                    onValueChange={(value) =>
+                      void patch({ monitorIntervalSeconds: Number(value) })
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-7 w-[132px] text-caption"
+                      aria-label={t("tasks.router.monitorInterval")}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONITOR_INTERVALS.map((seconds) => (
+                        <SelectItem key={seconds} value={String(seconds)}>
+                          {durationText(t, seconds)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-caption text-fg-2">
+                    {t("tasks.router.needsYou")}
+                  </span>
+                  <Select
+                    value={String(settings.needsYouSeconds)}
+                    disabled={busy}
+                    onValueChange={(value) =>
+                      void patch({ needsYouSeconds: Number(value) })
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-7 w-[132px] text-caption"
+                      aria-label={t("tasks.router.needsYou")}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NEEDS_YOU_WINDOWS.map((seconds) => (
+                        <SelectItem key={seconds} value={String(seconds)}>
+                          {durationText(t, seconds)}
                         </SelectItem>
                       ))}
                     </SelectContent>

@@ -7,6 +7,7 @@
 use super::document::{self, Workspace};
 use super::frontmatter::{acceptance, sections, Document, FieldValue};
 use super::model::{AcceptanceItem, NewTask, Task, TaskDetail, TaskSection};
+use super::{result, schedule};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -78,6 +79,7 @@ fn to_task(workspace: &Workspace, path: &Path, raw: &str) -> Result<Task, String
         .or_else(|| title_from_file_name(&file_name))
         .unwrap_or_else(|| id.clone());
     let items = acceptance(doc.body());
+    let spec = schedule_of(&doc);
 
     Ok(Task {
         id,
@@ -97,9 +99,27 @@ fn to_task(workspace: &Workspace, path: &Path, raw: &str) -> Result<Task, String
         updated_date: doc.string("updated_date"),
         acceptance_total: items.len(),
         acceptance_done: items.iter().filter(|item| item.done).count(),
+        artifact_count: result::artifacts(doc.body()).len(),
+        schedule: spec.clone().map(|spec| spec.to_dto(None)),
+        schedule_spec: spec,
         file: workspace.relative(path),
         fingerprint: fingerprint(raw),
     })
+}
+
+/// 卡片上声明的排期。写错了只当没有——一张卡的排期笔误不该让看板打不开。
+fn schedule_of(doc: &Document) -> Option<schedule::Spec> {
+    let recurrence = doc.string("recurrence");
+    let moment = doc.string("schedule");
+    match schedule::parse(recurrence.as_deref(), moment.as_deref()) {
+        Ok(spec) => spec,
+        Err(error) => {
+            log::warn!(
+                "task schedule ignored: {error} recurrence={recurrence:?} schedule={moment:?}"
+            );
+            None
+        }
+    }
 }
 
 fn title_from_file_name(file_name: &str) -> Option<String> {
@@ -167,8 +187,17 @@ pub fn read(workspace: &Workspace, id: &str) -> Result<TaskDetail, String> {
             done: item.done,
         })
         .collect();
+    // 结果与产物在详情页有专门的位置：正文里再列一遍只是重复。
+    // 只去掉「真的被当成结果展示」的那一段，其它段落（含 Conclusion 过程记录）保留。
+    let outcome = result::outcome_section(doc.body());
     let sections = sections(doc.body())
         .into_iter()
+        .filter(|section| {
+            outcome
+                .as_ref()
+                .is_none_or(|(title, _)| title != &section.title)
+                && !result::is_artifact_section(&section.title)
+        })
         .map(|section| TaskSection {
             title: section.title,
             body: section.body,
@@ -177,6 +206,8 @@ pub fn read(workspace: &Workspace, id: &str) -> Result<TaskDetail, String> {
 
     Ok(TaskDetail {
         task,
+        outcome: outcome.map(|(_, body)| body),
+        artifacts: Vec::new(),
         body,
         sections,
         acceptance: items,
@@ -233,6 +264,19 @@ pub fn create(workspace: &Workspace, input: &NewTask) -> Result<TaskDetail, Stri
         .priority
         .clone()
         .unwrap_or_else(|| "medium".to_string());
+    // 排期先校验再落盘：写进去却解析不了，卡片上看起来跟没配一样，用户会以为
+    // 已经生效了。set_schedule 出于同样的理由先解析再写。
+    let recurrence = input
+        .recurrence
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let moment = input
+        .schedule
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    schedule::parse(recurrence, moment)?;
 
     let mut text = String::new();
     text.push_str("---\n");
@@ -256,6 +300,12 @@ pub fn create(workspace: &Workspace, input: &NewTask) -> Result<TaskDetail, Stri
         inline_list(&input.dependencies.clone().unwrap_or_default())
     ));
     text.push_str(&format!("priority: {}\n", scalar(&priority)));
+    if let Some(recurrence) = recurrence {
+        text.push_str(&format!("recurrence: {}\n", scalar(recurrence)));
+    }
+    if let Some(moment) = moment {
+        text.push_str(&format!("schedule: {}\n", scalar(moment)));
+    }
     text.push_str("---\n\n");
     text.push_str("## Description\n\n");
     let description = description.trim();
@@ -316,6 +366,37 @@ pub fn set_status(
         .ok_or_else(|| "invalid-task-file".to_string())?
         .with_field("updated_date", FieldValue::Scalar(&document::timestamp()));
     write_atomic(&path, &next)?;
+    read(workspace, id)
+}
+
+/// 改排期。只重写 `recurrence` / `schedule` 两行。
+///
+/// 不动 `updated_date`：改的是「什么时候跑」，不是任务内容；跟 `updated_date`
+/// 会让看板误以为卡片被别人改过，从而清掉重试预算。
+pub fn set_schedule(
+    workspace: &Workspace,
+    id: &str,
+    recurrence: Option<&str>,
+    moment: Option<&str>,
+    expected_fingerprint: &str,
+) -> Result<TaskDetail, String> {
+    // 先校验写下去的东西能不能解析：一个写错的排期在界面上看起来跟生效了一样，
+    // 而调度器那里实际上已经忽略了它。
+    schedule::parse(recurrence, moment)?;
+    let path = find_file(workspace, id)?;
+    let raw = read_to_string(&path)?;
+    if fingerprint(&raw) != expected_fingerprint {
+        return Err(STALE.into());
+    }
+    let mut text = raw.clone();
+    for (key, value) in [("recurrence", recurrence), ("schedule", moment)] {
+        let doc = Document::parse(&text).ok_or_else(|| "invalid-task-file".to_string())?;
+        text = match value.map(str::trim).filter(|item| !item.is_empty()) {
+            Some(value) => doc.with_field(key, FieldValue::Scalar(value)),
+            None => doc.without_field(key),
+        };
+    }
+    write_atomic(&path, &text)?;
     read(workspace, id)
 }
 
@@ -415,6 +496,51 @@ mod tests {
     }
 
     #[test]
+    fn a_broken_schedule_is_rejected_before_the_card_is_written() {
+        let (_temp, workspace) = workspace();
+        // 写错的排期落盘之后只会被调度器静默忽略，卡片上看起来跟没配一样：
+        // 与其让人对着一个「设了但没生效」的卡发愁，不如当场拒绝。
+        let broken = create(
+            &workspace,
+            &NewTask {
+                title: "Bad interval".into(),
+                recurrence: Some("soon".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(broken.unwrap_err(), "invalid-recurrence");
+        // 两个字段都给是写法冲突，不替用户猜。
+        let conflicting = create(
+            &workspace,
+            &NewTask {
+                title: "Two schedules".into(),
+                recurrence: Some("2h".into()),
+                schedule: Some("09:30".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(conflicting.unwrap_err(), "conflicting-schedule");
+        assert!(
+            list(&workspace).expect("list").is_empty(),
+            "被拒的卡不该落盘"
+        );
+
+        // 合法的排期照旧写进卡片，并立刻能读出来。
+        let created = create(
+            &workspace,
+            &NewTask {
+                title: "Every two hours".into(),
+                recurrence: Some("2h".into()),
+                ..Default::default()
+            },
+        )
+        .expect("create");
+        let schedule = created.task.schedule.expect("schedule");
+        assert_eq!(schedule.kind, "interval");
+        assert_eq!(schedule.minutes, Some(120));
+    }
+
+    #[test]
     fn rejects_empty_title_and_unknown_status() {
         let (_temp, workspace) = workspace();
         assert_eq!(
@@ -489,5 +615,84 @@ mod tests {
         write_task(&workspace, "task-1 - good.md", SAMPLE);
         write_task(&workspace, "notes.md", "just text\n");
         assert_eq!(list(&workspace).expect("list").len(), 1);
+    }
+
+    #[test]
+    fn schedules_round_trip_through_the_card() {
+        let (_temp, workspace) = workspace();
+        write_task(&workspace, "task-1 - First-task.md", SAMPLE);
+        let print = list(&workspace).expect("list")[0].fingerprint.clone();
+
+        let detail = set_schedule(&workspace, "TASK-1", Some("2h"), None, &print).expect("set");
+        let schedule = detail.task.schedule.clone().expect("schedule");
+        assert_eq!(schedule.kind, "interval");
+        assert_eq!(schedule.minutes, Some(120));
+
+        let raw =
+            fs::read_to_string(workspace.tasks_dir().join("task-1 - First-task.md")).expect("read");
+        assert!(raw.contains("recurrence: 2h\n"));
+
+        // 换类型：旧的 recurrence 要先删掉，否则两行同时存在会被判成写法冲突。
+        let print = detail.task.fingerprint.clone();
+        let detail = set_schedule(&workspace, "TASK-1", None, Some("09:30"), &print).expect("set");
+        assert_eq!(detail.task.schedule.expect("schedule").kind, "daily");
+        let raw =
+            fs::read_to_string(workspace.tasks_dir().join("task-1 - First-task.md")).expect("read");
+        assert!(!raw.contains("recurrence:"), "{raw}");
+        assert!(raw.contains("schedule: '09:30'") || raw.contains("schedule: 09:30"));
+    }
+
+    #[test]
+    fn clearing_a_schedule_removes_the_field() {
+        let (_temp, workspace) = workspace();
+        write_task(&workspace, "task-1 - First-task.md", SAMPLE);
+        let print = list(&workspace).expect("list")[0].fingerprint.clone();
+        let detail = set_schedule(&workspace, "TASK-1", Some("30m"), None, &print).expect("set");
+        let cleared = set_schedule(&workspace, "TASK-1", None, None, &detail.task.fingerprint)
+            .expect("clear");
+        assert!(cleared.task.schedule.is_none());
+        let raw =
+            fs::read_to_string(workspace.tasks_dir().join("task-1 - First-task.md")).expect("read");
+        assert!(!raw.contains("recurrence:"), "{raw}");
+    }
+
+    #[test]
+    fn an_invalid_schedule_is_rejected_before_it_is_written() {
+        let (_temp, workspace) = workspace();
+        write_task(&workspace, "task-1 - First-task.md", SAMPLE);
+        let print = list(&workspace).expect("list")[0].fingerprint.clone();
+        assert_eq!(
+            set_schedule(&workspace, "TASK-1", Some("soon"), None, &print).unwrap_err(),
+            "invalid-recurrence"
+        );
+        let raw =
+            fs::read_to_string(workspace.tasks_dir().join("task-1 - First-task.md")).expect("read");
+        assert_eq!(raw, SAMPLE, "写坏了就不该落盘");
+    }
+
+    #[test]
+    fn the_result_and_artifacts_are_read_from_the_card() {
+        let (_temp, workspace) = workspace();
+        let body = "---\nid: TASK-1\ntitle: First\nstatus: In Progress\n---\n\n## 结果\n\n整理完 7 条新闻。\n\n## 产物\n\n- `daily/report.md` — 今日简报\n\n## Conclusion\n\n跑了很久。\n";
+        write_task(&workspace, "task-1 - First.md", body);
+        fs::create_dir_all(workspace.root.join("daily")).expect("mkdir");
+        fs::write(workspace.root.join("daily/report.md"), "hi").expect("file");
+
+        let detail = read(&workspace, "TASK-1").expect("read");
+        assert_eq!(detail.outcome.as_deref(), Some("整理完 7 条新闻。"));
+        assert_eq!(detail.task.artifact_count, 1);
+        // 结果与产物段落不再重复出现在正文段落里。
+        assert!(detail
+            .sections
+            .iter()
+            .all(|s| s.title != "结果" && s.title != "产物"));
+        assert!(detail.sections.iter().any(|s| s.title == "Conclusion"));
+
+        let resolved = crate::tasks::result::resolve(
+            &workspace.root,
+            &crate::tasks::result::artifacts(&detail.body),
+        );
+        assert_eq!(resolved.len(), 1);
+        assert!(resolved[0].exists);
     }
 }

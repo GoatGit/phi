@@ -64,6 +64,8 @@ const card: TaskCard = {
   updatedDate: null,
   acceptanceTotal: 0,
   acceptanceDone: 0,
+  artifactCount: 0,
+  schedule: null,
   file: "backlog/tasks/task-1.md",
   fingerprint: "12:abcd",
 };
@@ -114,6 +116,8 @@ describe("TaskBoardPage — 快速新建任务", () => {
       sections: [],
       acceptance: [],
       links: [],
+      outcome: null,
+      artifacts: [],
     });
   });
 
@@ -190,6 +194,8 @@ describe("TaskBoardPage — 开始会话", () => {
       sections: [],
       acceptance: [],
       links: [],
+      outcome: null,
+      artifacts: [],
     });
     apiMocks.linkSession.mockResolvedValue({
       sessionId: "s-1",
@@ -247,6 +253,8 @@ describe("TaskBoardPage — 派发后打开会话", () => {
       sections: [],
       acceptance: [],
       links: [],
+      outcome: null,
+      artifacts: [],
     });
     Element.prototype.scrollIntoView = vi.fn();
   });
@@ -368,6 +376,9 @@ describe("TaskBoardPage — 自动调度", () => {
       attentionThreshold: 8,
       workerApps: ["claude"],
       maxAttempts: 3,
+      stallSeconds: 3600,
+      monitorIntervalSeconds: 120,
+      needsYouSeconds: 3600,
       trustExitZero: true,
       leaseSeconds: 90,
       cooldownSeconds: 120,
@@ -541,5 +552,62 @@ describe("TaskBoardPage — 自动调度", () => {
     await waitFor(() =>
       expect(saved?.settings?.episodeModel).toBe("group/日常"),
     );
+  });
+});
+
+describe("TaskBoardPage — 持续 / 定时任务", () => {
+  beforeEach(() => {
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        {
+          status: "To Do",
+          tasks: [
+            {
+              ...card,
+              schedule: {
+                kind: "interval",
+                minutes: 120,
+                time: null,
+                at: null,
+                lastRunAt: null,
+                nextRunAt: null,
+              },
+            },
+            {
+              ...card,
+              id: "TASK-2",
+              title: "每天的日报",
+              schedule: {
+                kind: "daily",
+                minutes: null,
+                time: "09:30",
+                at: null,
+                lastRunAt: null,
+                nextRunAt: null,
+              },
+            },
+          ],
+        },
+        { status: "In Progress", tasks: [] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+  });
+
+  it("卡片上直接标出「每 2 小时」与「每天 09:30」", async () => {
+    renderBoard();
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    expect(
+      within(todo).getByText(
+        zh.tasks.schedule.everyHours.replace("{{count}}", "2"),
+      ),
+    ).toBeTruthy();
+    expect(
+      within(todo).getByText(
+        zh.tasks.schedule.daily.replace("{{time}}", "09:30"),
+      ),
+    ).toBeTruthy();
   });
 });

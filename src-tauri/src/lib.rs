@@ -1472,6 +1472,8 @@ pub fn run() {
             tasks::commands::task_detail,
             tasks::commands::task_create,
             tasks::commands::task_set_status,
+            tasks::commands::task_set_schedule,
+            tasks::commands::task_reveal_artifact,
             tasks::commands::task_archive,
             tasks::commands::task_link_session,
             tasks::commands::task_unlink_session,

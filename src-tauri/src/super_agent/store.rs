@@ -134,7 +134,15 @@ pub(crate) fn create_tables(conn: &rusqlite::Connection) -> Result<(), AppError>
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_router_workers_task
-            ON router_workers(root, task_id);",
+            ON router_workers(root, task_id);
+        -- 持续 / 定时任务的「上次触发时刻」。排期本身写在卡片 frontmatter 里，
+        -- 属于用户仓库；这里只记本机跑过几次，不进 git。
+        CREATE TABLE IF NOT EXISTS router_schedules (
+            root TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            last_fired_at INTEGER NOT NULL,
+            PRIMARY KEY (root, task_id)
+        );",
     )
     .map_err(error)
 }
@@ -434,6 +442,42 @@ impl Database {
             dispatches: dispatches as usize,
             judge_calls: judge_calls as usize,
         })
+    }
+
+    // -------------------------------------------------------------- schedules
+
+    /// 一张卡上一次被排期触发的时刻（毫秒）。没跑过就是 `None`。
+    pub(crate) fn router_schedule_last(
+        &self,
+        root: &str,
+        task_id: &str,
+    ) -> Result<Option<i64>, AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.query_row(
+            "SELECT last_fired_at FROM router_schedules WHERE root = ?1 AND task_id = ?2",
+            params![root, task_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(error)
+    }
+
+    /// 记下「这一轮排期已经跑过了」。下一次从这一刻起算。
+    pub(crate) fn mark_router_schedule(
+        &self,
+        root: &str,
+        task_id: &str,
+        at: i64,
+    ) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "INSERT INTO router_schedules (root, task_id, last_fired_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(root, task_id) DO UPDATE SET last_fired_at = excluded.last_fired_at",
+            params![root, task_id, at],
+        )
+        .map_err(error)?;
+        Ok(())
     }
 
     // ---------------------------------------------------------- plan nodes

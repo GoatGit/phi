@@ -49,6 +49,7 @@ pub(crate) fn collect(db: &Database) -> Result<Snapshot, String> {
             let run = runs.get(&(root.clone(), task.id.clone())).cloned();
             snapshot.candidates.push(Candidate {
                 run,
+                schedule: task.schedule_spec.clone(),
                 task_id: task.id,
                 root: root.clone(),
                 title: task.title,

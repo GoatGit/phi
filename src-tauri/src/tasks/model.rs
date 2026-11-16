@@ -17,10 +17,50 @@ pub struct Task {
     pub updated_date: Option<String>,
     pub acceptance_total: usize,
     pub acceptance_done: usize,
+    /// 卡片里「产物」段落列出的条数。看板只在有产物时显示一个小标记。
+    pub artifact_count: usize,
+    /// 持续 / 定时任务；普通任务为 `null`。
+    pub schedule: Option<TaskSchedule>,
+    /// 解析后的排期，供调度器直接用（不进 JSON：前端要的是 `schedule`）。
+    #[serde(skip)]
+    pub schedule_spec: Option<crate::tasks::schedule::Spec>,
     /// 相对仓库根的文件路径，用于「在文件管理器中显示」与排错
     pub file: String,
     /// 内容指纹：写回前比对，文件被外部改过就拒绝写入
     pub fingerprint: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSchedule {
+    /// `interval`（每隔一段时间）/ `daily`（每天）/ `once`（指定时刻一次）
+    pub kind: String,
+    /// 间隔任务的分钟数
+    pub minutes: Option<u32>,
+    /// 每日任务的时间（本地时区，`HH:MM`）
+    pub time: Option<String>,
+    /// 一次性任务的时间（本地时区，`YYYY-MM-DD HH:MM`）
+    pub at: Option<String>,
+    /// 上一次被调度器触发的时刻（毫秒）；没跑过就是 `null`
+    pub last_run_at: Option<i64>,
+    /// 下一次该跑的时刻（毫秒）。已经过去的时刻表示「现在就该跑」。
+    pub next_run_at: Option<i64>,
+}
+
+/// 一张卡交付的一个产物。
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskArtifact {
+    /// 给人看的名字
+    pub label: String,
+    /// 卡片里写的原始路径或链接
+    pub path: String,
+    /// 文件是否真的在仓库里（链接一律算存在）
+    pub exists: bool,
+    /// 文件大小（字节）；链接与找不到的文件为 `null`
+    pub size: Option<u64>,
+    /// 外部链接
+    pub url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -56,6 +96,10 @@ pub struct TaskDetail {
     pub sections: Vec<TaskSection>,
     pub acceptance: Vec<AcceptanceItem>,
     pub links: Vec<TaskLink>,
+    /// 结果摘要（卡片里的「结果 / Outcome」段落，老卡片退回 `Conclusion`）
+    pub outcome: Option<String>,
+    /// 用户要拿走的产物，按卡片里列的顺序
+    pub artifacts: Vec<TaskArtifact>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -110,4 +154,10 @@ pub struct NewTask {
     pub dependencies: Option<Vec<String>>,
     #[serde(default)]
     pub acceptance: Option<Vec<String>>,
+    /// 持续任务：每隔多久跑一次（`2h` / `30m` / `1d`）
+    #[serde(default)]
+    pub recurrence: Option<String>,
+    /// 定时任务：每天的时刻（`09:30`）或一次性的时刻（`2026-11-20 09:30`）
+    #[serde(default)]
+    pub schedule: Option<String>,
 }

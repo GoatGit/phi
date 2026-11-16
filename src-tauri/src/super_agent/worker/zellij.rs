@@ -39,11 +39,26 @@ const LAYOUT: &str = "layout { pane; }";
 /// 默认布局里那个教程浮层的标题，建完会话要关掉它。
 const WELCOME_TITLE: &str = "Welcome to Zellij";
 
-/// 我们自己的 zellij 配置：交互提示全关，剪贴板交给系统。
+/// 我们自己的 zellij 配置：去掉一切「zellij 界面」，只留终端里的程序。
+///
+/// 这不是审美选择，是体验差异的来源：后台 worker 是 `codex exec` 这类命令行，
+/// 用户熟悉的是它自己的输出。默认的 zellij 会在外面套一圈 pane 标题、状态栏，
+/// 并把按键先给 zellij 自己的模式——看起来就不是同一个东西了。
+///
+/// - `pane_frames false`：不画 pane 边框与标题；
+/// - `simplified_ui true`：插件类 UI 用简版字形；
+/// - `default_mode "locked"`：按键直接交给前台程序，不再先被 zellij 截一层；
+/// - `mouse_mode true`：锁定的是键盘，滚轮与复制照旧；
+/// - `scroll_buffer_size`：agent 的长输出要能往回翻。
 const CONFIG: &str = "\
 simplified_ui true
 show_startup_tips false
 show_release_notes false
+pane_frames false
+pane_frame_style \"none\"
+default_mode \"locked\"
+mouse_mode true
+scroll_buffer_size 100000
 copy_command \"pbcopy\"
 ";
 
@@ -625,5 +640,15 @@ mod tests {
         assert_eq!(LAYOUT, "layout { pane; }");
         assert!(!CONFIG.contains("kill"));
         assert_eq!(SESSION, "phi-workers");
+    }
+
+    #[test]
+    fn the_viewer_looks_like_the_cli_inside_it() {
+        // 用户看到的是 codex / claude 的输出，不是一层 zellij 界面：
+        // 不画 pane 边框，按键直接交给前台程序，滚轮与复制保留。
+        assert!(CONFIG.contains("pane_frames false"));
+        assert!(CONFIG.contains("default_mode \"locked\""));
+        assert!(CONFIG.contains("mouse_mode true"));
+        assert!(CONFIG.contains("scroll_buffer_size"));
     }
 }

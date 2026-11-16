@@ -271,13 +271,16 @@ async fn a_disabled_router_still_settles_a_dead_worker() {
     .await;
     assert_eq!(report.skipped.as_deref(), Some("disabled"));
 
+    // 卡片还在执行列、进程又确实没了：这是「被打断」，不是「跑完了等你确认」。
+    // 按失败记，打开开关后的下一轮就会自动接着跑。
     let run = workspace
         .db
         .router_run(&workspace.root, "TASK-1")
         .expect("run")
         .expect("row");
-    assert_eq!(run.state, RunState::NeedsYou);
+    assert_eq!(run.state, RunState::Failed);
     assert!(run.session_id.is_none());
+    assert!(run.detail.expect("detail").contains("自动重新派发"));
 }
 
 #[tokio::test]
@@ -1103,7 +1106,8 @@ fn reconcile_fails_a_non_zero_exit_and_asks_when_there_is_no_record() {
     assert_eq!(run.state, RunState::Failed);
     assert!(run.detail.expect("detail").contains("130"));
 
-    // 没有退出记录：不假装完成。
+    // 没有退出记录、运行时也查不到：worker 被打断了。卡片还在执行列，
+    // 于是按失败重试，而不是把一次「应用重启」变成一次「请你确认」。
     let other = "3f2504e0-4f89-11d3-9a0c-0305e82c3303";
     dispatch_run(&workspace.db, &workspace.root, other, None);
     crate::super_agent::tick::reconcile(
@@ -1119,8 +1123,8 @@ fn reconcile_fails_a_non_zero_exit_and_asks_when_there_is_no_record() {
         .router_run(&workspace.root, "TASK-1")
         .expect("run")
         .expect("row");
-    assert_eq!(run.state, RunState::NeedsYou);
-    assert!(run.detail.expect("detail").contains("没有退出记录"));
+    assert_eq!(run.state, RunState::Failed);
+    assert!(run.detail.expect("detail").contains("自动重新派发"));
 }
 
 #[test]
@@ -1367,6 +1371,7 @@ fn dependencies_are_resolved_inside_the_same_repository() {
         file: "backlog/tasks/task-1.md".into(),
         fingerprint: "fp".into(),
         dependencies: vec!["TASK-2".into()],
+        schedule: None,
         run: None,
     };
     let outcome = crate::super_agent::prefilter::apply(
@@ -1699,6 +1704,7 @@ fn blocked_dependencies_keep_the_card_queued() {
         file: "backlog/tasks/task-1.md".into(),
         fingerprint: "fp".into(),
         dependencies: vec!["TASK-2".into()],
+        schedule: None,
         run: None,
     };
     let outcome = crate::super_agent::prefilter::apply(
@@ -1807,6 +1813,9 @@ fn the_task_prompt_prioritizes_autonomous_completion() {
     assert!(prompt.contains("无人值守时会被直接拒掉"));
     assert!(prompt.contains("完成后验证结果"));
     assert!(prompt.contains("Done"));
+    // 用户看的是交付物：提示词要要求把结果与产物写进卡片，否则看板只能显示过程。
+    assert!(prompt.contains("## 结果"));
+    assert!(prompt.contains("## 产物"));
     assert!(prompt.contains("继续完成不受阻塞的部分"));
     assert!(!prompt.contains("如果缺只有人才能给的信息，不要猜"));
     assert!(!prompt.contains("然后停下等人回答"));
@@ -1839,4 +1848,292 @@ fn human_questions_require_an_explicit_nonempty_marker() {
         crate::super_agent::model::human_question("需要你决定："),
         None
     );
+}
+
+/// 「等你看」不是无期徒刑：用户不可能守着看板，超过时限就按原卡片再跑一次。
+#[tokio::test]
+async fn a_long_wait_for_you_eventually_runs_again() {
+    let workspace = workspace(1, "In Progress");
+    let now = crate::super_agent::store::now_ms();
+    workspace
+        .db
+        .put_router_run(
+            &workspace.root,
+            "TASK-1",
+            RunWrite {
+                state: RunState::NeedsYou,
+                worker_app: Some("claude"),
+                session_id: None,
+                attempts: 1,
+                detail: Some("worker 停下来等你回话：要发到哪个环境？"),
+                card_fingerprint: None,
+                shadow: false,
+            },
+            now - 2 * 60 * 60 * 1000,
+        )
+        .expect("run");
+
+    let mut config = settings(false);
+    config.needs_you_seconds = 3600;
+    let dispatcher = RecordingDispatcher::default();
+    let report = run_tick(
+        &workspace.db,
+        config,
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+
+    assert!(
+        report
+            .degraded
+            .iter()
+            .any(|note| note == "needs-you-expired:TASK-1"),
+        "超时那一刻必须能被排障看到：{:?}",
+        report.degraded
+    );
+    assert_eq!(dispatcher.count(), 1, "超时后应当真的重新派发一次");
+}
+
+/// 时限没到就继续等人：没人回话不等于可以自作主张。
+#[tokio::test]
+async fn a_fresh_wait_for_you_is_left_alone() {
+    let workspace = workspace(1, "In Progress");
+    workspace
+        .db
+        .put_router_run(
+            &workspace.root,
+            "TASK-1",
+            RunWrite {
+                state: RunState::NeedsYou,
+                worker_app: Some("claude"),
+                session_id: None,
+                attempts: 1,
+                detail: Some("worker 停下来等你回话：要发到哪个环境？"),
+                card_fingerprint: None,
+                shadow: false,
+            },
+            crate::super_agent::store::now_ms(),
+        )
+        .expect("run");
+
+    let mut config = settings(false);
+    config.needs_you_seconds = 3600;
+    let dispatcher = RecordingDispatcher::default();
+    let report = run_tick(
+        &workspace.db,
+        config,
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+    assert_eq!(report.skipped.as_deref(), Some("no-candidates"));
+    assert_eq!(dispatcher.count(), 0);
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::NeedsYou);
+}
+
+/// 排期只写卡片，触发时刻记在本机；第一次看到时只「上表」，不追一次过去的运行。
+fn schedule_on(workspace: &Workspace, value: &str) {
+    let fingerprint = crate::super_agent::snapshot::task_fingerprint(&workspace.root, "TASK-1")
+        .expect("fingerprint");
+    let opened =
+        crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("workspace");
+    crate::tasks::repository::set_schedule(&opened, "TASK-1", Some(value), None, &fingerprint)
+        .expect("schedule");
+}
+
+fn candidates_of(workspace: &Workspace) -> Vec<Candidate> {
+    crate::super_agent::snapshot::collect(&workspace.db)
+        .expect("snapshot")
+        .candidates
+}
+
+#[test]
+fn a_new_schedule_starts_counting_from_now() {
+    let workspace = workspace(1, "Done");
+    schedule_on(&workspace, "2h");
+    let now = crate::super_agent::store::now_ms();
+    let mut report = empty_report();
+    let mut candidates = candidates_of(&workspace);
+    crate::super_agent::tick::advance_schedules(
+        &workspace.db,
+        &settings(false),
+        &mut candidates,
+        now,
+        &mut report,
+    );
+
+    assert!(report
+        .degraded
+        .iter()
+        .any(|note| note == "schedule-armed:TASK-1"));
+    assert_eq!(
+        workspace
+            .db
+            .router_schedule_last(&workspace.root, "TASK-1")
+            .expect("last"),
+        Some(now)
+    );
+    // 卡片还在 Done：不因为「刚配了排期」就跑一次。
+    assert_eq!(candidates[0].status, "Done");
+    assert_eq!(candidates[0].state(), RunState::Idle);
+}
+
+#[test]
+fn a_due_interval_task_goes_back_to_the_trigger_column() {
+    let workspace = workspace(1, "Done");
+    schedule_on(&workspace, "2h");
+    let now = crate::super_agent::store::now_ms();
+    workspace
+        .db
+        .mark_router_schedule(&workspace.root, "TASK-1", now - 3 * 60 * 60 * 1000)
+        .expect("mark");
+
+    let mut report = empty_report();
+    let mut candidates = candidates_of(&workspace);
+    crate::super_agent::tick::advance_schedules(
+        &workspace.db,
+        &settings(false),
+        &mut candidates,
+        now,
+        &mut report,
+    );
+
+    assert!(report
+        .degraded
+        .iter()
+        .any(|note| note == "scheduled:TASK-1"));
+    assert_eq!(candidates[0].status, "In Progress");
+    assert_eq!(candidates[0].state(), RunState::Queued);
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Queued);
+    assert_eq!(run.attempts, 0, "新一轮要重新给满重试预算");
+
+    // 卡片文件真的被挪回去了：看板读的是文件，不是内存里的那一份。
+    let opened =
+        crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("workspace");
+    let detail = crate::tasks::repository::read(&opened, "TASK-1").expect("read");
+    assert_eq!(detail.task.status, "In Progress");
+}
+
+#[test]
+fn an_interval_that_is_not_due_yet_stays_put() {
+    let workspace = workspace(1, "Done");
+    schedule_on(&workspace, "2h");
+    let now = crate::super_agent::store::now_ms();
+    workspace
+        .db
+        .mark_router_schedule(&workspace.root, "TASK-1", now - 10 * 60 * 1000)
+        .expect("mark");
+
+    let mut report = empty_report();
+    let mut candidates = candidates_of(&workspace);
+    crate::super_agent::tick::advance_schedules(
+        &workspace.db,
+        &settings(false),
+        &mut candidates,
+        now,
+        &mut report,
+    );
+    assert!(report.degraded.is_empty());
+    assert_eq!(candidates[0].status, "Done");
+}
+
+#[test]
+fn a_one_shot_schedule_only_fires_once() {
+    let workspace = workspace(1, "Done");
+    let past = chrono::Local::now() - chrono::Duration::minutes(5);
+    let moment = past.format("%Y-%m-%d %H:%M").to_string();
+    let fingerprint = crate::super_agent::snapshot::task_fingerprint(&workspace.root, "TASK-1")
+        .expect("fingerprint");
+    let opened =
+        crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("workspace");
+    crate::tasks::repository::set_schedule(&opened, "TASK-1", None, Some(&moment), &fingerprint)
+        .expect("schedule");
+
+    let now = crate::super_agent::store::now_ms();
+    // 指定时刻已经过去：本次巡检就触发一次。
+    let mut report = empty_report();
+    let mut candidates = candidates_of(&workspace);
+    crate::super_agent::tick::advance_schedules(
+        &workspace.db,
+        &settings(false),
+        &mut candidates,
+        now,
+        &mut report,
+    );
+    assert_eq!(candidates[0].status, "In Progress");
+
+    // 再跑一轮：已经触发过的定时任务不再重复。
+    let mut report = empty_report();
+    let mut candidates = candidates_of(&workspace);
+    crate::super_agent::tick::advance_schedules(
+        &workspace.db,
+        &settings(false),
+        &mut candidates,
+        now + 60_000,
+        &mut report,
+    );
+    assert!(
+        !report
+            .degraded
+            .iter()
+            .any(|note| note.starts_with("scheduled:")),
+        "{:?}",
+        report.degraded
+    );
+}
+
+/// 客户端重启后，正在跑的记录仍然挂着 session，但那个 worker 已经不在了：
+/// 卡片必须自己回到执行列，而不是停在那里等下一轮人工点开始。
+#[tokio::test]
+async fn an_interrupted_worker_is_restarted_by_the_next_tick() {
+    let workspace = workspace(1, "In Progress");
+    let now = crate::super_agent::store::now_ms();
+    workspace
+        .db
+        .put_router_run(
+            &workspace.root,
+            "TASK-1",
+            RunWrite {
+                state: RunState::Working,
+                worker_app: Some("claude"),
+                session_id: Some("3f2504e0-4f89-11d3-9a0c-0305e82c3399"),
+                attempts: 1,
+                detail: None,
+                card_fingerprint: None,
+                shadow: false,
+            },
+            now - 60 * 60 * 1000,
+        )
+        .expect("run");
+
+    let mut config = settings(false);
+    config.cooldown_seconds = 0;
+    let dispatcher = RecordingDispatcher::default();
+    let report = run_tick(
+        &workspace.db,
+        config,
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &RuleEpisode,
+    )
+    .await;
+    assert_eq!(
+        report.dispatched,
+        vec!["TASK-1".to_string()],
+        "被打断的 worker 应当在同一个 tick 里结算并重新派出去"
+    );
+    assert_eq!(dispatcher.count(), 1);
 }

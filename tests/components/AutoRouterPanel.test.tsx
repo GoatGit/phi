@@ -30,6 +30,8 @@ const settings: RouterSettings = {
   workerApps: ["claude"],
   maxAttempts: 3,
   stallSeconds: 3600,
+  monitorIntervalSeconds: 120,
+  needsYouSeconds: 3600,
   trustExitZero: true,
   leaseSeconds: 90,
   cooldownSeconds: 120,
