@@ -106,6 +106,9 @@ mod tests {
             updated_date: None,
             acceptance_total: 0,
             acceptance_done: 0,
+            artifact_count: 0,
+            schedule: None,
+            schedule_spec: None,
             file: format!("backlog/tasks/{}.md", id.to_lowercase()),
             fingerprint: String::new(),
         }

@@ -11,25 +11,35 @@ use tauri::Manager;
 use crate::store::AppState;
 use crate::super_agent::episode::{Episode, FallbackEpisode, RuleEpisode};
 use crate::super_agent::judge::SystemOneJudge;
+use crate::super_agent::model::{DEFAULT_MONITOR_SECONDS, MIN_MONITOR_SECONDS};
 use crate::super_agent::sidecar::SidecarEpisode;
 use crate::super_agent::store;
 use crate::super_agent::tick::{self, TickContext};
 use crate::super_agent::worker::Workers;
 
-/// tick 间隔。30 秒足够跟上人的节奏，也不会把判官调用打满。
-const TICK_INTERVAL: Duration = Duration::from_secs(30);
-
+/// 巡检节拍用户可调（默认 2 分钟）：读一次设置，下一次睡眠就能跟着变，不用重启调度器。
 pub(crate) fn spawn(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let mut ticker = tokio::time::interval(TICK_INTERVAL);
-        // 第一次 tick 立刻跑：刚打开应用时不用干等 30 秒。
         loop {
-            ticker.tick().await;
             if let Err(reason) = tick_once(&app).await {
                 log::warn!("super-agent tick failed: {reason}");
             }
+            tokio::time::sleep(monitor_interval(&app)).await;
         }
     });
+}
+
+/// 两次巡检之间等多久。读不到设置就按默认值走：一个设置表读失败不该让调度停摆。
+fn monitor_interval(app: &tauri::AppHandle) -> Duration {
+    let state = app.state::<AppState>();
+    let seconds = match state.db.router_settings() {
+        Ok(settings) => settings.monitor_interval_seconds,
+        Err(error) => {
+            log::warn!("router settings read failed, using default interval: {error}");
+            DEFAULT_MONITOR_SECONDS
+        }
+    };
+    Duration::from_secs(seconds.max(MIN_MONITOR_SECONDS) as u64)
 }
 
 async fn tick_once(app: &tauri::AppHandle) -> Result<(), String> {

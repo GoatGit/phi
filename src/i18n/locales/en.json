@@ -6104,8 +6104,8 @@
     "about": {
       "what": "The task board reads a repository's backlog directory as a board. Tasks are still plain markdown files, so the backlog CLI and other agents can read and edit them.",
       "step1": "Pick a repository. If it has no backlog yet, “Initialize backlog” creates config.yml and tasks/.",
-      "step2": "Click “New task” at the top of the To Do column, type one line, and it becomes a card; cards can be dragged between columns to change status.",
-      "step3": "Open a card for its body, dependencies and linked sessions; every card is still a markdown file in the repository.",
+      "step2": "Click “New task” at the top of the To Do column and type one line; cards can be dragged between columns. In the detail panel you can also make it recurring or scheduled.",
+      "step3": "Open a card to see the result and artifacts first, then dependencies, execution log and linked sessions; every card is still a markdown file in the repository.",
       "step4": "“Start session” in the detail panel links the session and its usage back to the card.",
       "step5": "Turn on “Auto-run” in the header: cards moved to “In Progress” go to the chosen app and are settled on exit. Start in shadow mode to check the judgement first.",
       "note": "The board only reads and writes backlog files in the repository. Removing a repository from the board deletes no tasks."
@@ -6214,7 +6214,13 @@
       "confirmDecision": "What should happen next?",
       "confirmContinue": "Continue (queue again)",
       "confirmComplete": "Confirm completed (move to Done)",
-      "confirmSubmit": "Submit decision"
+      "confirmSubmit": "Submit decision",
+      "monitorInterval": "Check every",
+      "needsYou": "Wait for you up to",
+      "seconds": "{{count}} s",
+      "minutes": "{{count}} min",
+      "hours": "{{count}} h",
+      "forever": "Forever"
     },
     "errors": {
       "noBacklog": "There is no backlog/config.yml in this folder",
@@ -6225,10 +6231,48 @@
       "unknownStatus": "No such column on this board",
       "emptyTitle": "A title is required",
       "terminalUnsupported": "Local terminals are not available on this platform",
-      "invalidWorkspace": "The backlog config in this repository cannot be read"
+      "invalidWorkspace": "The backlog config in this repository cannot be read",
+      "invalidRecurrence": "Invalid interval — try 2h / 30m / 1d",
+      "invalidSchedule": "Invalid time — try 09:30 or 2026-11-20 09:30",
+      "conflictingSchedule": "Pick either a recurring or a scheduled task"
     },
     "openSession": "Open terminal",
     "sessionEnded": "Session ended",
-    "sessionClosed": "This run's terminal is unreachable: it may have finished, or its zellij session was cleaned up. Starting again opens a new one."
+    "sessionClosed": "This run's terminal is unreachable: it may have finished, or its zellij session was cleaned up. Starting again opens a new one.",
+    "result": {
+      "title": "Result",
+      "artifactCount": "{{count}} artifacts",
+      "empty": "No result summary yet. When a worker finishes it writes “## Result” and “## Artifacts” into the card, and they show up here.",
+      "reveal": "Show in folder",
+      "missing": "File missing",
+      "link": "Link"
+    },
+    "process": {
+      "title": "Execution log ({{count}} sections)"
+    },
+    "schedule": {
+      "title": "Task type",
+      "mode": {
+        "none": "One-off",
+        "interval": "Recurring",
+        "daily": "Daily",
+        "once": "At a time"
+      },
+      "value": "Schedule",
+      "save": "Save",
+      "saved": "Schedule saved",
+      "hint": "A recurring task runs again every interval; a scheduled task runs at its time. When due, the card is put back into the trigger column and dispatched, then settled like any other task. Choose “One-off” and save to stop it.",
+      "placeholderInterval": "e.g. 2h / 30m / 1d",
+      "placeholderDaily": "e.g. 09:30",
+      "placeholderOnce": "e.g. 2026-11-20 09:30",
+      "everyMinutes": "Every {{count}} min",
+      "everyHours": "Every {{count}} h",
+      "everyDays": "Every {{count}} d",
+      "daily": "Daily at {{time}}",
+      "once": "Once at {{at}}",
+      "next": "Next {{time}}",
+      "due": "Due now — the next check will run it",
+      "lastRun": "Last run {{time}}"
+    }
   }
 }

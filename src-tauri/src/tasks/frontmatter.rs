@@ -97,6 +97,21 @@ impl Document {
         }
     }
 
+    /// 返回删掉了一个字段后的完整文件内容。字段不存在时原样返回。
+    ///
+    /// 持续 / 定时任务取消排期时要用：写一个空字符串会在 frontmatter 里留下
+    /// `recurrence: ''`，读起来像「配了个空值」，而不是「没有这个设置」。
+    pub fn without_field(&self, key: &str) -> String {
+        let inner = self.frontmatter();
+        let lines = strip_lines(inner, key);
+        format!(
+            "{}{}{}",
+            &self.raw[..self.inner_start],
+            lines,
+            &self.raw[self.inner_end..]
+        )
+    }
+
     /// 返回替换了一个字段后的完整文件内容。
     ///
     /// 只重写这个键所在的行（或它的缩进块），其它行逐字节保留。
@@ -184,6 +199,29 @@ fn trim_to_original_tail(inner: &str, output: String) -> String {
         return output;
     }
     output[..output.len() - 1].to_string()
+}
+
+/// 删掉一个键（含它的缩进续行）。
+fn strip_lines(inner: &str, key: &str) -> String {
+    let lines: Vec<&str> = inner.split_inclusive('\n').collect();
+    let mut output = String::with_capacity(inner.len());
+    let mut index = 0usize;
+    while index < lines.len() {
+        let line = lines[index];
+        if starts_with_key(line, key) {
+            index += 1;
+            while index < lines.len() && is_continuation(lines[index]) {
+                index += 1;
+            }
+            continue;
+        }
+        output.push_str(line);
+        index += 1;
+    }
+    if output == inner {
+        return output;
+    }
+    trim_to_original_tail(inner, output)
 }
 
 fn starts_with_key(line: &str, key: &str) -> bool {

@@ -844,6 +844,7 @@ mod tests {
             file: format!("backlog/tasks/{id}.md"),
             fingerprint: "fp".into(),
             dependencies: Vec::new(),
+            schedule: None,
             run: None,
         }
     }

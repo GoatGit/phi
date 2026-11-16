@@ -102,6 +102,9 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
     // 巡检：看板上的事实优先于运行记录。一张卡还挂在执行列上，运行记录却说它
     // 「完成 / 失败 / 等人确认」，那它既没在跑、也没完成——正是该被重新派发的那类。
     let mut candidates = scan.candidates;
+    // 排期先走：到点的持续 / 定时任务要先把卡片送回执行列，否则后面的巡检和
+    // 预过滤都看不到它（它可能还挂在 Done 里）。
+    advance_schedules(ctx.db, &settings, &mut candidates, ctx.now, &mut report);
     supervise(ctx.db, &settings, &mut candidates, ctx.now, &mut report);
     let statuses: HashMap<(String, String), String> = candidates
         .iter()
@@ -323,18 +326,170 @@ fn finish(
     })
 }
 
+/// 持续 / 定时任务：到点了就把卡片送回执行列，并重新排队。
+///
+/// 为什么不是「再派一次」而是先改卡片状态：看板是事实来源。一张已经 Done 的卡
+/// 不挪回执行列，预过滤会照旧剔除它，下一个人打开看板也看不出它还在周期里。
+///
+/// 首次看到排期时只记「从现在的时刻起算」，不补跑一次：给一张跑了半年的卡加上
+/// 「每小时」，不该立刻触发一次陈年旧跑。
+pub(crate) fn advance_schedules(
+    db: &Database,
+    settings: &RouterSettings,
+    candidates: &mut [Candidate],
+    now: i64,
+    report: &mut TickReport,
+) {
+    for candidate in candidates.iter_mut() {
+        let Some(spec) = candidate.schedule.clone() else {
+            continue;
+        };
+        let state = candidate.state();
+        // 正在跑、等人回话、被用户暂停：排期都不该抢在前面。
+        if state.is_running() || matches!(state, RunState::Paused | RunState::NeedsYou) {
+            continue;
+        }
+        let last = match db.router_schedule_last(&candidate.root, &candidate.task_id) {
+            Ok(value) => value,
+            Err(error) => {
+                log::warn!(
+                    "router schedule read failed task={}: {error}",
+                    candidate.task_id
+                );
+                continue;
+            }
+        };
+        // 只有间隔任务需要「起点」；每日 / 一次性的时刻是绝对的，
+        // 把「上表」写成一次触发会让它们白白少跑一轮。
+        if last.is_none() && spec.kind == crate::tasks::schedule::Kind::Interval {
+            if let Err(error) = db.mark_router_schedule(&candidate.root, &candidate.task_id, now) {
+                log::warn!(
+                    "router schedule arm failed task={}: {error}",
+                    candidate.task_id
+                );
+                continue;
+            }
+            report
+                .degraded
+                .push(format!("schedule-armed:{}", candidate.task_id));
+            continue;
+        }
+        if spec.spent(last) {
+            continue;
+        }
+        let Some(due) = spec.due_at(last) else {
+            continue;
+        };
+        if due > now {
+            continue;
+        }
+
+        // 卡片不在执行列：先挪回去（指纹会变，后面排队要用挪完的指纹）。
+        let mut fingerprint = candidate.fingerprint.clone();
+        if candidate.status != settings.trigger_status {
+            let workspace =
+                match crate::tasks::document::open(std::path::Path::new(&candidate.root)) {
+                    Ok(workspace) => workspace,
+                    Err(error) => {
+                        log::warn!(
+                            "router schedule workspace failed root={}: {error}",
+                            candidate.root
+                        );
+                        continue;
+                    }
+                };
+            match crate::tasks::repository::set_status(
+                &workspace,
+                &candidate.task_id,
+                &settings.trigger_status,
+                &candidate.fingerprint,
+            ) {
+                Ok(detail) => fingerprint = detail.task.fingerprint,
+                Err(error) => {
+                    log::warn!(
+                        "router schedule move failed task={}: {error}",
+                        candidate.task_id
+                    );
+                    report.degraded.push(format!(
+                        "schedule-move-failed:{}:{error}",
+                        candidate.task_id
+                    ));
+                    continue;
+                }
+            }
+        }
+
+        let detail = format!(
+            "{}：到达下一次运行时间，已放回执行列",
+            if spec.kind == crate::tasks::schedule::Kind::Once {
+                "定时任务"
+            } else {
+                "持续任务"
+            }
+        );
+        let persisted = db.put_router_run(
+            &candidate.root,
+            &candidate.task_id,
+            store::RunWrite {
+                state: RunState::Queued,
+                worker_app: None,
+                session_id: None,
+                // 每一轮重新给满预算：上一轮失败多少次，都不该拖累下一轮。
+                attempts: 0,
+                detail: Some(&detail),
+                card_fingerprint: Some(&fingerprint),
+                shadow: settings.shadow,
+            },
+            now,
+        );
+        if let Err(error) = persisted {
+            log::error!(
+                "router schedule requeue failed task={}: {error}",
+                candidate.task_id
+            );
+            report
+                .degraded
+                .push(format!("schedule-requeue-failed:{}", candidate.task_id));
+            continue;
+        }
+        if let Err(error) = db.mark_router_schedule(&candidate.root, &candidate.task_id, now) {
+            log::warn!(
+                "router schedule mark failed task={}: {error}",
+                candidate.task_id
+            );
+        }
+        let _ = db.release_router_lease(&candidate.root, &candidate.task_id);
+        candidate.status = settings.trigger_status.clone();
+        candidate.fingerprint = fingerprint.clone();
+        candidate.run = Some(crate::super_agent::model::TaskRun {
+            task_id: candidate.task_id.clone(),
+            root: candidate.root.clone(),
+            state: RunState::Queued,
+            worker_app: None,
+            session_id: None,
+            attempts: 0,
+            detail: Some(detail),
+            card_fingerprint: Some(fingerprint),
+            shadow: settings.shadow,
+            updated_at: now,
+        });
+        report
+            .degraded
+            .push(format!("scheduled:{}", candidate.task_id));
+    }
+}
+
 /// 看板巡检：把「运行记录」和「看板上的事实」对齐。
 ///
-/// 只处理一种矛盾——卡片还挂在执行列（`trigger_status`）上，运行记录却说它已经
-/// 结束（`done` / `failed` / `needs-you`）。那就是「没在跑、没完成、也不是人停的」：
-/// 记录里的结论属于上一次运行，看板则说明它还在这轮里。
+/// 处理三种矛盾：
+/// - 卡片还挂在执行列（`trigger_status`）上，运行记录却说它已经结束
+///   （`done` / `failed` / `needs-you`）——那就是「没在跑、没完成、也不是人停的」；
+/// - 卡片回到了执行列，但运行记录停在 `done`（人把它拖回来的）；
+/// - 「等你看」放得太久（`needs_you_seconds`）没人回——用户不可能永远守着看板，
+///   超过时限就按原卡片再跑一次，但仍然守着重试预算。
 ///
-/// 两个触发条件都不是机器能自己造出来的：
-/// - 记录说 `done`，卡片却不在完成列——只能是人把它拖回来的；
-/// - 记录说失败 / 等人确认，而卡片在上次运行结束后被改过——人改了内容或挪了列。
-///
-/// 重排时把重试预算清零。预算限制的是「同一版卡片被反复派发」，不是这张卡本身；
-/// 人一动手就说明它换了一版。
+/// 重排时把重试预算清零（除了「等你看」超时那条：那不代表卡片换了一版，不应当
+/// 重置预算，否则同一件事可以无限重试）。
 pub(crate) fn supervise(
     db: &Database,
     settings: &RouterSettings,
@@ -354,6 +509,13 @@ pub(crate) fn supervise(
         if candidate.status != settings.trigger_status {
             continue;
         }
+        // 等你确认放得太久：按原卡片自动继续。预算已经用完的那张卡不再自动重来，
+        // 它问就是真的需要人给一句。
+        let waited = now.saturating_sub(run.updated_at);
+        let needs_you_expired = run.state == RunState::NeedsYou
+            && settings.needs_you_seconds > 0
+            && waited >= settings.needs_you_seconds.saturating_mul(1000)
+            && run.attempts < settings.max_attempts;
         let fingerprint_changed = run
             .card_fingerprint
             .as_deref()
@@ -361,18 +523,33 @@ pub(crate) fn supervise(
         let reopened = run.state == RunState::Done && !prefilter::done_status(&candidate.status);
         let reconsidered =
             matches!(run.state, RunState::Failed | RunState::NeedsYou) && fingerprint_changed;
-        if !reopened && !reconsidered {
+        if !needs_you_expired && !reopened && !reconsidered {
             continue;
         }
-        let detail = if reopened {
-            "任务又回到执行列，重新排队"
+        let expired = needs_you_expired && !reopened && !reconsidered;
+        let (detail, attempts) = if expired {
+            let minutes = (settings.needs_you_seconds / 60).max(1);
+            let previous = run
+                .detail
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("（没有记录问题）");
+            (
+                format!(
+                    "{minutes} 分钟没有收到你的确认，已按当前卡片自动继续。上一轮在等：{previous}"
+                ),
+                run.attempts,
+            )
+        } else if reopened {
+            ("任务又回到执行列，重新排队".to_string(), 0)
         } else {
-            "卡片已被改动，重新排队并清零重试预算"
+            ("卡片已被改动，重新排队并清零重试预算".to_string(), 0)
         };
         run.state = RunState::Queued;
         run.session_id = None;
-        run.attempts = 0;
-        run.detail = Some(detail.to_string());
+        run.attempts = attempts;
+        run.detail = Some(detail.clone());
         run.card_fingerprint = Some(candidate.fingerprint.clone());
         run.updated_at = now;
         let persisted = db.put_router_run(
@@ -382,8 +559,8 @@ pub(crate) fn supervise(
                 state: RunState::Queued,
                 worker_app: run.worker_app.as_deref(),
                 session_id: None,
-                attempts: 0,
-                detail: Some(detail),
+                attempts,
+                detail: Some(&detail),
                 card_fingerprint: Some(&candidate.fingerprint),
                 shadow: run.shadow,
             },
@@ -398,9 +575,15 @@ pub(crate) fn supervise(
         }
         // 重新排队意味着上一次运行的租约作废，否则新的一轮会被自己的旧租约拦住。
         let _ = db.release_router_lease(&run.root, &run.task_id);
-        report
-            .degraded
-            .push(format!("requeued:{}", candidate.task_id));
+        report.degraded.push(format!(
+            "{}:{}",
+            if expired {
+                "needs-you-expired"
+            } else {
+                "requeued"
+            },
+            candidate.task_id
+        ));
     }
 }
 
@@ -595,10 +778,39 @@ pub(crate) fn reconcile(
                 }
             }
             Some(code) => (RunState::Failed, format!("worker 退出码 {code}")),
-            None => (
-                RunState::NeedsYou,
-                "会话已结束，但没有退出记录，请确认结果".to_string(),
-            ),
+            None => {
+                // 既没有退出记录，运行时也查不到它：worker 是被打断的（客户端重启、
+                // 机器重启、pane 没了），不是「跑完了」。卡片还挂在执行列时，这正是
+                // 「没在跑、没完成、也不是人停的」，该自动重新派，而不是每天来问人。
+                let in_trigger = task
+                    .as_ref()
+                    .is_some_and(|task| task.status == settings.trigger_status);
+                if !settings.trust_exit_zero {
+                    (
+                        RunState::NeedsYou,
+                        "会话已结束，但没有退出记录（自动判定已关闭），请确认结果".to_string(),
+                    )
+                } else if in_trigger && run.attempts < settings.max_attempts {
+                    (
+                        RunState::Failed,
+                        "worker 已经不在（应用退出/重启或 pane 消失），冷却后自动重新派发"
+                            .to_string(),
+                    )
+                } else if in_trigger {
+                    (
+                        RunState::NeedsYou,
+                        format!(
+                            "会话已结束且没有退出记录，已尝试 {} 次，请确认结果",
+                            run.attempts
+                        ),
+                    )
+                } else {
+                    (
+                        RunState::NeedsYou,
+                        "会话已结束，但没有退出记录，请确认结果".to_string(),
+                    )
+                }
+            }
         };
         let (state, detail) = if state == RunState::Failed && run.attempts >= settings.max_attempts
         {

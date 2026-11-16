@@ -2,6 +2,23 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** 与 `src-tauri/src/tasks/model.rs` 一一对应的任务 DTO。字段是 camelCase。 */
 
+/** 持续 / 定时任务。普通任务没有这一项。 */
+export type TaskScheduleKind = "interval" | "daily" | "once";
+
+export interface TaskSchedule {
+  kind: TaskScheduleKind;
+  /** 间隔任务的分钟数 */
+  minutes: number | null;
+  /** 每日任务的时间（本地时区，HH:MM） */
+  time: string | null;
+  /** 一次性任务的时间（本地时区，YYYY-MM-DD HH:MM） */
+  at: string | null;
+  /** 上一次被调度器触发的时刻（毫秒） */
+  lastRunAt: number | null;
+  /** 下一次该跑的时刻（毫秒）；已经过去的时刻表示「现在就该跑」 */
+  nextRunAt: number | null;
+}
+
 export interface TaskCard {
   id: string;
   title: string;
@@ -14,10 +31,25 @@ export interface TaskCard {
   updatedDate: string | null;
   acceptanceTotal: number;
   acceptanceDone: number;
+  /** 卡片「产物」段落里的条数 */
+  artifactCount: number;
+  /** 持续 / 定时任务的排期 */
+  schedule: TaskSchedule | null;
   /** 相对仓库根的任务文件路径 */
   file: string;
   /** 内容指纹：写回时带上，文件被外部改过会返回 stale-fingerprint */
   fingerprint: string;
+}
+
+/** 一个产物：文件或链接。 */
+export interface TaskArtifact {
+  label: string;
+  /** 卡片里写的原始路径或链接 */
+  path: string;
+  /** 文件是否真的在仓库里 */
+  exists: boolean;
+  size: number | null;
+  url: string | null;
 }
 
 export interface TaskAcceptanceItem {
@@ -44,6 +76,10 @@ export interface TaskDetail {
   sections: TaskSection[];
   acceptance: TaskAcceptanceItem[];
   links: TaskLink[];
+  /** 结果摘要：卡片里的「结果」段落（老卡片退回 Conclusion） */
+  outcome: string | null;
+  /** 用户要拿走的产物 */
+  artifacts: TaskArtifact[];
 }
 
 export interface TaskColumn {
@@ -81,6 +117,10 @@ export interface NewTaskInput {
   labels?: string[];
   dependencies?: string[];
   acceptance?: string[];
+  /** 持续任务：每隔多久跑一次（2h / 30m / 1d） */
+  recurrence?: string;
+  /** 定时任务：每天 09:30 或一次性的 2026-11-20 09:30 */
+  schedule?: string;
 }
 
 export const tasksApi = {
@@ -111,6 +151,27 @@ export const tasksApi = {
     }),
   archive: (root: string, taskId: string, fingerprint: string) =>
     invoke<void>("task_archive", { root, taskId, fingerprint }),
+  /**
+   * 改排期。两个参数最多给一个：`recurrence` 是持续任务，`schedule` 是定时任务，
+   * 都给 `null` 就是取消排期。后端会先校验能不能解析，写坏的排期不会落盘。
+   */
+  setSchedule: (
+    root: string,
+    taskId: string,
+    recurrence: string | null,
+    schedule: string | null,
+    fingerprint: string,
+  ) =>
+    invoke<TaskDetail>("task_set_schedule", {
+      root,
+      taskId,
+      recurrence,
+      schedule,
+      fingerprint,
+    }),
+  /** 在文件管理器中显示一个产物（只接受仓库内确实存在的文件） */
+  revealArtifact: (root: string, path: string) =>
+    invoke<boolean>("task_reveal_artifact", { root, path }),
   linkSession: (
     root: string,
     taskId: string,
@@ -148,6 +209,12 @@ export function taskErrorMessage(
       return t("tasks.errors.unknownStatus");
     case "empty-title":
       return t("tasks.errors.emptyTitle");
+    case "invalid-recurrence":
+      return t("tasks.errors.invalidRecurrence");
+    case "invalid-schedule":
+      return t("tasks.errors.invalidSchedule");
+    case "conflicting-schedule":
+      return t("tasks.errors.conflictingSchedule");
     case "terminal-unsupported":
     case "unsupported-platform":
       return t("tasks.errors.terminalUnsupported");

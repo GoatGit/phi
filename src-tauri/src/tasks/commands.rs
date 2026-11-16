@@ -5,7 +5,7 @@
 
 use crate::store::AppState;
 use crate::super_agent::model::RouterSettings;
-use crate::tasks::model::{Board, NewTask, TaskDetail, TaskLink, WorkspaceInfo};
+use crate::tasks::model::{Board, NewTask, Task, TaskDetail, TaskLink, WorkspaceInfo};
 use crate::tasks::{board, document, repository};
 use crate::Database;
 use std::path::{Path, PathBuf};
@@ -49,11 +49,67 @@ fn detail_with_links(
     id: &str,
 ) -> Result<TaskDetail, String> {
     let mut detail = repository::read(workspace, id)?;
+    let key = workspace.root.to_string_lossy().into_owned();
     detail.links = state
         .db
-        .task_links(&workspace.root.to_string_lossy(), &detail.task.id)
+        .task_links(&key, &detail.task.id)
         .map_err(|e| e.to_string())?;
+    fill_schedule(&state.db, &key, &mut detail.task);
+    detail.artifacts = crate::tasks::result::resolve(
+        &workspace.root,
+        &crate::tasks::result::artifacts(&detail.body),
+    );
     Ok(detail)
+}
+
+/// 把排期的「上次 / 下次」补进卡片。排期本身在卡片里，触发时刻在本机。
+fn fill_schedule(db: &Database, root: &str, task: &mut Task) {
+    let Some(schedule) = task.schedule.as_mut() else {
+        task.schedule_spec = None;
+        return;
+    };
+    let last = db.router_schedule_last(root, &task.id).ok().flatten();
+    schedule.last_run_at = last;
+    let Some(spec) = task.schedule_spec.as_ref() else {
+        return;
+    };
+    // 一次性任务跑过之后没有「下一次」，不要把一个已经过去的时间当成待执行。
+    schedule.next_run_at = if spec.spent(last) {
+        None
+    } else {
+        spec.due_at(last)
+    };
+}
+
+fn fill_schedules(db: &Database, root: &str, tasks: &mut [Task]) {
+    for task in tasks {
+        fill_schedule(db, root, task);
+    }
+}
+
+/// 新排期先把起点落下，界面上的「下次运行」才是确定的，不用等下一轮巡检。
+///
+/// 只对间隔任务做：每日 / 一次性用的是绝对时刻，写一个「刚跑过」的起点反而会
+/// 让它们少跑一轮。
+fn arm_schedule(db: &Database, root: &str, task: &Task) {
+    let Some(spec) = task.schedule_spec.as_ref() else {
+        return;
+    };
+    if spec.kind != crate::tasks::schedule::Kind::Interval {
+        return;
+    }
+    if db
+        .router_schedule_last(root, &task.id)
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return;
+    }
+    if let Err(error) = db.mark_router_schedule(root, &task.id, crate::super_agent::store::now_ms())
+    {
+        log::warn!("router schedule arm failed task={}: {error}", task.id);
+    }
 }
 
 #[tauri::command]
@@ -120,7 +176,8 @@ pub fn task_workspace_remove(state: State<'_, AppState>, root: String) -> Result
 #[tauri::command]
 pub fn task_board(state: State<'_, AppState>, root: String) -> Result<Board, String> {
     let workspace = open(&state, &root)?;
-    let tasks = repository::list(&workspace)?;
+    let mut tasks = repository::list(&workspace)?;
+    fill_schedules(&state.db, &workspace.root.to_string_lossy(), &mut tasks);
     Ok(board::project(&workspace, tasks))
 }
 
@@ -207,6 +264,48 @@ pub fn task_set_status(
 }
 
 #[tauri::command]
+pub fn task_set_schedule(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    root: String,
+    task_id: String,
+    recurrence: Option<String>,
+    schedule: Option<String>,
+    fingerprint: String,
+) -> Result<TaskDetail, String> {
+    let workspace = open(&state, &root)?;
+    let detail = repository::set_schedule(
+        &workspace,
+        &task_id,
+        recurrence.as_deref(),
+        schedule.as_deref(),
+        &fingerprint,
+    )?;
+    arm_schedule(&state.db, &workspace.root.to_string_lossy(), &detail.task);
+    // 排期刚设好：马上踢一轮，到点的那种（每日 / 一次性）当场就能跑起来。
+    crate::super_agent::runtime::kick(&app);
+    detail_with_links(&state, &workspace, &detail.task.id)
+}
+
+/// 在文件管理器中显示一个产物。只接受仓库内、确实存在的文件。
+#[tauri::command]
+pub async fn task_reveal_artifact(
+    state: State<'_, AppState>,
+    root: String,
+    path: String,
+) -> Result<bool, String> {
+    let workspace = open(&state, &root)?;
+    let target = crate::tasks::result::within_workspace(&workspace.root, &path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri_plugin_opener::reveal_item_in_dir(&target)
+            .map_err(|_| "无法在文件管理器中显示该文件".to_string())?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| format!("reveal-failed:{e}"))?
+}
+
+#[tauri::command]
 pub fn task_archive(
     state: State<'_, AppState>,
     root: String,
@@ -278,6 +377,8 @@ mod tests {
             labels: None,
             dependencies: None,
             acceptance: None,
+            recurrence: None,
+            schedule: None,
         }
     }
 

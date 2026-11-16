@@ -6104,8 +6104,8 @@
     "about": {
       "what": "任務看板把倉庫裡的 backlog 目錄讀成看板。任務仍然是普通的 markdown 檔案，backlog 命令列和其他 agent 照樣能讀寫。",
       "step1": "先選一個倉庫；目錄裡還沒有 backlog 時，點「初始化 backlog」建出 config.yml 和 tasks/。",
-      "step2": "在 To Do 欄頂端點「新增任務」，一句話就變成一張卡片；卡片可以直接拖曳改狀態。",
-      "step3": "點開卡片看詳情：正文、相依與關聯會話；卡片仍然是倉庫裡的 markdown 檔案。",
+      "step2": "在 To Do 欄頂端點「新增任務」，一句話就變成一張卡片；卡片可以直接拖曳改狀態。詳情裡還能把它設成持續任務（每隔一段時間跑）或定時任務。",
+      "step3": "點開卡片先看結果與產物，再往下才是相依、執行紀錄與關聯會話；卡片仍然是倉庫裡的 markdown 檔案。",
       "step4": "在詳情裡「開始會話」，會話記錄和用量會回掛到這張卡上。",
       "step5": "右上角「自動調度」開啟後，卡片拖進「進行中」就交給選定的應用，跑完自動結算；先開影子模式只看它判斷得對不對。",
       "note": "看板只讀寫倉庫裡的 backlog 檔案。從看板移出倉庫不會刪除任何任務。"
@@ -6214,7 +6214,13 @@
       "confirmDecision": "接下來如何處理？",
       "confirmContinue": "繼續執行（重新排隊）",
       "confirmComplete": "確認完成（移到 Done）",
-      "confirmSubmit": "提交確認"
+      "confirmSubmit": "提交確認",
+      "monitorInterval": "巡檢間隔",
+      "needsYou": "等你確認最多",
+      "seconds": "{{count}} 秒",
+      "minutes": "{{count}} 分鐘",
+      "hours": "{{count}} 小時",
+      "forever": "一直等"
     },
     "errors": {
       "noBacklog": "這個目錄裡沒有 backlog/config.yml",
@@ -6225,10 +6231,48 @@
       "unknownStatus": "看板裡沒有這一欄",
       "emptyTitle": "標題不能為空",
       "terminalUnsupported": "目前平台不支援本機終端機",
-      "invalidWorkspace": "這個倉庫的 backlog 設定讀不出來"
+      "invalidWorkspace": "這個倉庫的 backlog 設定讀不出來",
+      "invalidRecurrence": "間隔寫法不對，試試 2h / 30m / 1d",
+      "invalidSchedule": "時間寫法不對，試試 09:30 或 2026-11-20 09:30",
+      "conflictingSchedule": "持續任務和定時任務只能選一個"
     },
     "openSession": "開啟終端",
     "sessionEnded": "工作階段已結束",
-    "sessionClosed": "接不上這次執行的終端了：它可能已經結束，或執行它的 zellij 工作階段被清理過。重新開始一次會開新的工作階段。"
+    "sessionClosed": "接不上這次執行的終端了：它可能已經結束，或執行它的 zellij 工作階段被清理過。重新開始一次會開新的工作階段。",
+    "result": {
+      "title": "結果",
+      "artifactCount": "{{count}} 個產物",
+      "empty": "還沒有結果摘要。worker 完成時會在卡片裡寫「## 結果」和「## 產物」，這裡就會顯示你要拿走的東西。",
+      "reveal": "在資料夾中顯示",
+      "missing": "檔案不在了",
+      "link": "連結"
+    },
+    "process": {
+      "title": "執行紀錄（{{count}} 段）"
+    },
+    "schedule": {
+      "title": "任務類型",
+      "mode": {
+        "none": "不重複",
+        "interval": "持續任務",
+        "daily": "每天定時",
+        "once": "指定時間"
+      },
+      "value": "排程",
+      "save": "儲存",
+      "saved": "排程已儲存",
+      "hint": "持續任務每隔一段時間再跑一次，定時任務到點再跑一次。到點時卡片會被放回執行欄重新派發，結算與一般任務相同；點「不重複」再儲存即可取消。",
+      "placeholderInterval": "如 2h / 30m / 1d",
+      "placeholderDaily": "如 09:30",
+      "placeholderOnce": "如 2026-11-20 09:30",
+      "everyMinutes": "每 {{count}} 分鐘",
+      "everyHours": "每 {{count}} 小時",
+      "everyDays": "每 {{count}} 天",
+      "daily": "每天 {{time}}",
+      "once": "{{at}} 跑一次",
+      "next": "下次 {{time}}",
+      "due": "已到時間，下一輪巡檢就會跑",
+      "lastRun": "上次觸發 {{time}}"
+    }
   }
 }

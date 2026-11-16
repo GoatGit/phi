@@ -646,6 +646,11 @@ impl Database {
                         Self::migrate_v29_to_v30(conn)?;
                         Self::set_user_version(conn, 30)?;
                     }
+                    30 => {
+                        log::info!("迁移数据库从 v30 到 v31（持续 / 定时任务的触发时刻）");
+                        Self::migrate_v30_to_v31(conn)?;
+                        Self::set_user_version(conn, 31)?;
+                    }
                     _ => {
                         return Err(AppError::Database(format!(
                             "未知的数据库版本 {version}，无法迁移到 {SCHEMA_VERSION}"
@@ -1860,6 +1865,14 @@ impl Database {
     /// 只是新建表，`IF NOT EXISTS` 幂等。升级前派发的 worker 没有归属记录，
     /// 会在 probe 时落到「交给托管终端查」那条退路上，不需要回填。
     fn migrate_v29_to_v30(conn: &Connection) -> Result<(), AppError> {
+        crate::super_agent::create_tables(conn)
+    }
+
+    /// v30 -> v31: 新增持续 / 定时任务的触发时刻表。
+    ///
+    /// 同样是幂等建表。排期写在卡片里，这里只有「上次什么时候触发的」；
+    /// 升级前没有排期概念，所以不需要回填。
+    fn migrate_v30_to_v31(conn: &Connection) -> Result<(), AppError> {
         crate::super_agent::create_tables(conn)
     }
 

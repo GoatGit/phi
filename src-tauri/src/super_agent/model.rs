@@ -12,6 +12,12 @@ pub const DEFAULT_ATTENTION_THRESHOLD: usize = 8;
 pub const DEFAULT_MAX_ATTEMPTS: u32 = 3;
 /// 一次运行的上限（秒）。一小时足够跑完一件正常任务；再久要么卡死、要么该由人来判断。
 pub const DEFAULT_STALL_SECONDS: i64 = 3600;
+/// 巡检节拍（秒）。看板是「持续盯着」的，但不能每几秒就扫一遍磁盘。
+pub const DEFAULT_MONITOR_SECONDS: i64 = 120;
+/// 巡检节拍的下限：比这更密就只是空转。
+pub const MIN_MONITOR_SECONDS: i64 = 15;
+/// 「等你看」多久没人处理就自动继续（秒）。
+pub const DEFAULT_NEEDS_YOU_SECONDS: i64 = 3600;
 
 /// Router 的开关、配额与阈值。整份存进 `router_settings` 一行 JSON。
 ///
@@ -46,6 +52,12 @@ pub struct RouterSettings {
     /// 交互式 CLI 跑完一轮会停在提示符、进程不死，没有上限它就永远占着并发位。
     /// 0 表示不设上限。
     pub stall_seconds: i64,
+    /// 巡检节拍（秒）：多久看一次看板、收尾一次已结束的 worker。
+    /// 客户端重启后任务能不能及时自己起来，全看这一格。
+    pub monitor_interval_seconds: i64,
+    /// 「等你看」的忍耐时长（秒）。超过这么久没人处理，就按原卡片重新派一次。
+    /// 0 表示一直等——需要人批的事就该一直等人。
+    pub needs_you_seconds: i64,
     /// 是否自动结算退出码 0：Done 判完成，触发列未完成则按退避重试；关闭时转人工。
     pub trust_exit_zero: bool,
     /// 租约有效期（秒）。过期后下一次 tick 自动回收，避免任务永远停在 dispatched。
@@ -75,6 +87,8 @@ impl Default for RouterSettings {
             worker_apps: vec!["claude".into(), "codex".into()],
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             stall_seconds: DEFAULT_STALL_SECONDS,
+            monitor_interval_seconds: DEFAULT_MONITOR_SECONDS,
+            needs_you_seconds: DEFAULT_NEEDS_YOU_SECONDS,
             trust_exit_zero: true,
             lease_seconds: 90,
             cooldown_seconds: 120,
@@ -178,6 +192,8 @@ pub struct Candidate {
     pub fingerprint: String,
     /// frontmatter 里声明的依赖。任何依赖没到 Done 就先不动这张卡。
     pub dependencies: Vec<String>,
+    /// 持续 / 定时任务的排期；普通任务是 `None`。
+    pub schedule: Option<crate::tasks::schedule::Spec>,
     pub run: Option<TaskRun>,
 }
 
@@ -379,6 +395,9 @@ pub fn task_prompt(file: &str) -> String {
          而需要交互审批的工具在无人值守时会被直接拒掉，不要等它。\
          完成后验证结果，在卡片正文里记录改了什么、验证了什么及未验证的风险，并将已满足验收要求的任务状态更新为 Done；\
          未完成或验证失败时如实记录，不要标为 Done。\
+         用户看的是交付物，不是过程：在卡片正文里用 `## 结果` 写一两句话说清这次交付了什么，\
+         再用 `## 产物` 逐行列出用户要拿走的文件（仓库相对路径，行格式 `- `路径` — 一句话说明`）或链接；\
+         没有产物就写「无产物」，不要拿执行步骤凑数。\
          只有经过排查仍无法继续、确实需要用户提供关键事实或授权时，才在正文里另起一行写\
          「{NEEDS_HUMAN_MARKER}<具体阻塞、已排查内容及需要的最小信息>」，并继续完成不受阻塞的部分；\
          不得编造事实、凭证或授权，也不得绕过安全与权限限制。"

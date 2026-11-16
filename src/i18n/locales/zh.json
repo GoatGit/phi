@@ -6104,8 +6104,8 @@
     "about": {
       "what": "任务看板把仓库里的 backlog 目录读成看板。任务仍然是普通的 markdown 文件，backlog 命令行和其他 agent 照样能读写。",
       "step1": "先选一个仓库；目录里还没有 backlog 时，点「初始化 backlog」建出 config.yml 和 tasks/。",
-      "step2": "在 To Do 栏顶部点「新建任务」，一句话就是一张卡片；卡片可以直接拖动改状态。",
-      "step3": "点开卡片看详情：正文、依赖与关联会话；卡片仍然是仓库里的 markdown 文件。",
+      "step2": "在 To Do 栏顶部点「新建任务」，一句话就是一张卡片；卡片可以直接拖动改状态。详情里还能把它设成持续任务（每隔一段时间跑）或定时任务。",
+      "step3": "点开卡片先看结果与产物，再往下是依赖、执行记录与关联会话；卡片仍然是仓库里的 markdown 文件。",
       "step4": "在详情里「开始会话」，会话记录和用量会回挂到这张卡上。",
       "step5": "右上角「自动调度」打开后，卡片拖进「进行中」就交给选定的应用，跑完自动结算；先开影子模式只看它判断得对不对。",
       "note": "看板只读写仓库里的 backlog 文件。从看板移出仓库不会删除任何任务。"
@@ -6214,7 +6214,13 @@
       "confirmDecision": "下一步怎么处理？",
       "confirmContinue": "继续执行（重新排队）",
       "confirmComplete": "确认完成（移到 Done）",
-      "confirmSubmit": "提交确认"
+      "confirmSubmit": "提交确认",
+      "monitorInterval": "巡检间隔",
+      "needsYou": "等你确认最多",
+      "seconds": "{{count}} 秒",
+      "minutes": "{{count}} 分钟",
+      "hours": "{{count}} 小时",
+      "forever": "一直等"
     },
     "errors": {
       "noBacklog": "这个目录里没有 backlog/config.yml",
@@ -6225,10 +6231,48 @@
       "unknownStatus": "看板里没有这一列",
       "emptyTitle": "标题不能为空",
       "terminalUnsupported": "当前平台不支持本地终端",
-      "invalidWorkspace": "这个仓库的 backlog 配置读不出来"
+      "invalidWorkspace": "这个仓库的 backlog 配置读不出来",
+      "invalidRecurrence": "间隔写法不对，试试 2h / 30m / 1d",
+      "invalidSchedule": "时间写法不对，试试 09:30 或 2026-11-20 09:30",
+      "conflictingSchedule": "持续任务和定时任务只能选一个"
     },
     "openSession": "打开终端",
     "sessionEnded": "会话已结束",
-    "sessionClosed": "接不上这次运行的终端了：它可能已经结束，或者运行它的 zellij 会话被清理过。重新开始一次会开新的会话。"
+    "sessionClosed": "接不上这次运行的终端了：它可能已经结束，或者运行它的 zellij 会话被清理过。重新开始一次会开新的会话。",
+    "result": {
+      "title": "结果",
+      "artifactCount": "{{count}} 个产物",
+      "empty": "还没有结果摘要。worker 完成时会在卡片里写「## 结果」和「## 产物」，这里就会显示你要拿走的东西。",
+      "reveal": "在文件夹中显示",
+      "missing": "文件不在了",
+      "link": "链接"
+    },
+    "process": {
+      "title": "执行记录（{{count}} 段）"
+    },
+    "schedule": {
+      "title": "任务类型",
+      "mode": {
+        "none": "不重复",
+        "interval": "持续任务",
+        "daily": "每天定时",
+        "once": "指定时间"
+      },
+      "value": "排期",
+      "save": "保存",
+      "saved": "排期已保存",
+      "hint": "持续任务每隔一段时间再跑一次，定时任务到点再跑一次。到点时卡片会被放回执行列重新派发，结算与普通任务一样；点「不重复」再保存即可取消。",
+      "placeholderInterval": "如 2h / 30m / 1d",
+      "placeholderDaily": "如 09:30",
+      "placeholderOnce": "如 2026-11-20 09:30",
+      "everyMinutes": "每 {{count}} 分钟",
+      "everyHours": "每 {{count}} 小时",
+      "everyDays": "每 {{count}} 天",
+      "daily": "每天 {{time}}",
+      "once": "{{at}} 跑一次",
+      "next": "下次 {{time}}",
+      "due": "已到时间，下一轮巡检就会跑",
+      "lastRun": "上次触发 {{time}}"
+    }
   }
 }

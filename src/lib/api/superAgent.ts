@@ -34,6 +34,10 @@ export interface RouterSettings {
   maxAttempts: number;
   /** 一次运行最多跑多久（秒），超过就当作卡死：停掉并按失败重派。0 表示不设上限。 */
   stallSeconds: number;
+  /** 巡检节拍（秒）：多久看一次看板、收尾一次已结束的 worker。 */
+  monitorIntervalSeconds: number;
+  /** 「等你看」多久没人处理就按原卡片自动继续（秒）。0 表示一直等。 */
+  needsYouSeconds: number;
   /** 退出码 0 且卡片被改过才判完成；关掉之后一律转人工确认。 */
   trustExitZero: boolean;
   leaseSeconds: number;

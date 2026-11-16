@@ -6104,8 +6104,8 @@
     "about": {
       "what": "タスクボードはリポジトリの backlog ディレクトリをボードとして読みます。タスクは普通の markdown ファイルのままなので、backlog コマンドや他の agent からも読み書きできます。",
       "step1": "リポジトリを選びます。backlog がまだ無い場合は「backlog を初期化」で config.yml と tasks/ を作ります。",
-      "step2": "To Do 列の先頭にある「タスクを作成」に一行入力するとカードになります。カードはドラッグで列を移して状態を変えられます。",
-      "step3": "カードを開くと本文・依存・紐づいたセッションが見られます。カードはリポジトリ内の markdown ファイルのままです。",
+      "step2": "To Do 列の先頭にある「タスクを作成」に一行入力するとカードになります。ドラッグで列を移せます。詳細では定期実行や指定時刻にもできます。",
+      "step3": "カードを開くとまず結果と成果物、その下に依存・実行ログ・紐づいたセッションが並びます。カードはリポジトリ内の markdown ファイルのままです。",
       "step4": "詳細の「セッションを開始」で、セッションと使用量がこのカードに紐づきます。",
       "step5": "右上の「自動実行」をオンにすると、「進行中」へ動かしたカードが選んだアプリに渡り、終了時に自動で精算されます。まずはシャドーモードで判断を確認してください。",
       "note": "ボードはリポジトリの backlog ファイルだけを読み書きします。ボードからリポジトリを外してもタスクは消えません。"
@@ -6214,7 +6214,13 @@
       "confirmDecision": "次の操作を選択",
       "confirmContinue": "続行（再キュー）",
       "confirmComplete": "完了を確認（Done に移動）",
-      "confirmSubmit": "決定を送信"
+      "confirmSubmit": "決定を送信",
+      "monitorInterval": "確認間隔",
+      "needsYou": "確認待ちの上限",
+      "seconds": "{{count}} 秒",
+      "minutes": "{{count}} 分",
+      "hours": "{{count}} 時間",
+      "forever": "ずっと待つ"
     },
     "errors": {
       "noBacklog": "このフォルダに backlog/config.yml がありません",
@@ -6225,10 +6231,48 @@
       "unknownStatus": "ボードにその列がありません",
       "emptyTitle": "タイトルは必須です",
       "terminalUnsupported": "このプラットフォームではローカルターミナルを使えません",
-      "invalidWorkspace": "このリポジトリの backlog 設定を読めません"
+      "invalidWorkspace": "このリポジトリの backlog 設定を読めません",
+      "invalidRecurrence": "間隔の書式が不正です（2h / 30m / 1d）",
+      "invalidSchedule": "時刻の書式が不正です（09:30 / 2026-11-20 09:30）",
+      "conflictingSchedule": "定期実行と指定時刻はどちらか一方だけ"
     },
     "openSession": "ターミナルを開く",
     "sessionEnded": "セッション終了",
-    "sessionClosed": "この実行のターミナルに接続できません。すでに終了しているか、実行していた zellij セッションが片付けられた可能性があります。もう一度開始すると新しいセッションが開きます。"
+    "sessionClosed": "この実行のターミナルに接続できません。すでに終了しているか、実行していた zellij セッションが片付けられた可能性があります。もう一度開始すると新しいセッションが開きます。",
+    "result": {
+      "title": "結果",
+      "artifactCount": "成果物 {{count}} 件",
+      "empty": "まだ結果の要約がありません。worker が終了するとカードに「## 結果」と「## 成果物」を書き込み、ここに表示されます。",
+      "reveal": "フォルダで表示",
+      "missing": "ファイルがありません",
+      "link": "リンク"
+    },
+    "process": {
+      "title": "実行ログ（{{count}} 件）"
+    },
+    "schedule": {
+      "title": "タスクの種類",
+      "mode": {
+        "none": "繰り返さない",
+        "interval": "定期実行",
+        "daily": "毎日",
+        "once": "指定時刻"
+      },
+      "value": "スケジュール",
+      "save": "保存",
+      "saved": "スケジュールを保存しました",
+      "hint": "定期実行は一定間隔ごとに、指定時刻はその時刻にもう一度実行します。時刻になるとカードは実行列に戻されて再配分され、精算は通常のタスクと同じです。「繰り返さない」で保存すると解除できます。",
+      "placeholderInterval": "例 2h / 30m / 1d",
+      "placeholderDaily": "例 09:30",
+      "placeholderOnce": "例 2026-11-20 09:30",
+      "everyMinutes": "{{count}} 分ごと",
+      "everyHours": "{{count}} 時間ごと",
+      "everyDays": "{{count}} 日ごと",
+      "daily": "毎日 {{time}}",
+      "once": "{{at}} に一度",
+      "next": "次回 {{time}}",
+      "due": "時刻になりました。次の確認で実行します",
+      "lastRun": "前回 {{time}}"
+    }
   }
 }
