@@ -41,8 +41,18 @@ pub fn quote(value: &str) -> String {
 /// `stall_seconds` 上限兜底，不会比改动前更差。
 pub fn worker_flags(app: &str) -> Option<&'static [&'static str]> {
     Some(match app {
-        // `exec` 默认就是 approval=never，但要显式要 workspace-write，否则它只能读。
-        "codex" => &["exec", "-s", "workspace-write", "--skip-git-repo-check"],
+        // `exec` 默认就是 approval=never：无人值守时没人能点「允许」，内置浏览这类走
+        // 审批的工具一律会被直接拒掉，所以 worker 只能自己从 shell 联网。而
+        // `workspace-write` 的默认策略是断网（实测 curl 报 Could not resolve host），
+        // 这里只放开 network_access：写边界仍锁在工作区，没有取消沙箱。
+        "codex" => &[
+            "exec",
+            "-s",
+            "workspace-write",
+            "-c",
+            "sandbox_workspace_write.network_access=true",
+            "--skip-git-repo-check",
+        ],
         // 非交互模式下没人能点「允许」：至少要放开编辑，否则它一个字都改不了。
         "claude" => &["-p", "--permission-mode", "acceptEdits"],
         "gemini" => &["-p", "--approval-mode", "auto_edit"],
@@ -308,10 +318,21 @@ mod tests {
                 "exec",
                 "-s",
                 "workspace-write",
+                "-c",
+                "sandbox_workspace_write.network_access=true",
                 "--skip-git-repo-check",
                 prompt
             ]
         );
+        // 审批为 never 时联网只能走 shell；沙箱默认断网，这条覆盖必须真的开着。
+        assert!(worker_flags("codex")
+            .unwrap()
+            .contains(&"sandbox_workspace_write.network_access=true"));
+        // 只放开网络，不放开隔离：不能滑到 danger-full-access 或 bypass。
+        assert!(!worker_flags("codex")
+            .unwrap()
+            .iter()
+            .any(|flag| flag.contains("dangerously-bypass")));
         // 非交互模式没人能点「允许」：至少要能改文件。
         assert!(worker_flags("claude")
             .unwrap()

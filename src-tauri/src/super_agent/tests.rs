@@ -1794,12 +1794,37 @@ fn a_worker_that_stopped_without_asking_still_retries() {
     assert_eq!(run.state, RunState::Failed);
 }
 
-/// 派发指令里必须带上「需要你决定」这个约定：工人不知道格式，结算就永远分辨不出
-/// 「等人回话」和「没干完」。
+/// 两种入口共用自主执行约定，不能把普通的信息缺口变成必须等人的理由。
 #[test]
-fn the_task_prompt_states_the_needs_human_marker() {
-    let prompt = crate::super_agent::model::task_prompt("backlog/tasks/task-1.md");
+fn the_task_prompt_prioritizes_autonomous_completion() {
+    let file = "backlog/tasks/task-1.md";
+    let prompt = crate::super_agent::model::task_prompt(file);
+    assert!(prompt.contains(file));
+    assert!(prompt.contains("先查阅任务卡、仓库代码、项目规则和已有实现"));
+    assert!(prompt.contains("可逆的实现选择自行决定"));
+    assert!(prompt.contains("不要仅因信息不完整或存在多种方案而停下"));
+    assert!(prompt.contains("沙箱已允许网络访问"));
+    assert!(prompt.contains("无人值守时会被直接拒掉"));
+    assert!(prompt.contains("完成后验证结果"));
+    assert!(prompt.contains("Done"));
+    assert!(prompt.contains("继续完成不受阻塞的部分"));
+    assert!(!prompt.contains("如果缺只有人才能给的信息，不要猜"));
+    assert!(!prompt.contains("然后停下等人回答"));
     assert!(prompt.contains(crate::super_agent::model::NEEDS_HUMAN_MARKER));
+
+    let spec = DispatchSpec {
+        task_id: "TASK-1".into(),
+        root: "/repo".into(),
+        app_id: "codex".into(),
+        file: file.into(),
+        title: "实现任务".into(),
+    };
+    assert_eq!(spec.prompt(), prompt, "自动派发与手动入口必须共用指令");
+}
+
+/// 真正阻塞时仍保留机器可识别的等待标记，避免同一问题被反复派发。
+#[test]
+fn human_questions_require_an_explicit_nonempty_marker() {
     assert_eq!(
         crate::super_agent::model::human_question("## 说明\n- 需要你决定：要发布到哪个环境？\n")
             .as_deref(),
