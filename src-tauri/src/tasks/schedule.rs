@@ -91,8 +91,15 @@ impl Spec {
     }
 
     /// 这个排期是不是已经用掉了（一次性任务只跑一次）。
+    ///
+    /// 判据是「触发记录已经追上这个时刻」，不是「这张卡跑过」：`2026-11-20 09:30`
+    /// 跑过一次之后，用户把它改成 `2026-12-01 09:00` 是一张新的定时任务，
+    /// 不该因为卡片有历史就永远不再触发。
     pub fn spent(&self, last_fired: Option<i64>) -> bool {
-        self.kind == Kind::Once && last_fired.is_some()
+        match (self.kind, self.at_ms, last_fired) {
+            (Kind::Once, Some(at), Some(fired)) => fired >= at,
+            _ => false,
+        }
     }
 }
 
@@ -278,7 +285,23 @@ mod tests {
         assert_eq!(spec.kind, Kind::Once);
         assert_eq!(spec.at_text.as_deref(), Some("2026-11-20 09:30"));
         assert!(!spec.spent(None));
-        assert!(spec.spent(Some(1)));
+        // 触发记录早于这个时刻（比如卡片以前是间隔任务）：还没跑过这一刻。
+        assert!(!spec.spent(Some(at("2026-11-01 09:00"))));
+        assert!(spec.spent(Some(at("2026-11-20 09:30"))));
+        assert!(spec.spent(Some(at("2026-11-21 09:00"))));
+    }
+
+    /// 一次性的卡跑过一次之后被改成另一个时刻：那是新的一次，要能再跑。
+    #[test]
+    fn moving_a_one_shot_to_a_new_moment_makes_it_live_again() {
+        let first = parse(None, Some("2026-11-20 09:30")).unwrap().unwrap();
+        let second = parse(None, Some("2026-12-01 09:00")).unwrap().unwrap();
+        assert!(first.spent(Some(at("2026-11-20 09:30"))));
+        assert!(!second.spent(Some(at("2026-11-20 09:30"))));
+        assert_eq!(
+            second.due_at(Some(at("2026-11-20 09:30"))),
+            Some(at("2026-12-01 09:00"))
+        );
     }
 
     #[test]

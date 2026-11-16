@@ -24,6 +24,7 @@ use crate::tasks::document::initialize;
 use crate::tasks::model::NewTask;
 use crate::tasks::repository;
 use crate::Database;
+use chrono::TimeZone;
 
 struct Workspace {
     _temp: tempfile::TempDir,
@@ -1949,6 +1950,15 @@ fn schedule_on(workspace: &Workspace, value: &str) {
         .expect("schedule");
 }
 
+fn moment_on(workspace: &Workspace, value: &str) {
+    let fingerprint = crate::super_agent::snapshot::task_fingerprint(&workspace.root, "TASK-1")
+        .expect("fingerprint");
+    let opened =
+        crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("workspace");
+    crate::tasks::repository::set_schedule(&opened, "TASK-1", None, Some(value), &fingerprint)
+        .expect("schedule");
+}
+
 fn candidates_of(workspace: &Workspace) -> Vec<Candidate> {
     crate::super_agent::snapshot::collect(&workspace.db)
         .expect("snapshot")
@@ -2093,6 +2103,125 @@ fn a_one_shot_schedule_only_fires_once() {
         "{:?}",
         report.degraded
     );
+}
+
+/// 一次性的卡跑过一次之后被改成另一个时刻：那是新的一次，到点要能再跑。
+#[test]
+fn moving_a_one_shot_to_a_new_moment_fires_again() {
+    let workspace = workspace(1, "Done");
+    let now = crate::super_agent::store::now_ms();
+    let past = chrono::Local::now() - chrono::Duration::minutes(5);
+    moment_on(&workspace, &past.format("%Y-%m-%d %H:%M").to_string());
+
+    let mut report = empty_report();
+    let mut candidates = candidates_of(&workspace);
+    crate::super_agent::tick::advance_schedules(
+        &workspace.db,
+        &settings(false),
+        &mut candidates,
+        now,
+        &mut report,
+    );
+    assert_eq!(
+        candidates[0].status, "In Progress",
+        "到点的定时任务先跑一次"
+    );
+
+    // 改到明天：还没到点，不能跑。
+    let fire_at = now + 24 * 60 * 60 * 1000;
+    let text = chrono::Local
+        .timestamp_millis_opt(fire_at)
+        .single()
+        .expect("local time")
+        .format("%Y-%m-%d %H:%M")
+        .to_string();
+    moment_on(&workspace, &text);
+    let mut report = empty_report();
+    let mut candidates = candidates_of(&workspace);
+    crate::super_agent::tick::advance_schedules(
+        &workspace.db,
+        &settings(false),
+        &mut candidates,
+        now + 60_000,
+        &mut report,
+    );
+    assert!(
+        !report
+            .degraded
+            .iter()
+            .any(|note| note.starts_with("scheduled:")),
+        "新时刻还没到，不该提前跑：{:?}",
+        report.degraded
+    );
+
+    // 到点之后就是新的一轮，而不是「这张卡已经用掉了」。
+    let mut report = empty_report();
+    let mut candidates = candidates_of(&workspace);
+    crate::super_agent::tick::advance_schedules(
+        &workspace.db,
+        &settings(false),
+        &mut candidates,
+        fire_at + 30_000,
+        &mut report,
+    );
+    assert!(
+        report
+            .degraded
+            .iter()
+            .any(|note| note == "scheduled:TASK-1"),
+        "{:?}",
+        report.degraded
+    );
+}
+
+/// 取消排期之后过几天再加回来：起点是「现在」，不该拿旧记录当场补跑一次。
+#[test]
+fn clearing_a_schedule_forgets_the_old_start() {
+    let workspace = workspace(1, "Done");
+    schedule_on(&workspace, "2h");
+    let now = crate::super_agent::store::now_ms();
+    workspace
+        .db
+        .mark_router_schedule(&workspace.root, "TASK-1", now - 10 * 60 * 60 * 1000)
+        .expect("mark");
+
+    let fingerprint = crate::super_agent::snapshot::task_fingerprint(&workspace.root, "TASK-1")
+        .expect("fingerprint");
+    let opened =
+        crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("workspace");
+    crate::tasks::repository::set_schedule(&opened, "TASK-1", None, None, &fingerprint)
+        .expect("clear");
+    workspace
+        .db
+        .clear_router_schedule(&workspace.root, "TASK-1")
+        .expect("clear schedule");
+    assert_eq!(
+        workspace
+            .db
+            .router_schedule_last(&workspace.root, "TASK-1")
+            .expect("last"),
+        None
+    );
+
+    schedule_on(&workspace, "2h");
+    let mut report = empty_report();
+    let mut candidates = candidates_of(&workspace);
+    crate::super_agent::tick::advance_schedules(
+        &workspace.db,
+        &settings(false),
+        &mut candidates,
+        now,
+        &mut report,
+    );
+    assert!(
+        report
+            .degraded
+            .iter()
+            .any(|note| note == "schedule-armed:TASK-1"),
+        "{:?}",
+        report.degraded
+    );
+    assert_eq!(candidates[0].status, "Done", "重新上表不该当场开跑");
 }
 
 /// 客户端重启后，正在跑的记录仍然挂着 session，但那个 worker 已经不在了：
