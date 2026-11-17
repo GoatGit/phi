@@ -152,6 +152,22 @@ const sharedCatalog: GatewayCatalog = {
 };
 
 beforeEach(() => {
+  // jsdom 没有 matchMedia：路由图用它在窄窗收一行应用。默认按宽窗（不匹配）跑，
+  // 这样单条应用线的用例不会被折叠成 4 行。
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }),
+  });
   vi.mocked(gatewayApi.fetchModels).mockReset();
   vi.mocked(gatewayApi.saveCatalog)
     .mockReset()
@@ -1140,6 +1156,14 @@ describe("gateway resource to request workflow", () => {
       },
     ]);
     mount(<RoutingStatus catalog={sharedCatalog} onOpenPolicy={open} />);
+    // 请求记录默认收起：首页先给路由图，明细要点开才展开。
+    const historyToggle = await screen.findByRole("button", {
+      name: /^gateway\.trace\.title/,
+    });
+    expect(historyToggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    fireEvent.click(historyToggle);
+    expect(historyToggle).toHaveAttribute("aria-expanded", "true");
     const history = within(
       await screen.findByRole("region", { name: "gateway.trace.title" }),
     );
@@ -1256,8 +1280,17 @@ describe("route groups and routing data", () => {
         expect.objectContaining({ groupId: "production", offset: 0 }),
       ),
     );
+    // 图会随筛选变空：工具栏必须写明「已筛选」，否则用户以为数据没了。
+    expect(
+      screen.getByText("gateway.routingStatus.filtered"),
+    ).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "gateway.trace.clearFilter" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText("gateway.routingStatus.filtered"),
+      ).not.toBeInTheDocument(),
     );
     await waitFor(() =>
       expect(gatewayApi.getTracePage).toHaveBeenLastCalledWith({
@@ -1265,6 +1298,32 @@ describe("route groups and routing data", () => {
         offset: 0,
       }),
     );
+  });
+
+  it("rounds the estimated cost to four decimals", async () => {
+    const base = await gatewayApi.getTracePage({});
+    vi.mocked(gatewayApi.getTracePage)
+      .mockReset()
+      .mockResolvedValue({
+        ...base,
+        summary: { ...base.summary, estimatedCost: "0.08718992" },
+      });
+    mount(<RoutingStatus catalog={sharedCatalog} onOpenPolicy={vi.fn()} />);
+    // 8 位小数在指标卡里既读不出量级、又把整行撑满；完整值留在 title 上。
+    expect(await screen.findByText("$0.0872")).toBeInTheDocument();
+  });
+
+  it("writes a sub-cent total as <$0.0001 rather than $<0.0001", async () => {
+    const base = await gatewayApi.getTracePage({});
+    vi.mocked(gatewayApi.getTracePage)
+      .mockReset()
+      .mockResolvedValue({
+        ...base,
+        summary: { ...base.summary, estimatedCost: "0.00003" },
+      });
+    mount(<RoutingStatus catalog={sharedCatalog} onOpenPolicy={vi.fn()} />);
+    expect(await screen.findByText("<$0.0001")).toBeInTheDocument();
+    expect(screen.queryByText("$<0.0001")).not.toBeInTheDocument();
   });
 
   it("shares pagination and filters while keeping runtime details available", async () => {
@@ -1348,6 +1407,9 @@ describe("route groups and routing data", () => {
       />,
     );
     await user.click(
+      await screen.findByRole("button", { name: /^gateway\.trace\.title/ }),
+    );
+    await user.click(
       await screen.findByRole("button", { name: "gateway.decisions.next" }),
     );
     await waitFor(() =>
@@ -1418,10 +1480,11 @@ describe("route groups and routing data", () => {
       screen.getByRole("button", { name: "gateway.trace.refresh" }),
     );
     expect(
-      await screen.findByRole("heading", { name: "gateway.trace.title" }),
-    ).toBeInTheDocument();
-    expect(
       screen.queryByText("gateway.errors.generic"),
+    ).not.toBeInTheDocument();
+    // 恢复后的这份数据没有请求记录：收起状态下不占位，不画一个空表格入口。
+    expect(
+      screen.queryByRole("button", { name: "gateway.trace.title" }),
     ).not.toBeInTheDocument();
   });
 
@@ -1885,6 +1948,10 @@ describe("route groups and routing data", () => {
       expect(gatewayApi.getTracePage).toHaveBeenCalledWith(
         expect.objectContaining({ groupId: "production", offset: 0 }),
       ),
+    );
+    // 请求记录默认收起：先展开历史，再进单条请求的路由过程。
+    await user.click(
+      await screen.findByRole("button", { name: /^gateway\.trace\.title/ }),
     );
     await user.click(
       await screen.findByRole("button", {

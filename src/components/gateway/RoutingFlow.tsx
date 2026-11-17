@@ -8,7 +8,15 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ListFilter, Pencil, Plus, Settings2 } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  ListFilter,
+  Pencil,
+  Plus,
+  Settings2,
+} from "lucide-react";
 import type {
   GatewayCatalog,
   GatewayRouteGroup,
@@ -26,7 +34,7 @@ import phiLogoDark from "@/assets/icons/phi/phi-logo-dark.png";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Popover,
   PopoverContent,
@@ -49,6 +57,7 @@ import {
   type FlowLane,
   type FlowState,
   type RouteAppRequest,
+  type FlowAppEntry,
 } from "./routingFlowModel";
 import {
   AppRouteSettingsDialog,
@@ -61,6 +70,25 @@ import {
   useSaveGatewayCatalog,
 } from "./useGatewayCatalog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+
+/** 只用于跟随窗口宽度调图表密度：唯一的状态是这条媒体查询的真假。 */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const list = window.matchMedia(query);
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
 
 function PhiFlowLogo() {
   return (
@@ -81,15 +109,40 @@ function PhiFlowLogo() {
   );
 }
 
+/** 应用节点第二行显示什么：无流量时先说明它接入了哪个组（而不是只写「未运行」），
+ *  有流量时给一个短状态——这一段是 12px 的次要信息，塞不下就用省略号截断。 */
+function appMetaLabel(entry: FlowAppEntry, catalog?: GatewayCatalog): string {
+  if (entry.lane) return appMetaOf(entry.lane.trace.requestModel, catalog);
+  if (entry.binding?.enabled === false) return "off";
+  return entry.staticRoutes.length ? "connected" : "noGroup";
+}
+
+/** 请求模型名去掉 `group/` 前缀：节点只有 128–180px 宽，「group/dfsfs」会
+ *  把路由组名挤成省略号，而这个前缀在流程图里没有额外信息。 */
+function appMetaOf(model: string | undefined, catalog?: GatewayCatalog) {
+  return readableRequestModel(model, catalog).replace(/^group\//, "");
+}
+
 /** 点节点上的地址就整段复制：流转图的用处就是让你照抄进客户端。 */
 function copyGatewayAddress(address: string) {
   void navigator.clipboard?.writeText(address).catch(() => undefined);
+}
+
+/** 把地址拆成「协议+主机」和「路径」两段：窄窗口一行放不下时，只允许在
+ *  这两段之间换行，绝不把 http:// 自己拆开（那看起来像协议头丢了）。 */
+export function splitGatewayAddress(address: string): [string, string] {
+  const hostStart = address.indexOf("//");
+  const cut = address.indexOf("/", hostStart === -1 ? 0 : hostStart + 2);
+  if (cut <= 0) return [address, ""];
+  return [address.slice(0, cut), address.slice(cut)];
 }
 
 /** 默认展开的应用行数。应用变多以后，靠后的应用折叠起来，图不会被拉得
  *  很长；已接入路由组的应用、任何一个还在传输中的应用、以及三方应用都不受
  *  折叠影响，所以实际可能比这个数多。 */
 const VISIBLE_APP_LIMIT = 5;
+/** 1200px 以下放不下默认 5 行，收到 4 行：滚动条不该出现在默认状态。 */
+const VISIBLE_APP_LIMIT_NARROW = 3;
 const EMPTY_BINDINGS: readonly AccessBinding[] = [];
 
 /** A node's real on-screen box, relative to the flow stage. Wires are drawn
@@ -107,6 +160,8 @@ type FlowGeometry = {
   width: number;
   height: number;
   hub: NodeBox | null;
+  /** 应用列表自己的可视框：展开后它会滚动，滚出去的节点不画线。 */
+  list: NodeBox | null;
   apps: Map<string, NodeBox>;
   groups: Map<string, NodeBox>;
   models: Map<string, NodeBox>;
@@ -125,7 +180,10 @@ function boxOf(el: Element, stage: DOMRect): NodeBox {
   };
 }
 
-function readGeometry(stage: HTMLElement): FlowGeometry {
+function readGeometry(
+  stage: HTMLElement,
+  list?: HTMLElement | null,
+): FlowGeometry {
   const stageBox = stage.getBoundingClientRect();
   const collect = (kind: string) => {
     const boxes = new Map<string, NodeBox>();
@@ -141,6 +199,12 @@ function readGeometry(stage: HTMLElement): FlowGeometry {
     width: round1(stageBox.width),
     height: round1(stageBox.height),
     hub: hub ? boxOf(hub, stageBox) : null,
+    // 量不到尺寸（未布局 / 测试环境）时不启用「滚动可视区」判断，否则每一行
+    // 都会被当成滚出去了，连线全部消失。
+    list:
+      list && list.getBoundingClientRect().height > 0
+        ? boxOf(list, stageBox)
+        : null,
     apps: collect("app"),
     groups: collect("group"),
     models: collect("model"),
@@ -162,7 +226,8 @@ function sameGeometry(a: FlowGeometry | null, b: FlowGeometry) {
     !a ||
     a.width !== b.width ||
     a.height !== b.height ||
-    !sameBox(a.hub ?? undefined, b.hub ?? undefined)
+    !sameBox(a.hub ?? undefined, b.hub ?? undefined) ||
+    !sameBox(a.list ?? undefined, b.list ?? undefined)
   )
     return false;
   const layers = [
@@ -367,15 +432,19 @@ export function RoutingFlow({
         : apps,
     [apps, appSelection, pickingApps],
   );
+  // 这张图是首页的第一眼，默认行数不能把卡片撑出滚动条：1240px 以下收一行。
+  const appLimit = useMediaQuery("(max-width: 1239px)")
+    ? VISIBLE_APP_LIMIT_NARROW
+    : VISIBLE_APP_LIMIT;
   const shownApps = useMemo(() => {
     // 用户自己挑了应用：他挑的就是他要看的，不受折叠上限约束。
     if (pickingApps) return pickedApps;
     if (appsExpanded) return pickedApps;
     // 默认可见数量是**硬上限**：已配置、有流量只是「优先占名额」的条件，
-    // 不会让总数超过 VISIBLE_APP_LIMIT。
+    // 不会让总数超过 appLimit。
     const pinned = new Set<string>();
     for (const entry of pickedApps) {
-      if (pinned.size >= VISIBLE_APP_LIMIT) break;
+      if (pinned.size >= appLimit) break;
       // 进行中的应用、用户高亮的应用、已配置（接入了路由组）的应用优先占位。
       if (
         entry.configured ||
@@ -387,15 +456,20 @@ export function RoutingFlow({
     }
     // 剩余名额按优先级顺序补满，总数恒等于上限。
     for (const entry of pickedApps) {
-      if (pinned.size >= VISIBLE_APP_LIMIT) break;
+      if (pinned.size >= appLimit) break;
       pinned.add(entry.appId);
     }
     return pickedApps.filter((entry) => pinned.has(entry.appId));
-  }, [appsExpanded, focus, pickingApps, pickedApps]);
+  }, [appLimit, appsExpanded, focus, pickingApps, pickedApps]);
   const hiddenAppCount = pickedApps.length - shownApps.length;
   const toggleAppPick = (appId: string) =>
     setAppSelection((current) => {
-      const next = new Set(current);
+      // 起点是「全部」：挑选弹层一打开，勾选框全是勾上的。第一次取消谁，就该
+      // 从全部里减掉谁；否则用户点掉 Codex，看到的是「只剩 Codex」，而那个
+      // 勾选框还赖在勾上的状态里——操作和反馈正好相反。
+      const next = new Set(
+        current.size > 0 ? current : apps.map((entry) => entry.appId),
+      );
       if (next.has(appId)) next.delete(appId);
       else next.add(appId);
       return next;
@@ -404,11 +478,12 @@ export function RoutingFlow({
   // The stage grows with its tallest column; every node reports its real
   // box back so wires stay glued to the nodes at any size.
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLOListElement | null>(null);
   const [geometry, setGeometry] = useState<FlowGeometry | null>(null);
   const measure = useCallback(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const next = readGeometry(stage);
+    const next = readGeometry(stage, listRef.current);
     setGeometry((current) => (sameGeometry(current, next) ? current : next));
   }, []);
   useLayoutEffect(() => {
@@ -425,12 +500,17 @@ export function RoutingFlow({
         .querySelectorAll("[data-flow]")
         .forEach((node) => observer.observe(node));
     }
+    // 展开后应用列表在自己的框里滚动：滚动时节点换了位置，连线必须跟着重算。
+    const list = listRef.current;
+    const onScroll = () => measure();
+    list?.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", measure);
     return () => {
       observer?.disconnect();
+      list?.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", measure);
     };
-  }, [shownApps, groups, outlets, measure]);
+  }, [shownApps, groups, outlets, measure, appsExpanded]);
 
   useEffect(() => {
     setStep((current) =>
@@ -448,12 +528,26 @@ export function RoutingFlow({
     return () => window.clearTimeout(timer);
   }, [playing, step, total]);
 
+  /** 应用列展开后会在自己的框里滚动，滚出可视区的应用不画线：否则线会从
+   *  看不见的位置冒出来，飘在卡片空白处。整条线（应用 → 组 → 模型）按这个
+   *  判断一起出现或一起消失。 */
+  const appInView = (appId: string): boolean => {
+    const box = geometry?.apps.get(appId);
+    if (!box) return false;
+    const list = geometry?.list;
+    if (!list) return true;
+    return box.bottom > list.top + 1 && box.top < list.bottom - 1;
+  };
+
   // Hide configured edges whenever visible traffic connects the same nodes,
   // including shared groups/models reached by another app during replay.
   const visibleApps = new Set<string>();
   const visibleGroups = new Set<string>();
   const visibleOutlets = new Map<string, Set<string>>();
   for (const lane of lanes) {
+    // 应用被滚出可视区时，这条 lane 整条都不画，它的组/出口也就不该再被
+    // 当成「已有可见流量」——否则配置层的灰线会被一起藏掉，右半边空掉。
+    if (!appInView(lane.appId)) continue;
     const playback = lanePlayback(lane, timeline, step);
     if (playback.visible) {
       visibleApps.add(lane.appId);
@@ -467,37 +561,64 @@ export function RoutingFlow({
     }
   }
 
-  // 同一对节点之间的线会完全重叠，所以按出现顺序给每条线一个槽位：第一条
-  // 居中，其余左右对称铺开。只有流量线参与扇出——配置层的灰线跨应用共享
-  // 同一对节点，画的是同一条拓扑边，按应用各偏几个像素只会在节点边缘画出
-  // 一束落在节点之外的错位线缆。
-  const fanOut = (
-    wires: { id: string; key: string }[],
-  ): Map<string, number> => {
-    const counts = new Map<string, number>();
-    for (const wire of wires) {
-      counts.set(wire.key, (counts.get(wire.key) ?? 0) + 1);
-    }
-    const seen = new Map<string, number>();
-    const offsets = new Map<string, number>();
-    for (const wire of wires) {
-      const index = seen.get(wire.key) ?? 0;
-      seen.set(wire.key, index + 1);
-      const count = counts.get(wire.key) ?? 1;
-      offsets.set(wire.id, (index - (count - 1) / 2) * WIRE_FAN_GAP);
-    }
-    return offsets;
-  };
-  const laneGroupOffset = fanOut(
-    lanes.map((lane) => ({ id: lane.appId, key: `g:${lane.groupKey}` })),
+  const appRow = useMemo(
+    () => new Map(shownApps.map((entry, index) => [entry.appId, index])),
+    [shownApps],
   );
-  const laneAttemptOffset = fanOut(
+  // 同一对节点之间的线会完全重叠，所以给每条线一个槽位。槽位顺序按**源应用
+  // 在列里的上下位置**排：上面的应用落到上缘、下面的落到下缘，线才不会在
+  // 节点前交叉成一团。配置层的灰线跨应用共享同一对节点，画的是同一条拓扑边，
+  // 不参与扇出。
+  const spreadByAppRow = useCallback(
+    <T,>(
+      items: readonly T[],
+      idOf: (item: T) => string,
+      keyOf: (item: T) => string,
+      appOf: (item: T) => string,
+    ): Map<string, number> => {
+      const buckets = new Map<string, T[]>();
+      for (const item of items) {
+        const key = keyOf(item);
+        const bucket = buckets.get(key);
+        if (bucket) bucket.push(item);
+        else buckets.set(key, [item]);
+      }
+      const offsets = new Map<string, number>();
+      for (const bucket of buckets.values()) {
+        const ordered = [...bucket].sort(
+          (a, b) => (appRow.get(appOf(a)) ?? 0) - (appRow.get(appOf(b)) ?? 0),
+        );
+        ordered.forEach((item, index) => {
+          offsets.set(
+            idOf(item),
+            (index - (ordered.length - 1) / 2) * WIRE_FAN_GAP,
+          );
+        });
+      }
+      return offsets;
+    },
+    [appRow],
+  );
+  const laneHubOffset = spreadByAppRow(
+    lanes,
+    (lane) => lane.appId,
+    () => "hub",
+    (lane) => lane.appId,
+  );
+  const laneGroupOffset = spreadByAppRow(
+    lanes,
+    (lane) => lane.appId,
+    (lane) => lane.groupKey,
+    (lane) => lane.appId,
+  );
+  const laneAttemptOffset = spreadByAppRow(
     lanes.flatMap((lane) =>
-      lane.attempts.map((attempt) => ({
-        id: `${lane.appId}:${attempt.key}`,
-        key: `a:${lane.groupKey}:${attempt.supplierId}|${attempt.model}`,
-      })),
+      lane.attempts.map((attempt) => ({ lane, attempt })),
     ),
+    ({ lane, attempt }) => `${lane.appId}:${attempt.key}`,
+    ({ lane, attempt }) =>
+      `${lane.groupKey}|${attempt.supplierId}|${attempt.model}`,
+    ({ lane }) => lane.appId,
   );
   const trafficGroups = new Set(lanes.map((lane) => lane.groupKey));
 
@@ -535,48 +656,109 @@ export function RoutingFlow({
       isNew: false,
     });
   };
+  /** 配置层的边按「节点对」去重：多个应用接到同一个组时，以前会给同一条
+   *  拓扑边各画一条——重复的 DOM，而且 35% 透明度的灰线叠成一根深灰线。 */
+  const staticGroupEdges = [
+    ...new Set(
+      apps.flatMap((entry) =>
+        entry.staticRoutes.map((route) => route.groupKey),
+      ),
+    ),
+  ];
+  const staticOutletEdges = new Map<
+    string,
+    { groupKey: string; outletKey: string }
+  >();
+  for (const entry of apps) {
+    for (const route of entry.staticRoutes) {
+      for (const key of route.outletKeys) {
+        staticOutletEdges.set(`${route.groupKey}|${key}`, {
+          groupKey: route.groupKey,
+          outletKey: key,
+        });
+      }
+    }
+  }
 
   return (
-    <Card role="region" aria-label={t("gateway.flow.title")}>
-      {(liveCount > 0 || total > 0) && (
-        <CardHeader className="flex-row flex-wrap items-center justify-end gap-2 space-y-0 p-3 pb-0">
-          {liveCount > 0 && (
-            <Badge variant="outline">
-              {t("gateway.flow.live", { count: liveCount })}
-            </Badge>
-          )}
-          {!!total && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (playing) setPlaying(false);
-                  else {
-                    setStep(0);
-                    setPlaying(true);
-                  }
-                }}
-              >
-                {t(playing ? "gateway.flow.pause" : "gateway.flow.replay")}
-              </Button>
-              {step != null && (
+    <Card
+      role="region"
+      aria-label={t("gateway.flow.title")}
+      className="overflow-hidden shadow-v7-md"
+    >
+      {/* 图是首页的主体，工具只能待在一条线上：标题在左，回放与实时计数在右。
+          以前回放按钮单独占一行、还在卡片内部顶端，把主体挤下去 40px。 */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b px-5 py-2.5">
+        <div className="min-w-0">
+          <h2 className="sr-only">{t("gateway.flow.title")}</h2>
+          <p
+            id={titleId}
+            className="truncate text-strong text-fg-1"
+            title={t("gateway.flow.description")}
+          >
+            {t("gateway.flow.title")}
+            <span className="ms-2 text-caption font-normal text-fg-3">
+              {t("gateway.flow.description")}
+            </span>
+          </p>
+        </div>
+        {(liveCount > 0 || total > 0) && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {liveCount > 0 && (
+              <Badge variant="outline">
+                {t("gateway.flow.live", { count: liveCount })}
+              </Badge>
+            )}
+            {!!total && (
+              <>
+                {step != null && (
+                  <span className="text-caption tabular-nums text-fg-3">
+                    {t("gateway.flow.step", {
+                      current: Math.min(step + 1, total),
+                      total,
+                    })}
+                  </span>
+                )}
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   onClick={() => {
-                    setStep(null);
-                    setPlaying(false);
+                    // 暂停后按的是「继续」：从中断的那一步接着走，
+                    // 不能悄悄从头重放（以前这里是 setStep(0)）。
+                    if (playing) {
+                      setPlaying(false);
+                      return;
+                    }
+                    if (step == null || step >= total) setStep(0);
+                    setPlaying(true);
                   }}
                 >
-                  {t("gateway.flow.showAll")}
+                  {t(
+                    playing
+                      ? "gateway.flow.pause"
+                      : step != null && step < total
+                        ? "gateway.flow.resume"
+                        : "gateway.flow.replay",
+                  )}
                 </Button>
-              )}
-            </>
-          )}
-        </CardHeader>
-      )}
-      <CardContent className="p-4 pt-3">
+                {step != null && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setStep(null);
+                      setPlaying(false);
+                    }}
+                  >
+                    {t("gateway.flow.showAll")}
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      <CardContent className="px-5 py-4">
         {apps.length ? (
           <div
             className="overflow-x-auto"
@@ -584,9 +766,6 @@ export function RoutingFlow({
             role="group"
             aria-labelledby={titleId}
           >
-            <span className="sr-only" id={titleId}>
-              {t("gateway.flow.diagram")}
-            </span>
             {/* The stage has no fixed height: columns stack naturally and the
                 tallest one defines the canvas. An absolutely positioned SVG
                 overlays it and draws pixel-exact wires between the measured
@@ -651,7 +830,10 @@ export function RoutingFlow({
                 </div>
                 <ol
                   id={`${titleId}-apps`}
+                  ref={listRef}
                   className="phi-flow-app-list"
+                  /* 展开后列表自己滚：图整体高度有上限，另外三列不会被推出屏幕。 */
+                  data-scroll={appsExpanded ? "true" : undefined}
                   aria-label={t("gateway.flow.apps")}
                 >
                   {shownApps.map((entry) => {
@@ -696,6 +878,13 @@ export function RoutingFlow({
                           focus && focus !== entry.appId ? "true" : undefined
                         }
                       >
+                        {lane && (
+                          <span
+                            className="phi-flow-lane-bar"
+                            style={{ background: laneColor(entry.appId) }}
+                            aria-hidden
+                          />
+                        )}
                         <button
                           type="button"
                           className="phi-flow-hit"
@@ -709,28 +898,35 @@ export function RoutingFlow({
                             )
                           }
                         >
-                          <ProviderIcon
-                            icon={getAppIconName(entry.appId) ?? undefined}
-                            name={appLabel(entry.appId)}
-                            size={18}
-                            className="phi-flow-app-icon"
-                          />
-                          <strong>{appLabel(entry.appId)}</strong>
+                          <span className="phi-flow-app-row">
+                            <ProviderIcon
+                              icon={getAppIconName(entry.appId) ?? undefined}
+                              name={appLabel(entry.appId)}
+                              size={16}
+                              className="phi-flow-app-icon"
+                              showFallback={false}
+                            />
+                            <strong title={appLabel(entry.appId)}>
+                              {appLabel(entry.appId)}
+                            </strong>
+                          </span>
                           <span
-                            className="truncate font-mono text-xs text-fg-3"
+                            className="truncate text-xs text-fg-3"
                             title={
                               lane
                                 ? `${readableRequestModel(lane.trace.requestModel, catalog) || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
                                 : undefined
                             }
                           >
-                            {entry.binding?.enabled === false
+                            {appMetaLabel(entry, catalog) === "off"
                               ? t("gateway.groups.off")
-                              : lane
-                                ? `${readableRequestModel(lane.trace.requestModel, catalog) || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
-                                : entry.staticRoutes.length
-                                  ? t("gateway.flow.idle")
-                                  : t("gateway.flow.noGroup")}
+                              : appMetaLabel(entry, catalog) === "connected"
+                                ? t("gateway.flow.connected")
+                                : appMetaLabel(entry, catalog) === "noGroup"
+                                  ? t("gateway.flow.noGroup")
+                                  : lane
+                                    ? `${appMetaLabel(entry, catalog) || "—"} · ${new Date(lane.trace.createdAt).toLocaleTimeString()}`
+                                    : t("gateway.flow.idle")}
                           </span>
                         </button>
                         {catalog && routableAppId && (
@@ -763,13 +959,16 @@ export function RoutingFlow({
                     );
                   })}
                 </ol>
-                {!pickingApps && apps.length > VISIBLE_APP_LIMIT && (
+                {!pickingApps && apps.length > appLimit && (
                   <button
                     type="button"
                     className="phi-flow-more"
                     aria-expanded={appsExpanded}
                     aria-controls={`${titleId}-apps`}
-                    onClick={() => setAppsExpanded((value) => !value)}
+                    onClick={() => {
+                      setAppsExpanded((value) => !value);
+                      if (listRef.current) listRef.current.scrollTop = 0;
+                    }}
                   >
                     <ChevronDown
                       aria-hidden
@@ -803,41 +1002,37 @@ export function RoutingFlow({
               <div className="phi-flow-col phi-flow-hub-wrap">
                 <div className="phi-flow-node phi-flow-hub" data-flow="hub">
                   <PhiFlowLogo />
-                  {gatewayAddress && (
-                    <button
-                      type="button"
-                      className="phi-flow-address"
-                      title={t("gateway.flow.copyAddress", {
-                        address: gatewayAddress,
-                      })}
-                      aria-label={t("gateway.flow.copyAddress", {
-                        address: gatewayAddress,
-                      })}
-                      onClick={() => copyGatewayAddress(gatewayAddress)}
-                    >
-                      {gatewayAddress}
-                    </button>
-                  )}
-                  {step != null && (
-                    <Badge variant="outline">
-                      {t("gateway.flow.step", { current: step, total })}
-                    </Badge>
-                  )}
                 </div>
+                {/* 地址移到卡片外面：卡宽放不下 21 个字符，截成
+                    http://127.0.0.1:30… 就等于让你抄一半。 */}
+                {gatewayAddress && (
+                  <button
+                    type="button"
+                    className="phi-flow-address"
+                    title={t("gateway.flow.copyAddress", {
+                      address: gatewayAddress,
+                    })}
+                    aria-label={t("gateway.flow.copyAddress", {
+                      address: gatewayAddress,
+                    })}
+                    onClick={() => copyGatewayAddress(gatewayAddress)}
+                  >
+                    <span className="phi-flow-address-text">
+                      <span className="phi-flow-address-origin">
+                        {splitGatewayAddress(gatewayAddress)[0]}
+                      </span>
+                      <span className="phi-flow-address-path">
+                        {splitGatewayAddress(gatewayAddress)[1]}
+                      </span>
+                    </span>
+                    <Copy className="phi-flow-address-icon" aria-hidden />
+                  </button>
+                )}
               </div>
               {/* Column 3 · route groups — every catalog group lives here so a
                   new or not-yet-connected group can still be edited. */}
               <div className="phi-flow-col">
-                {catalog && (
-                  <button
-                    type="button"
-                    className="phi-flow-add"
-                    onClick={openNewGroup}
-                  >
-                    <Plus aria-hidden />
-                    {t("gateway.groups.new")}
-                  </button>
-                )}
+                <p className="phi-flow-col-label">{t("gateway.flow.groups")}</p>
                 <ol
                   className="phi-flow-group-list"
                   aria-label={t("gateway.flow.groups")}
@@ -902,46 +1097,67 @@ export function RoutingFlow({
                     );
                   })}
                 </ol>
+                {catalog && (
+                  <button
+                    type="button"
+                    className="phi-flow-add"
+                    onClick={openNewGroup}
+                  >
+                    <Plus aria-hidden />
+                    {t("gateway.groups.new")}
+                  </button>
+                )}
               </div>
               {/* Column 4 · models — configured members without traffic keep
                   a neutral idle state. */}
-              <ol
-                className="phi-flow-col phi-flow-outlets"
-                aria-label={t("gateway.flow.models")}
-              >
-                {outlets.map((outlet) => (
-                  <li
-                    key={outlet.key}
-                    className="phi-flow-node"
-                    data-flow="model"
-                    data-flow-key={outlet.key}
-                    data-kind="model"
-                    data-state={outlet.state ?? undefined}
-                    data-static={outlet.state == null ? "true" : undefined}
-                  >
-                    <span className="phi-flow-dot" aria-hidden />
-                    <div className="min-w-0 flex-1 text-start">
-                      <p
-                        className="truncate text-sm font-medium"
-                        title={outlet.supplierName}
-                      >
-                        {outlet.supplierName}
-                      </p>
-                      <p
-                        className="truncate font-mono text-xs text-fg-2"
-                        title={outlet.model}
-                      >
-                        {outlet.model}
-                      </p>
-                    </div>
-                    {outlet.state && outlet.state !== "completed" && (
-                      <span className="text-xs text-fg-3">
-                        {t(`gateway.flow.states.${outlet.state}`)}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ol>
+              <div className="phi-flow-col">
+                <p className="phi-flow-col-label">{t("gateway.flow.models")}</p>
+                <ol
+                  className="phi-flow-outlets"
+                  aria-label={t("gateway.flow.models")}
+                >
+                  {outlets.map((outlet) => (
+                    <li
+                      key={outlet.key}
+                      className="phi-flow-node"
+                      data-flow="model"
+                      data-flow-key={outlet.key}
+                      data-kind="model"
+                      data-state={outlet.state ?? undefined}
+                      data-static={outlet.state == null ? "true" : undefined}
+                    >
+                      <div className="min-w-0 flex-1 text-start">
+                        <p
+                          className="truncate text-caption font-medium text-fg-2"
+                          title={outlet.supplierName}
+                        >
+                          {outlet.supplierName}
+                        </p>
+                        <p
+                          className="truncate font-mono text-sm text-fg-1"
+                          title={outlet.model}
+                        >
+                          {outlet.model}
+                        </p>
+                      </div>
+                      {outlet.state === "completed" ? (
+                        <Check
+                          aria-label={t("gateway.trace.outcomes.completed")}
+                          className="phi-flow-status-icon"
+                          data-state="completed"
+                        />
+                      ) : outlet.state ? (
+                        <span
+                          className="phi-flow-status"
+                          data-state={outlet.state}
+                        >
+                          {t(`gateway.flow.states.${outlet.state}`)}
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              </div>
               {/* Wires: app → PHI → group → model. Drawn once geometry is
                   measured; every path starts and ends on a node edge. */}
               <svg
@@ -958,7 +1174,7 @@ export function RoutingFlow({
                       if (!entry.configured || visibleApps.has(entry.appId))
                         return null;
                       const from = appBox(entry.appId);
-                      if (!from) return null;
+                      if (!from || !appInView(entry.appId)) return null;
                       return (
                         <path
                           key={`static:${entry.appId}`}
@@ -973,14 +1189,18 @@ export function RoutingFlow({
                       const playback = lanePlayback(lane, timeline, step);
                       if (!playback.visible) return null;
                       const from = appBox(lane.appId);
-                      if (!from) return null;
+                      if (!from || !appInView(lane.appId)) return null;
                       const state = playback.done
                         ? laneFinalState(lane)
                         : "active";
                       return (
                         <path
                           key={lane.appId}
-                          d={wirePath(from, hub)}
+                          d={wirePath(
+                            from,
+                            hub,
+                            laneHubOffset.get(lane.appId) ?? 0,
+                          )}
                           data-dimmed={
                             focus && focus !== lane.appId ? "true" : undefined
                           }
@@ -991,25 +1211,23 @@ export function RoutingFlow({
                 </g>
                 <g data-region="group">
                   {hub &&
-                    apps.flatMap((entry) =>
-                      entry.staticRoutes.map((route) => {
-                        if (visibleGroups.has(route.groupKey)) return null;
-                        const target = groupBox(route.groupKey);
-                        if (!target) return null;
-                        return (
-                          <path
-                            key={`static:${entry.appId}:${route.groupKey}`}
-                            d={wirePath(hub, target)}
-                            data-state="static"
-                            {...dimmed(entry.appId)}
-                          />
-                        );
-                      }),
-                    )}
+                    staticGroupEdges.map((key) => {
+                      if (visibleGroups.has(key)) return null;
+                      const target = groupBox(key);
+                      if (!target) return null;
+                      return (
+                        <path
+                          key={`static:${key}`}
+                          d={wirePath(hub, target)}
+                          data-state="static"
+                        />
+                      );
+                    })}
                   {hub &&
                     lanes.map((lane) => {
                       const playback = lanePlayback(lane, timeline, step);
-                      if (!playback.visible) return null;
+                      if (!playback.visible || !appInView(lane.appId))
+                        return null;
                       const target = groupBox(lane.groupKey);
                       if (!target) return null;
                       const state = playback.done
@@ -1029,27 +1247,25 @@ export function RoutingFlow({
                     })}
                 </g>
                 <g data-region="model">
-                  {apps.flatMap((entry) =>
-                    entry.staticRoutes.flatMap((route) =>
-                      route.outletKeys.map((key) => {
-                        if (visibleOutlets.get(route.groupKey)?.has(key))
-                          return null;
-                        const from = groupBox(route.groupKey);
-                        const to = modelBox(key);
-                        if (!from || !to) return null;
-                        return (
-                          <path
-                            key={`static:${entry.appId}:${route.groupKey}:${key}`}
-                            d={wirePath(from, to)}
-                            data-state="static"
-                            {...dimmed(entry.appId)}
-                          />
-                        );
-                      }),
-                    ),
-                  )}
+                  {[...staticOutletEdges.entries()].map(([key, edge]) => {
+                    if (visibleOutlets.get(edge.groupKey)?.has(edge.outletKey))
+                      return null;
+                    const from = groupBox(edge.groupKey);
+                    const to = modelBox(edge.outletKey);
+                    if (!from || !to) return null;
+                    return (
+                      <path
+                        key={`static:${key}`}
+                        d={wirePath(from, to)}
+                        data-state="static"
+                      />
+                    );
+                  })}
                   {lanes.flatMap((lane) =>
                     lane.attempts.map((attempt) => {
+                      // 整条线（应用 → 组 → 模型）要么都在，要么都不在：应用被
+                      // 滚出去以后只留后半段，线会从 hub 上空着长出来。
+                      if (!appInView(lane.appId)) return null;
                       const playback = lanePlayback(lane, timeline, step);
                       if (!playback.attemptVisible(attempt)) return null;
                       const outletKey = `${attempt.supplierId}|${attempt.model}`;
@@ -1096,70 +1312,6 @@ export function RoutingFlow({
             <p role="status" className="text-center text-sm text-fg-3">
               {t("gateway.flow.empty")}
             </p>
-          </div>
-        )}
-        {!!apps.length && (
-          <div
-            className="flex flex-wrap gap-x-4 gap-y-2 pt-1 text-xs text-fg-2"
-            aria-label={t("gateway.flow.legend")}
-          >
-            <span className="phi-flow-key">
-              <span
-                className="phi-flow-line phi-flow-line-active"
-                aria-hidden
-              />
-              {t("gateway.flow.lineActive")}
-            </span>
-            <span className="phi-flow-key">
-              <span
-                className="phi-flow-line phi-flow-line-completed"
-                aria-hidden
-              />
-              {t("gateway.flow.lineCompleted")}
-            </span>
-            <span className="phi-flow-key">
-              <span
-                className="phi-flow-line phi-flow-line-failed"
-                aria-hidden
-              />
-              {t("gateway.flow.lineFailed")}
-            </span>
-            <span className="phi-flow-key">
-              <span
-                className="phi-flow-line phi-flow-line-unknown"
-                aria-hidden
-              />
-              {t("gateway.flow.lineUnknown")}
-            </span>
-            <span className="phi-flow-key">
-              <span
-                className="phi-flow-line phi-flow-line-static"
-                aria-hidden
-              />
-              {t("gateway.flow.configured")}
-            </span>
-            {lanes.map((lane) => {
-              const color = laneColor(lane.appId);
-              return (
-                <span
-                  key={lane.appId}
-                  className="phi-flow-key"
-                  data-state={laneFinalState(lane)}
-                >
-                  <span
-                    className="phi-flow-line"
-                    style={{ background: color }}
-                    aria-hidden
-                  />
-                  {appLabel(lane.appId)}
-                  {lane.live && (
-                    <span className="text-fg-3">
-                      · {t("gateway.flow.liveOne")}
-                    </span>
-                  )}
-                </span>
-              );
-            })}
           </div>
         )}
         {routeApp && catalog && (
@@ -1223,6 +1375,44 @@ export function RoutingFlow({
           onClose={() => setIssuedToken(null)}
         />
       </CardContent>
+      {!!apps.length && (
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t bg-subtle px-5 py-2.5 text-xs text-fg-3"
+          aria-label={t("gateway.flow.legend")}
+        >
+          <span className="phi-flow-key">
+            <span className="phi-flow-line phi-flow-line-active" aria-hidden />
+            {t("gateway.flow.lineActive")}
+          </span>
+          <span className="phi-flow-key">
+            <span
+              className="phi-flow-line phi-flow-line-completed"
+              aria-hidden
+            />
+            {t("gateway.flow.lineCompleted")}
+          </span>
+          <span className="phi-flow-key">
+            <span className="phi-flow-line phi-flow-line-failed" aria-hidden />
+            {t("gateway.flow.lineFailed")}
+          </span>
+          <span className="phi-flow-key">
+            <span className="phi-flow-line phi-flow-line-unknown" aria-hidden />
+            {t("gateway.flow.lineUnknown")}
+          </span>
+          <span className="phi-flow-key">
+            <span className="phi-flow-line phi-flow-line-static" aria-hidden />
+            {t("gateway.flow.configured")}
+          </span>
+          {/* 应用色不再在这里列一遍：每个应用节点左缘已经有自己的线色，
+              图例只说明线型。 */}
+          {lanes.length > 0 && (
+            <span className="phi-flow-key">
+              <span className="phi-flow-lane-bar-sample" aria-hidden />
+              {t("gateway.flow.laneCount", { count: lanes.length })}
+            </span>
+          )}
+        </div>
+      )}
     </Card>
   );
 }
