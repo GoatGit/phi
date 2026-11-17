@@ -31,6 +31,7 @@ static NSApplicationTerminateReply guardedTerminate(id delegate, SEL selector, N
   return originalTerminate ? ((NSApplicationTerminateReply (*)(id, SEL, NSApplication *))originalTerminate)(delegate, selector, application) : NSTerminateNow;
 }
 extern bool phi_ghostty_config_load(ghostty_config_t, const char *);
+static bool inPresentation;
 static ghostty_config_t hostConfig(bool dark, NSString *colors) {
   ghostty_config_t config = ghostty_config_new();
   NSString *text = [NSString stringWithFormat:@"font-family = Menlo\nfont-size = 13\nbackground = %@\nforeground = %@\ncursor-color = c2410c\nshell-integration = none\nwindow-padding-x = 12\nwindow-padding-y = 10\nclipboard-read = ask\nclipboard-write = ask\nquit-after-last-window-closed = false\n", dark ? @"1c1c1e" : @"ffffff", dark ? @"e4e4e7" : @"18181b"];
@@ -426,7 +427,10 @@ bool phi_terminal_create(void *windowPointer, const char *id, const char *comman
   // surface / PTY 启动应用：迟到的更新会让 CLI 把初始化默认背景（浅色）当成
   // 终端配色，从此把浅色填充画在深色终端上（表现为输入框白底白字）。
   if (themeConfig && *themeConfig) {
-    ghostty_config_t theme = hostConfig(dark, [NSString stringWithUTF8String:themeConfig]);
+    // 只设 app 默认还不行：已经存在的窗格会把上一轮主题画到新窗格的位置上
+    // （表现为第一个终端黑色、之后打开的终端白色），新 surface 也必须拿到它。
+    darkTheme = dark; activeThemeConfig = [NSString stringWithUTF8String:themeConfig];
+    ghostty_config_t theme = hostConfig(dark, activeThemeConfig);
     ghostty_app_update_config(core, theme);
     ghostty_config_free(theme);
   }
@@ -480,12 +484,22 @@ void phi_terminal_present(const char *id, double x, double y, double width,
   TRACE(@"present-detail %s visible=%d focus=%d blocked=%d",
     id, visible, focus, [traceOverlay[@"blocked"] boolValue]);
   // 分屏：多个窗格同时可见，谁可见由 set_visible 决定；这里只管自己的几何与焦点。
-  NSString *colors = theme_config ? [NSString stringWithUTF8String:theme_config] : @"";
-  if (darkTheme != dark || ![activeThemeConfig isEqualToString:colors]) {
+  NSString *colors = theme_config ? [NSString stringWithUTF8String:theme_config] : nil;
+  // 主题按窗格套用，不能只记住「上次给谁套过」：全局 update_config 改的是同一个
+  // app 的默认配色，新建的 surface 继承的是别人留下的主题。这里只在真正变化时
+  // 做（免得更新的配置在输入过程中扰动 surface），并且优先落到本窗格。
+  bool changed = darkTheme != dark || !(colors ? [activeThemeConfig isEqualToString:colors] : activeThemeConfig.length == 0);
+  if (changed) {
     darkTheme = dark;
     activeThemeConfig = [colors copy];
     ghostty_config_t config = hostConfig(dark, colors);
-    ghostty_app_update_config(core, config); ghostty_config_free(config);
+    ghostty_app_update_config(core, config);
+    if (view.surface && !inPresentation) {
+      inPresentation = YES;
+      ghostty_surface_update_config(view.surface, config);
+      inPresentation = NO;
+    }
+    ghostty_config_free(config);
   }
   NSView *container = view.superview;
   CGFloat nativeY = container.isFlipped ? y : container.bounds.size.height - y - height;
