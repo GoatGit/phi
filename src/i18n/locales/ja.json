@@ -6129,12 +6129,6 @@
     "initMessage": "backlog/config.yml、tasks/、archive/tasks/ を作成します。既存のファイルは上書きしません。",
     "initDone": "backlog フォルダを初期化しました",
     "status": "状態",
-    "priority": "優先度",
-    "priorityLevel": {
-      "high": "高",
-      "medium": "中",
-      "low": "低"
-    },
     "assignee": "担当",
     "labels": "ラベル",
     "dependencies": "依存",
@@ -6262,9 +6256,6 @@
       "save": "保存",
       "saved": "スケジュールを保存しました",
       "hint": "定期実行は一定間隔ごとに、指定時刻はその時刻にもう一度実行します。時刻になるとカードは実行列に戻されて再配分され、精算は通常のタスクと同じです。「繰り返さない」で保存すると解除できます。",
-      "placeholderInterval": "例 2h / 30m / 1d",
-      "placeholderDaily": "例 09:30",
-      "placeholderOnce": "例 2026-11-20 09:30",
       "everyMinutes": "{{count}} 分ごと",
       "everyHours": "{{count}} 時間ごと",
       "everyDays": "{{count}} 日ごと",
@@ -6272,7 +6263,17 @@
       "once": "{{at}} に一度",
       "next": "次回 {{time}}",
       "due": "時刻になりました。次の確認で実行します",
-      "lastRun": "前回 {{time}}"
+      "lastRun": "前回 {{time}}",
+      "everyLabel": "間隔",
+      "dateLabel": "日付",
+      "timeLabel": "時刻",
+      "intervalAmount": "間隔の値",
+      "intervalUnit": "間隔の単位",
+      "unit": {
+        "m": "分",
+        "h": "時間",
+        "d": "日"
+      }
     }
   }
 }

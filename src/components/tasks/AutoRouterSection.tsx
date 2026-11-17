@@ -3,17 +3,12 @@ import { useTranslation } from "react-i18next";
 import { Pause, Play, RotateCcw, SquareTerminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getAppDisplayName } from "@/components/shell/AppGlyph";
-import type {
-  RouterHumanDecision,
-  RouterPlanNode,
-  RouterTaskRun,
-} from "@/lib/api/superAgent";
+import type { RouterHumanDecision, RouterTaskRun } from "@/lib/api/superAgent";
 import { cn } from "@/lib/utils";
 import { runStateKey } from "./RunStateBadge";
 
 interface AutoRouterSectionProps {
   run?: RouterTaskRun;
-  plan: RouterPlanNode[];
   busy: boolean;
   onStart: () => void;
   onPause: () => void;
@@ -44,10 +39,11 @@ const STATE_DOT: Record<string, string> = {
  *
  * 只放和这张卡有关的事实：谁在跑、第几次、卡在哪、下一步能做什么。
  * 全局开关与配额在头部那个面板里，这里不重复。
+ * 执行计划也不在这里：规则版调度不拆子任务，`plan_task` 还没实现，
+ * 放一行永远为空的「执行计划 · 这一轮没有拆分子任务」只是噪音。
  */
 export function AutoRouterSection({
   run,
-  plan,
   busy,
   onStart,
   onPause,
@@ -190,54 +186,6 @@ export function AutoRouterSection({
           </span>
         </div>
       )}
-
-      <div className="space-y-1.5">
-        <h4 className="m-0 text-caption font-medium text-fg-2">
-          {t("tasks.router.planTitle")}
-        </h4>
-        {plan.length === 0 ? (
-          <p className="m-0 text-caption text-fg-3">
-            {t("tasks.router.planEmpty")}
-          </p>
-        ) : (
-          <ol className="m-0 flex list-none flex-col p-0">
-            {plan.map((node, index) => (
-              <li key={node.nodeId} className="relative ps-4 pb-2 last:pb-0">
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "absolute start-0 top-[6px] size-1.5 rounded-full",
-                    STATE_DOT[
-                      node.state === "needs-you" ? "needsYou" : node.state
-                    ] ?? "bg-fg-3",
-                  )}
-                />
-                {index < plan.length - 1 ? (
-                  <span
-                    aria-hidden="true"
-                    className="absolute bottom-0 start-[2.5px] top-4 w-px bg-border"
-                  />
-                ) : null}
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-caption text-fg-1">{node.title}</span>
-                  {node.workerApp ? (
-                    <span className="text-[11px] text-fg-3">
-                      {getAppDisplayName(node.workerApp)}
-                    </span>
-                  ) : null}
-                </div>
-                {node.dependsOn.length > 0 ? (
-                  <p className="m-0 text-[11px] text-fg-3">
-                    {t("tasks.router.planDeps", {
-                      deps: node.dependsOn.join(", "),
-                    })}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
     </section>
   );
 }

@@ -4,28 +4,21 @@ use super::document::{self, Workspace};
 use super::model::{Board, BoardColumn, Task, WorkspaceInfo};
 use std::path::Path;
 
-fn priority_rank(task: &Task) -> u8 {
-    match task.priority.as_deref().map(|value| value.to_lowercase()) {
-        Some(priority) if priority == "high" => 0,
-        Some(priority) if priority == "medium" => 1,
-        Some(priority) if priority == "low" => 2,
-        Some(_) => 3,
-        None => 4,
-    }
-}
-
 fn task_number(id: &str) -> u64 {
     id.rsplit_once('-')
         .and_then(|(_, number)| number.parse::<u64>().ok())
         .unwrap_or(u64::MAX)
 }
 
-/// 同一列内按「优先级 → 任务号」排，避免同优先级时顺序随机（文件系统不保证）。
+/// 同一列内按任务号排。
+///
+/// 曾经按优先级排序，但新建任务默认就是 `medium`，每张卡都一样，排序从来不起作用；
+/// 现在看板不展示这个字段，新建任务也不再写它。老卡片里可能还留着 `priority`，
+/// 一律忽略，列内保持「任务号从小到大」这一个确定顺序。
 pub fn project(workspace: &Workspace, mut tasks: Vec<Task>) -> Board {
     tasks.sort_by(|a, b| {
-        priority_rank(a)
-            .cmp(&priority_rank(b))
-            .then_with(|| task_number(&a.id).cmp(&task_number(&b.id)))
+        task_number(&a.id)
+            .cmp(&task_number(&b.id))
             .then_with(|| a.id.cmp(&b.id))
     });
 
@@ -132,6 +125,7 @@ mod tests {
             .map(|column| column.status.as_str())
             .collect();
         assert_eq!(names, vec!["To Do", "In Progress", "Done"]);
+        // 老卡片上残留的 priority 不再影响顺序：同一列永远按任务号排
         assert_eq!(
             board.columns[0]
                 .tasks

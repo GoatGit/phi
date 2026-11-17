@@ -263,7 +263,8 @@ pub fn create(workspace: &Workspace, input: &NewTask) -> Result<TaskDetail, Stri
     let priority = input
         .priority
         .clone()
-        .unwrap_or_else(|| "medium".to_string());
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
     // 排期先校验再落盘：写进去却解析不了，卡片上看起来跟没配一样，用户会以为
     // 已经生效了。set_schedule 出于同样的理由先解析再写。
     let recurrence = input
@@ -299,7 +300,10 @@ pub fn create(workspace: &Workspace, input: &NewTask) -> Result<TaskDetail, Stri
         "dependencies: {}\n",
         inline_list(&input.dependencies.clone().unwrap_or_default())
     ));
-    text.push_str(&format!("priority: {}\n", scalar(&priority)));
+    // 优先级看板已经不展示也不排序，新卡不写这个字段；调用方显式给了才落盘。
+    if let Some(priority) = priority {
+        text.push_str(&format!("priority: {}\n", scalar(&priority)));
+    }
     if let Some(recurrence) = recurrence {
         text.push_str(&format!("recurrence: {}\n", scalar(recurrence)));
     }
@@ -477,10 +481,12 @@ mod tests {
         .expect("create");
         assert_eq!(detail.task.id, "TASK-1");
         assert_eq!(detail.task.status, "To Do");
-        assert_eq!(detail.task.priority.as_deref(), Some("medium"));
+        assert_eq!(detail.task.priority, None);
         assert_eq!(detail.acceptance.len(), 2);
         let raw = fs::read_to_string(workspace.root.join(&detail.task.file)).expect("read");
         assert!(raw.starts_with("---\nid: TASK-1\ntitle: Second task\nstatus: To Do\n"));
+        // 优先级对每张卡都是同一个值、又不影响排序，新卡不再写这个字段
+        assert!(!raw.contains("priority:"));
         assert!(raw.contains("## Description\n\nBody text\n"));
         assert!(raw.contains("- [ ] A\n- [ ] B\n"));
 

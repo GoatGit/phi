@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import i18n from "i18next";
 import zh from "@/i18n/locales/zh.json";
 import { AutoRouterSection } from "@/components/tasks/AutoRouterSection";
-import type { RouterPlanNode, RouterTaskRun } from "@/lib/api/superAgent";
+import type { RouterTaskRun } from "@/lib/api/superAgent";
 
 beforeAll(() => {
   i18n.addResourceBundle("zh", "translation", zh, true, true);
@@ -23,25 +23,6 @@ const run: RouterTaskRun = {
   updatedAt: 1,
 };
 
-const plan: RouterPlanNode[] = [
-  {
-    taskId: "TASK-1",
-    nodeId: "n1",
-    title: "读代码并定位入口",
-    workerApp: "claude",
-    dependsOn: [],
-    state: "done",
-  },
-  {
-    taskId: "TASK-1",
-    nodeId: "n2",
-    title: "改完跑测试",
-    workerApp: "codex",
-    dependsOn: ["n1"],
-    state: "working",
-  },
-];
-
 function renderSection(
   overrides: Partial<Parameters<typeof AutoRouterSection>[0]> = {},
 ) {
@@ -51,7 +32,6 @@ function renderSection(
   render(
     <AutoRouterSection
       run={run}
-      plan={plan}
       busy={false}
       onStart={onStart}
       onPause={onPause}
@@ -100,10 +80,12 @@ describe("AutoRouterSection", () => {
     ).toBeInTheDocument();
   });
 
-  it("计划按依赖顺序列出来，没有计划时只有一行说明", async () => {
+  it("没有运行态时只给开始按钮，不留永远为空的执行计划", async () => {
     const user = userEvent.setup();
-    const { onStart } = renderSection({ run: undefined, plan: [] });
-    expect(screen.getByText(zh.tasks.router.planEmpty)).toBeInTheDocument();
+    const { onStart } = renderSection({ run: undefined });
+    expect(
+      screen.queryByText(zh.tasks.router.planTitle),
+    ).not.toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: zh.tasks.router.start }),
     );
@@ -138,10 +120,12 @@ describe("AutoRouterSection", () => {
     ).toBeNull();
   });
 
-  it("有计划时列出每个节点与它的依赖", () => {
+  it("有运行态时也只写运行事实，不再预告一个空的执行计划", () => {
     renderSection();
-    expect(screen.getByText("读代码并定位入口")).toBeInTheDocument();
-    expect(screen.getByText("依赖 n1")).toBeInTheDocument();
+    expect(screen.getByText(zh.tasks.router.state.working)).toBeInTheDocument();
+    expect(
+      screen.queryByText(zh.tasks.router.planEmpty),
+    ).not.toBeInTheDocument();
   });
 });
 
