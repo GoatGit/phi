@@ -184,7 +184,13 @@
                 <File Id="UpdateTaskUninstaller" Source="uninstall-task.ps1" KeyPath="yes" Checksum="yes"/>
             </Component>
             {{/if}}
-            {{resources}}
+            <!-- 这里故意不放 resources 占位符（handlebars）：每用户安装的 INSTALLDIR 在
+                 LocalAppData 下，tauri 为资源文件生成的组件把文件当 KeyPath，light 会
+                 报 ICE38（组件在用户目录里必须用 HKCU 注册表 KeyPath）和 ICE64（用户
+                 目录不在 RemoveFile 表里）而直接失败；模板又进不到那些组件内部把它们
+                 改成注册表 KeyPath。所以 Windows 的 MSI 暂不携带侧车脚本，调度侧车在
+                 Windows 上回退到规则版（SidecarEpisode::bundled 找不到脚本就返回 None）。
+                 要补上得改外部二进制或自写 fragment，属于另一次打包改造。 -->
             <Component Id="CMP_UninstallShortcut" Guid="*">
 
                 <Shortcut Id="UninstallShortcut"
