@@ -250,9 +250,8 @@
 
             <ComponentRef Id="RegistryEntries"/>
 
-            {{#each resource_file_ids as |resource_file_id| ~}}
-                <ComponentRef Id="{{ resource_file_id }}"/>
-            {{/each~}}
+            <!-- 跟模板里不放 resources 占位符同一个理由：资源组件的定义已经不生成，
+                 这里再引用就是 LGHT0094 Unresolved reference。 -->
 
             {{#if enable_elevated_update_task}}
                 <ComponentRef Id="UpdateTask" />
