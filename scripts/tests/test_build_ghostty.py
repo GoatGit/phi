@@ -61,6 +61,21 @@ class GhosttyBuildTests(unittest.TestCase):
             self.assertIn("compile error", error.exception.output)
             sleep.assert_not_called()
 
+    def test_unknown_host_fetch_error_retries(self):
+        # The macOS runner saw this exact message when codeberg.org stopped
+        # resolving mid-build; it is a network failure, not a source error.
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            source = (
+                "import pathlib; p=pathlib.Path('attempts'); "
+                "n=int(p.read_text())+1 if p.exists() else 1; p.write_text(str(n)); "
+                "print('error: unable to connect to server: UnknownHostName' if n==1 else 'built'); "
+                "raise SystemExit(1 if n==1 else 0)"
+            )
+            with patch.object(ghostty.time, "sleep") as sleep:
+                self.run_build(source, directory)
+            self.assertEqual((Path(directory) / "attempts").read_text(), "2")
+            sleep.assert_called_once()
+
     def test_fetch_retries_are_bounded(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(subprocess.CalledProcessError), patch.object(ghostty.time, "sleep") as sleep:

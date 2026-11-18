@@ -58,6 +58,10 @@ TRANSIENT_FETCH_ERRORS = (
     "connection timed out",
     "could not resolve host",
     "temporary failure in name resolution",
+    # CI runners lose DNS for individual dependency hosts now and then; Zig
+    # reports that as UnknownHostName rather than a resolution failure.
+    "unable to connect to server",
+    "unknownhostname",
     "network is unreachable",
 )
 
