@@ -1,0 +1,63 @@
+name: DNS probe
+
+# 临时探针：确认 macOS runner 上的 codeberg.org 解析行为。
+# 用完即删，不进入主干。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [chore/release-1.0.5]
+    paths: ['.github/workflows/dns-probe.yml']
+
+jobs:
+  probe:
+    name: Probe codeberg.org resolution
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - name: System resolver
+        run: |
+          echo '--- scutil dns'
+          scutil --dns | head -30 || true
+          echo '--- dscacheutil'
+          dscacheutil -q host -a name codeberg.org || true
+          echo '--- dig default'
+          dig +short codeberg.org || true
+
+      - name: Public resolvers
+        run: |
+          for server in 8.8.8.8 1.1.1.1 9.9.9.9; do
+            echo "--- dig @$server"
+            dig +short codeberg.org @"$server" || true
+            echo "--- dig +tcp @$server"
+            dig +tcp +short codeberg.org @"$server" || true
+          done
+
+      - name: Authoritative
+        run: |
+          echo '--- ns records'
+          dig +short NS codeberg.org @8.8.8.8 || true
+          echo '--- authoritative A'
+          for ns in $(dig +short NS codeberg.org @8.8.8.8); do
+            echo "ns=$ns"
+            dig +short codeberg.org A @"$ns" || true
+          done
+
+      - name: Reachability by ip
+        run: |
+          ip=$(dig +short codeberg.org @8.8.8.8 | grep -E '^[0-9.]+$' | tail -1)
+          echo "ip=$ip"
+          curl -s -o /dev/null -w 'by_ip=%{http_code}\n' --max-time 20 --resolve "codeberg.org:443:$ip" https://codeberg.org/ || true
+          curl -s -o /dev/null -w 'by_name=%{http_code}\n' --max-time 20 https://codeberg.org/ || true
+
+      - name: Hosts pin trial
+        run: |
+          ip=$(dig +short codeberg.org @8.8.8.8 | grep -E '^[0-9.]+$' | tail -1)
+          if [ -n "$ip" ]; then
+            echo "$ip codeberg.org" | sudo tee -a /etc/hosts
+            dscacheutil -flushcache || true
+            echo '--- after pin'
+            curl -s -o /dev/null -w 'pinned=%{http_code}\n' --max-time 20 https://codeberg.org/ || true
+          else
+            echo 'no ip from 8.8.8.8'
+          fi
