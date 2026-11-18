@@ -206,6 +206,47 @@ describe("TaskDetailSheet — 不重复、不留空的声明", () => {
 });
 
 describe("TaskDetailSheet — 任务类型", () => {
+  it.each(["1.5", "0", "-2", "", "721"])(
+    "持续任务拒绝无效小时数 %j，保留输入直到用户改正",
+    async (value) => {
+      const user = userEvent.setup();
+      const onSetSchedule = vi.fn();
+      renderSheet({
+        detail: {
+          ...detail,
+          task: {
+            ...task,
+            schedule: {
+              kind: "interval",
+              minutes: 120,
+              time: null,
+              at: null,
+              lastRunAt: null,
+              nextRunAt: null,
+            },
+          },
+        },
+        onSetSchedule,
+      });
+      const amount = screen.getByRole("spinbutton", {
+        name: zh.tasks.schedule.intervalAmount,
+      });
+      const save = screen.getByRole("button", {
+        name: zh.tasks.schedule.save,
+      });
+      fireEvent.change(amount, { target: { value } });
+      expect(amount).toHaveValue(value === "" ? null : Number(value));
+      expect(save).toBeDisabled();
+      await user.click(save);
+      expect(onSetSchedule).not.toHaveBeenCalled();
+
+      fireEvent.change(amount, { target: { value: "720" } });
+      expect(save).toBeEnabled();
+      await user.click(save);
+      expect(onSetSchedule).toHaveBeenCalledExactlyOnceWith("720h", null);
+    },
+  );
+
   it("设成持续任务：选间隔数值与单位，不用手敲简写", async () => {
     const user = userEvent.setup();
     const onSetSchedule = vi.fn();

@@ -482,7 +482,7 @@ function ScheduleSection({
   const current = scheduleKind(schedule);
   const [mode, setMode] = useState<ScheduleKind>(current);
   /** 持续任务：多少 + 单位，两个选择框，不用手敲 `2h`。 */
-  const [amount, setAmount] = useState(() =>
+  const [amount, setAmount] = useState<number | "">(() =>
     current === "interval"
       ? intervalParts(schedule?.minutes ?? null).amount
       : 30,
@@ -504,13 +504,15 @@ function ScheduleSection({
       : todayDate(),
   );
 
-  const interval = mode === "interval" ? amount * UNIT_MINUTES[unit] : null;
+  const interval =
+    mode === "interval" ? Number(amount) * UNIT_MINUTES[unit] : null;
   const clock = normalizeClock(time);
   const moment = mode === "once" ? composeMoment(date, time) : null;
   const valid =
     mode === "none" ||
     (mode === "interval"
-      ? interval !== null &&
+      ? Number.isInteger(amount) &&
+        interval !== null &&
         interval >= MIN_INTERVAL_MINUTES &&
         interval <= MAX_INTERVAL_MINUTES
       : mode === "daily"
@@ -576,13 +578,16 @@ function ScheduleSection({
                 <Input
                   type="number"
                   min={1}
+                  max={MAX_INTERVAL_MINUTES / UNIT_MINUTES[unit]}
+                  step={1}
+                  aria-invalid={!valid}
                   className="w-[64px] text-center"
                   value={amount}
                   aria-label={t("tasks.schedule.intervalAmount")}
                   disabled={busy}
                   onChange={(event) => {
-                    const next = Number(event.target.value);
-                    setAmount(Number.isFinite(next) && next > 0 ? next : 1);
+                    const value = event.target.value;
+                    setAmount(value === "" ? "" : Number(value));
                   }}
                 />
                 <Select
