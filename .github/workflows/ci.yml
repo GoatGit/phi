@@ -167,6 +167,46 @@ jobs:
       - name: Verify bundle
         run: test -s sidecar/dist/router-episode.mjs
 
+  # Windows 安装包自带 node 运行时，而解包实现跟镜像里的 PowerShell / .NET 版本有关：
+  # windows-latest 能过，windows-2022 与 windows-11-arm 却报 “Cannot find an overload
+  # for ExtractToDirectory and the argument count: 3”。后两张正好是发版用的镜像，
+  # 所以在这里真跑一遍解包，不让它拖到打 tag 才暴露。
+  node-runtime-windows:
+    name: Node runtime (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: changes
+    if: needs.changes.outputs.router == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Build node runtime
+        env:
+          TARGET: ${{ matrix.target }}
+        run: node scripts/build-node-runtime.mjs
+
+      - name: Verify runtime binary
+        shell: pwsh
+        run: |
+          $bin = Get-ChildItem src-tauri/binaries/phi-node-*.exe
+          if (-not $bin) { throw "没有产出 phi-node 运行时" }
+          "{0} ({1:N0} MB)" -f $bin.Name, ($bin.Length / 1MB)
+
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest

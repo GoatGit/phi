@@ -65,8 +65,11 @@ if (platform.archive === "tar.gz") {
     stdio: "inherit",
   });
 } else {
-  execFileSync("powershell", ["-NoProfile", "-Command",
-    `Expand-Archive -Force -Path '${tmp}' -DestinationPath '${staging}'`], { stdio: "inherit" });
+  // Windows 上不用 Expand-Archive：windows-2022 与 windows-11-arm 镜像里 pwsh 7 的
+  // Archive 模块会走 3 参的 ExtractToDirectory 重载，而那两张镜像解析到的是没有该重载的
+  // System.IO.Compression，直接抛 “Cannot find an overload ... argument count: 3”。
+  // 系统自带的 bsdtar（C:\Windows\System32\tar.exe）能直接解 zip，版本差异也没有了。
+  execFileSync("tar", ["-xf", tmp, "-C", staging], { stdio: "inherit" });
 }
 
 const extracted = path.join(staging, `node-${NODE_VERSION}-${platform.dist}`, platform.binary);
