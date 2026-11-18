@@ -15,6 +15,16 @@ ghostty = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ghostty)
 
 
+class GhosttyPatchTests(unittest.TestCase):
+    def test_wayland_mirror_keeps_pinned_commit_and_hash(self):
+        patch_text = (Path(__file__).parents[1] / "ghostty/phi-embedding.patch").read_text()
+        commit = "f3c5d503e540ada8cbcb056420de240af0c094f7"
+        digest = "wayland-0.4.0-dev-lQa1kjfIAQCmhhQu3xF0KH-94-TzeMXOqfnP0-Dg6Wyy"
+        self.assertIn(f'-            .url = "https://codeberg.org/ifreund/zig-wayland/archive/{commit}.tar.gz"', patch_text)
+        self.assertIn(f'+            .url = "https://github.com/ifreund/zig-wayland/archive/{commit}.tar.gz"', patch_text)
+        self.assertIn(f'             .hash = "{digest}"', patch_text)
+
+
 @unittest.skipUnless(sys.platform == "darwin" or sys.platform.startswith("linux"), "Ghostty build supervisor uses POSIX process groups")
 class GhosttyBuildTests(unittest.TestCase):
     def run_build(self, source, directory, **kwargs):

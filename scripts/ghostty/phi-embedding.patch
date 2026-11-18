@@ -1,3 +1,14 @@
+--- a/build.zig.zon
++++ b/build.zig.zon
+@@ -44,7 +44,7 @@
+         },
+         .zig_wayland = .{
+             // codeberg ifreund/zig-wayland
+-            .url = "https://codeberg.org/ifreund/zig-wayland/archive/f3c5d503e540ada8cbcb056420de240af0c094f7.tar.gz",
++            .url = "https://github.com/ifreund/zig-wayland/archive/f3c5d503e540ada8cbcb056420de240af0c094f7.tar.gz",
+             .hash = "wayland-0.4.0-dev-lQa1kjfIAQCmhhQu3xF0KH-94-TzeMXOqfnP0-Dg6Wyy",
+         },
+         .zf = .{
 --- a/build.zig
 +++ b/build.zig
 @@ -89,6 +89,13 @@
