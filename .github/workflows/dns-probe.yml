@@ -1,6 +1,6 @@
 name: DNS probe
 
-# 临时探针：确认 macOS runner 上的 codeberg.org 解析行为。
+# 临时探针：确认 macOS runner 上 codeberg.org 的解析与可达性。
 # 用完即删，不进入主干。
 
 on:
@@ -15,49 +15,37 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 5
     steps:
-      - name: System resolver
+      - name: Control comparisons
         run: |
-          echo '--- scutil dns'
-          scutil --dns | head -30 || true
-          echo '--- dscacheutil'
-          dscacheutil -q host -a name codeberg.org || true
-          echo '--- dig default'
-          dig +short codeberg.org || true
+          echo '--- dig github.com @8.8.8.8 (is port 53 blocked?)'
+          dig +short github.com @8.8.8.8 || true
+          echo '--- dig github.com default resolver'
+          dig +short github.com || true
+          echo '--- curl https://github.com'
+          curl -s -o /dev/null -w 'github=%{http_code}\n' --max-time 15 https://github.com/ || true
 
-      - name: Public resolvers
+      - name: Resolve codeberg over DoH
         run: |
-          for server in 8.8.8.8 1.1.1.1 9.9.9.9; do
-            echo "--- dig @$server"
-            dig +short codeberg.org @"$server" || true
-            echo "--- dig +tcp @$server"
-            dig +tcp +short codeberg.org @"$server" || true
-          done
+          echo '--- cloudflare doh'
+          curl -s --max-time 15 -H 'accept: application/dns-json' \
+            'https://1.1.1.1/dns-query?name=codeberg.org&type=A' || true
+          echo
+          echo '--- google doh'
+          curl -s --max-time 15 'https://dns.google/resolve?name=codeberg.org&type=A' || true
+          echo
 
-      - name: Authoritative
+      - name: Pin and verify
         run: |
-          echo '--- ns records'
-          dig +short NS codeberg.org @8.8.8.8 || true
-          echo '--- authoritative A'
-          for ns in $(dig +short NS codeberg.org @8.8.8.8); do
-            echo "ns=$ns"
-            dig +short codeberg.org A @"$ns" || true
-          done
-
-      - name: Reachability by ip
-        run: |
-          ip=$(dig +short codeberg.org @8.8.8.8 | grep -E '^[0-9.]+$' | tail -1)
+          set -euo pipefail
+          ip=$(curl -s --max-time 15 'https://dns.google/resolve?name=codeberg.org&type=A' \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((a["data"] for a in d.get("Answer",[]) if a.get("type")==1), ""))' || true)
           echo "ip=$ip"
-          curl -s -o /dev/null -w 'by_ip=%{http_code}\n' --max-time 20 --resolve "codeberg.org:443:$ip" https://codeberg.org/ || true
-          curl -s -o /dev/null -w 'by_name=%{http_code}\n' --max-time 20 https://codeberg.org/ || true
-
-      - name: Hosts pin trial
-        run: |
-          ip=$(dig +short codeberg.org @8.8.8.8 | grep -E '^[0-9.]+$' | tail -1)
           if [ -n "$ip" ]; then
             echo "$ip codeberg.org" | sudo tee -a /etc/hosts
-            dscacheutil -flushcache || true
+            sudo dscacheutil -flushcache || true
             echo '--- after pin'
             curl -s -o /dev/null -w 'pinned=%{http_code}\n' --max-time 20 https://codeberg.org/ || true
+            dig +short codeberg.org || true
           else
-            echo 'no ip from 8.8.8.8'
+            echo 'no ip from DoH'
           fi
