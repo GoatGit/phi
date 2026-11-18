@@ -27,7 +27,7 @@
     <div class="wrap header-inner">
       <a class="brand" href="/en/" aria-label="PHI home"><img src="/assets/phi-app.svg" width="34" height="34" alt=""><span>PHI</span></a>
       <nav class="language-switch" aria-label="Choose language">
-        <select aria-label="Choose language" onchange="if (this.value) window.location.href = this.value;">
+        <select aria-label="Choose language" onchange="switch (this.value) { case &quot;https://phi.semibot.ai/changelog/1.0.5/&quot;: window.location.assign(&quot;https://phi.semibot.ai/changelog/1.0.5/&quot;); break; case &quot;https://phi.semibot.ai/en/changelog/1.0.5/&quot;: window.location.assign(&quot;https://phi.semibot.ai/en/changelog/1.0.5/&quot;); break; case &quot;https://phi.semibot.ai/ja/changelog/1.0.5/&quot;: window.location.assign(&quot;https://phi.semibot.ai/ja/changelog/1.0.5/&quot;); break; }">
           <option value="https://phi.semibot.ai/changelog/1.0.5/" lang="zh-CN">中文</option>
           <option value="https://phi.semibot.ai/en/changelog/1.0.5/" lang="en" selected>English</option>
           <option value="https://phi.semibot.ai/ja/changelog/1.0.5/" lang="ja">日本語</option>

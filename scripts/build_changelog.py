@@ -118,19 +118,24 @@ def escape(value):
 def render_switcher(locale, version):
     options = []
     links = []
+    cases = []
     for key in LANGUAGE_ORDER:
         cfg = LOCALES[key]
         current = ' aria-current="page"' if key == locale else ""
         selected = " selected" if key == locale else ""
+        # Only navigate to generated literals, never a URL supplied by the DOM.
+        target = json.dumps(url(key, version))
+        cases.append(f"case {target}: window.location.assign({target}); break;")
         options.append(
             f'          <option value="{url(key, version)}" lang="{cfg["html_lang"]}"{selected}>{cfg["label"]}</option>'
         )
         links.append(
             f'          <a href="{url(key, version)}" lang="{cfg["html_lang"]}" hreflang="{cfg["html_lang"]}"{current}>{cfg["label"]}</a>'
         )
+    handler = "switch (this.value) { " + " ".join(cases) + " }"
     return (
         f'      <nav class="language-switch" aria-label="{LOCALES[locale]["nav_label"]}">\n'
-        '        <select aria-label="' + LOCALES[locale]["nav_label"] + '" onchange="if (this.value) window.location.href = this.value;">\n'
+        f'        <select aria-label="{LOCALES[locale]["nav_label"]}" onchange="{escape(handler)}">\n'
         + "\n".join(options)
         + "\n        </select>\n        <noscript>\n"
         + "\n".join(links)
