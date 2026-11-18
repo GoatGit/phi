@@ -44,6 +44,9 @@ class GhosttyBuildTests(unittest.TestCase):
             self.assertIn("progress", output.getvalue())
 
     def test_transient_fetch_error_retries_and_compile_error_does_not(self):
+        # Count attempts instead of mocking time.sleep: the shared time module
+        # is also used by subprocess while it reaps the child, so a global mock
+        # records unrelated sleeps.
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
             source = (
                 "import pathlib; p=pathlib.Path('attempts'); "
@@ -51,15 +54,19 @@ class GhosttyBuildTests(unittest.TestCase):
                 "print('unable to fetch: EndOfStream' if n==1 else 'built'); "
                 "raise SystemExit(1 if n==1 else 0)"
             )
-            with patch.object(ghostty.time, "sleep") as sleep:
+            with patch.object(ghostty, "RETRY_DELAY_SECONDS", 0):
                 self.run_build(source, directory)
             self.assertEqual((Path(directory) / "attempts").read_text(), "2")
-            sleep.assert_called_once()
-            with self.assertRaises(subprocess.CalledProcessError) as error, patch.object(ghostty.time, "sleep") as sleep:
-                self.run_build("print('compile error'); raise SystemExit(2)", directory)
+            compile_error = (
+                "import pathlib; p=pathlib.Path('compile-attempts'); "
+                "n=int(p.read_text())+1 if p.exists() else 1; p.write_text(str(n)); "
+                "print('compile error'); raise SystemExit(2)"
+            )
+            with self.assertRaises(subprocess.CalledProcessError) as error, patch.object(ghostty, "RETRY_DELAY_SECONDS", 0):
+                self.run_build(compile_error, directory)
             self.assertEqual(error.exception.returncode, 2)
             self.assertIn("compile error", error.exception.output)
-            sleep.assert_not_called()
+            self.assertEqual((Path(directory) / "compile-attempts").read_text(), "1")
 
     def test_unknown_host_fetch_error_retries(self):
         # The macOS runner saw this exact message when codeberg.org stopped
@@ -71,16 +78,20 @@ class GhosttyBuildTests(unittest.TestCase):
                 "print('error: unable to connect to server: UnknownHostName' if n==1 else 'built'); "
                 "raise SystemExit(1 if n==1 else 0)"
             )
-            with patch.object(ghostty.time, "sleep") as sleep:
+            with patch.object(ghostty, "RETRY_DELAY_SECONDS", 0):
                 self.run_build(source, directory)
             self.assertEqual((Path(directory) / "attempts").read_text(), "2")
-            sleep.assert_called_once()
 
     def test_fetch_retries_are_bounded(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaises(subprocess.CalledProcessError), patch.object(ghostty.time, "sleep") as sleep:
-                self.run_build("print('failed to fetch'); raise SystemExit(1)", directory, attempts=2)
-            sleep.assert_called_once()
+            source = (
+                "import pathlib; p=pathlib.Path('attempts'); "
+                "n=int(p.read_text())+1 if p.exists() else 1; p.write_text(str(n)); "
+                "print('failed to fetch'); raise SystemExit(1)"
+            )
+            with self.assertRaises(subprocess.CalledProcessError), patch.object(ghostty, "RETRY_DELAY_SECONDS", 0):
+                self.run_build(source, directory, attempts=2)
+            self.assertEqual((Path(directory) / "attempts").read_text(), "2")
 
     def test_silent_build_times_out_and_kills_descendants(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()) as output:
@@ -90,11 +101,10 @@ class GhosttyBuildTests(unittest.TestCase):
                 "print('child started',flush=True); time.sleep(60)"
             )
             started = time.monotonic()
-            with self.assertRaises(subprocess.TimeoutExpired), patch.object(ghostty.time, "sleep") as sleep:
+            with self.assertRaises(subprocess.TimeoutExpired):
                 self.run_build(source, directory, timeout_seconds=0.3)
             self.assertLess(time.monotonic() - started, 2)
             self.assertIn("child started", output.getvalue())
-            sleep.assert_not_called()
             time.sleep(1.1)
             self.assertFalse((Path(directory) / "leaked").exists())
 
