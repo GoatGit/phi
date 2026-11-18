@@ -96,6 +96,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend || 'true' }}
       backend: ${{ steps.filter.outputs.backend || 'true' }}
       sidecar: ${{ steps.filter.outputs.sidecar || 'true' }}
+      router: ${{ steps.filter.outputs.router || 'true' }}
     steps:
       # On pull_request the filter reads changed files via the API (no checkout);
       # on push it needs a local git history to diff against.
@@ -132,6 +133,39 @@ jobs:
               - "subscriptions/**"
               - "scripts/build-subscriptions.mjs"
               - ".github/workflows/**"
+            router:
+              - "sidecar/**"
+              - "scripts/build-sidecar.mjs"
+              - "scripts/build-node-runtime.mjs"
+              - ".github/workflows/**"
+
+  # 调度侧车（sidecar/）是独立 npm 项目：tauri build 的前置命令会把它打成
+  # sidecar/dist/router-episode.mjs，pi 依赖只在它自己的 node_modules 里。
+  # 发布前跑一次真实打包，避免这种依赖缺失拖到发版才暴露。
+  router-sidecar:
+    name: Router sidecar bundle
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.router == 'true'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install sidecar deps
+        run: npm ci --prefix sidecar
+
+      - name: Bundle router episode
+        run: node scripts/build-sidecar.mjs
+
+      - name: Verify bundle
+        run: test -s sidecar/dist/router-episode.mjs
 
   frontend:
     name: Frontend Checks

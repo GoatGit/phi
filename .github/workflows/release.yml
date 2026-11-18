@@ -193,6 +193,13 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      # 调度侧车（sidecar/）是独立 npm 项目，不在 pnpm 工作区里，而 tauri build 的
+      # beforeBuildCommand 会跑 scripts/build-sidecar.mjs，它要在 sidecar/node_modules
+      # 里解析 pi 依赖。本地库常驻着这份依赖，runner 上必须显式装一次，否则 esbuild 报
+      # Could not resolve "@mariozechner/pi-agent-core"，发布在编译阶段就断。
+      - name: Install router sidecar deps
+        run: npm ci --prefix sidecar
+
       - name: Prepare Tauri signing key
         uses: ./.github/actions/prepare-tauri-signing-key
         with:
@@ -435,6 +442,10 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      # 同 release job：调度侧车依赖不在 pnpm 工作区里，runner 上要单独装。
+      - name: Install router sidecar deps
+        run: npm ci --prefix sidecar
+
       # 后台 worker 跑在 zellij 里：它是 macOS 包的 externalBin，按各自的 target 取。
       - name: Fetch zellij sidecar
         run: node scripts/build-zellij.mjs --target=${{ matrix.target }}
@@ -551,6 +562,10 @@ jobs:
 
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
+
+      # 打包阶段也会走到 tauri 的前置命令，侧车依赖同样要先备好。
+      - name: Install router sidecar deps
+        run: npm ci --prefix sidecar
 
       - name: Prepare Tauri signing key
         uses: ./.github/actions/prepare-tauri-signing-key
