@@ -44,7 +44,9 @@ const KNOWN_OUTCOMES = new Set([
 
 /** Request history consumes the status page's shared query and filters.
  *  Each row expands inline into the routing process (attempts / failover)
- *  and the current runtime status of the involved outlets. */
+ *  and the current runtime status of the involved outlets.
+ *  标题由外层的可折叠页头提供（见 RoutingStatus）：这里只画表格，不重复
+ *  画一个「请求记录」的 h2。 */
 export function TraceSection({
   catalog,
   data,
@@ -70,7 +72,6 @@ export function TraceSection({
       className="flex flex-col gap-3"
       aria-label={t("gateway.trace.title")}
     >
-      <h2 className="text-base font-medium">{t("gateway.trace.title")}</h2>
       {visibleTraces.length === 0 ? (
         <p className="text-sm text-fg-3">{t("gateway.trace.empty")}</p>
       ) : (

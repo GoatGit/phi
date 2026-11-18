@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import i18n from "i18next";
 import { beforeAll } from "vitest";
 import zh from "@/i18n/locales/zh.json";
@@ -50,7 +50,6 @@ function renderSheet(
       statuses={["To Do", "In Progress", "Done"]}
       busy={false}
       run={undefined}
-      plan={[]}
       onSetSchedule={vi.fn()}
       onRevealArtifact={vi.fn()}
       onClose={onClose}
@@ -175,8 +174,80 @@ describe("TaskDetailSheet — 结果与产物", () => {
   });
 });
 
+describe("TaskDetailSheet — 不重复、不留空的声明", () => {
+  it("状态、优先级、验收计数都不再与页脚 / 验收清单重复", () => {
+    renderSheet({
+      detail: {
+        ...detail,
+        acceptance: [{ text: "跑通构建", done: true }],
+        task: { ...task, acceptanceDone: 1, acceptanceTotal: 1 },
+      },
+    });
+    // 页尾那个下拉是改状态的唯一入口，正文里不再另写一份
+    expect(screen.queryByText(zh.tasks.status)).toBeNull();
+    // 优先级字段在看板上已去掉：抽屉里也不再有这一行
+    expect(screen.queryByText("优先级")).toBeNull();
+    expect(screen.queryByText(zh.tasks.acceptanceProgress)).toBeNull();
+    expect(screen.getByText("跑通构建")).toBeTruthy();
+  });
+
+  it("没有关联会话时不留一空段，也不显示卡片文件路径", () => {
+    renderSheet();
+    expect(screen.queryByText(zh.tasks.sessions)).toBeNull();
+    expect(screen.queryByText(zh.tasks.noSessions)).toBeNull();
+    expect(screen.queryByText(task.file)).toBeNull();
+  });
+
+  it("没有规划节点时不出现永远为空的「执行计划」", () => {
+    renderSheet();
+    expect(screen.queryByText(zh.tasks.router.planTitle)).toBeNull();
+    expect(screen.queryByText(zh.tasks.router.planEmpty)).toBeNull();
+  });
+});
+
 describe("TaskDetailSheet — 任务类型", () => {
-  it("设成持续任务：选类型、填间隔、保存", async () => {
+  it.each(["1.5", "0", "-2", "", "721"])(
+    "持续任务拒绝无效小时数 %j，保留输入直到用户改正",
+    async (value) => {
+      const user = userEvent.setup();
+      const onSetSchedule = vi.fn();
+      renderSheet({
+        detail: {
+          ...detail,
+          task: {
+            ...task,
+            schedule: {
+              kind: "interval",
+              minutes: 120,
+              time: null,
+              at: null,
+              lastRunAt: null,
+              nextRunAt: null,
+            },
+          },
+        },
+        onSetSchedule,
+      });
+      const amount = screen.getByRole("spinbutton", {
+        name: zh.tasks.schedule.intervalAmount,
+      });
+      const save = screen.getByRole("button", {
+        name: zh.tasks.schedule.save,
+      });
+      fireEvent.change(amount, { target: { value } });
+      expect(amount).toHaveValue(value === "" ? null : Number(value));
+      expect(save).toBeDisabled();
+      await user.click(save);
+      expect(onSetSchedule).not.toHaveBeenCalled();
+
+      fireEvent.change(amount, { target: { value: "720" } });
+      expect(save).toBeEnabled();
+      await user.click(save);
+      expect(onSetSchedule).toHaveBeenCalledExactlyOnceWith("720h", null);
+    },
+  );
+
+  it("设成持续任务：选间隔数值与单位，不用手敲简写", async () => {
     const user = userEvent.setup();
     const onSetSchedule = vi.fn();
     Element.prototype.scrollIntoView = vi.fn();
@@ -190,15 +261,75 @@ describe("TaskDetailSheet — 任务类型", () => {
         name: zh.tasks.schedule.mode.interval,
       }),
     );
-    await user.type(
-      screen.getByRole("textbox", { name: zh.tasks.schedule.value }),
-      "2h",
+    const amount = screen.getByRole("spinbutton", {
+      name: zh.tasks.schedule.intervalAmount,
+    });
+    fireEvent.change(amount, { target: { value: "2" } });
+    await user.click(
+      screen.getByRole("combobox", { name: zh.tasks.schedule.intervalUnit }),
     );
+    await user.click(await screen.findByRole("option", { name: "小时" }));
     await user.click(
       screen.getByRole("button", { name: zh.tasks.schedule.save }),
     );
 
     expect(onSetSchedule).toHaveBeenCalledWith("2h", null);
+  });
+
+  it("定时任务用时间组件，保存时补成 09:30 这种格式", async () => {
+    const user = userEvent.setup();
+    const onSetSchedule = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    renderSheet({ onSetSchedule });
+
+    await user.click(
+      screen.getByRole("combobox", { name: zh.tasks.schedule.title }),
+    );
+    await user.click(
+      await screen.findByRole("option", { name: zh.tasks.schedule.mode.daily }),
+    );
+    const time = screen.getByLabelText(zh.tasks.schedule.timeLabel);
+    expect(time).toHaveAttribute("type", "time");
+    fireEvent.change(time, { target: { value: "09:30" } });
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.schedule.save }),
+    );
+
+    expect(onSetSchedule).toHaveBeenCalledWith(null, "09:30");
+  });
+
+  it("一次性任务给出日期和时间的原生组件", async () => {
+    const user = userEvent.setup();
+    const onSetSchedule = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    renderSheet({
+      detail: {
+        ...detail,
+        task: {
+          ...task,
+          schedule: {
+            kind: "once",
+            minutes: null,
+            time: null,
+            at: "2026-11-20 14:05",
+            lastRunAt: null,
+            nextRunAt: null,
+          },
+        },
+      },
+      onSetSchedule,
+    });
+
+    const date = screen.getByLabelText(zh.tasks.schedule.dateLabel);
+    const time = screen.getByLabelText(zh.tasks.schedule.timeLabel);
+    expect(date).toHaveAttribute("type", "date");
+    expect(date).toHaveValue("2026-11-20");
+    expect(time).toHaveValue("14:05");
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.schedule.save }),
+    );
+    expect(onSetSchedule).toHaveBeenCalledWith(null, "2026-11-20 14:05");
   });
 
   it("取消排期时两个参数都给 null", async () => {

@@ -37,6 +37,58 @@ export function parseIntervalText(value: string): number | null {
   return number;
 }
 
+/**
+ * 编辑器里的时刻 → `HH:MM`（`9:5` 也认，补成 `09:05`）。
+ *
+ * `at` 存的是归一化后的 `YYYY-MM-DD HH:MM`，界面只让人挑日期和时分两个部分，
+ * 拼回字符串仍由这里做，好让「选出来的值」和「后端能解析的值」是同一个。
+ */
+export function normalizeClock(value: string): string | null {
+  const match = /^(\d{1,2}):(\d{1,2})$/.exec(value.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/** `YYYY-MM-DD` → `2026-11-20 09:30`；日期不合法时返回 null。 */
+export function composeMoment(date: string, time: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) return null;
+  const clock = normalizeClock(time);
+  if (!clock) return null;
+  return `${date.trim()} ${clock}`;
+}
+
+/** `2026-11-20 09:30` → `{ date, time }`，给日期、时间两个输入框回填。 */
+export function splitMoment(at: string | null | undefined): {
+  date: string;
+  time: string;
+} {
+  const match = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(
+    (at ?? "").trim(),
+  );
+  if (!match) return { date: "", time: "" };
+  return {
+    date: match[1],
+    time: match[2] ? `${pad(Number(match[2]))}:${match[3]}` : "",
+  };
+}
+
+/** 本机时区的 `YYYY-MM-DD`，用作日期输入框的初值。 */
+export function todayDate(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** 本机时区的 `HH:MM`。 */
+export function currentClock(now: Date = new Date()): string {
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
 /** 卡片上那个小标签：一眼看出这是持续任务还是定时任务。 */
 export function scheduleLabel(
   t: TFunction,

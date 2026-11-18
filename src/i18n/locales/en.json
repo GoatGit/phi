@@ -6129,12 +6129,6 @@
     "initMessage": "This creates backlog/config.yml, tasks/ and archive/tasks/. Existing files are never overwritten.",
     "initDone": "Backlog folder initialized",
     "status": "Status",
-    "priority": "Priority",
-    "priorityLevel": {
-      "high": "High",
-      "medium": "Medium",
-      "low": "Low"
-    },
     "assignee": "Assignee",
     "labels": "Labels",
     "dependencies": "Depends on",
@@ -6262,9 +6256,6 @@
       "save": "Save",
       "saved": "Schedule saved",
       "hint": "A recurring task runs again every interval; a scheduled task runs at its time. When due, the card is put back into the trigger column and dispatched, then settled like any other task. Choose “One-off” and save to stop it.",
-      "placeholderInterval": "e.g. 2h / 30m / 1d",
-      "placeholderDaily": "e.g. 09:30",
-      "placeholderOnce": "e.g. 2026-11-20 09:30",
       "everyMinutes": "Every {{count}} min",
       "everyHours": "Every {{count}} h",
       "everyDays": "Every {{count}} d",
@@ -6272,7 +6263,17 @@
       "once": "Once at {{at}}",
       "next": "Next {{time}}",
       "due": "Due now — the next check will run it",
-      "lastRun": "Last run {{time}}"
+      "lastRun": "Last run {{time}}",
+      "everyLabel": "Every",
+      "dateLabel": "Date",
+      "timeLabel": "Time",
+      "intervalAmount": "Interval amount",
+      "intervalUnit": "Interval unit",
+      "unit": {
+        "m": "min",
+        "h": "hours",
+        "d": "days"
+      }
     }
   }
 }

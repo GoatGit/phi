@@ -18,6 +18,7 @@ import {
 } from "@/components/terminal/AppTerminalTabs";
 import { TerminalLaunchDialog } from "@/components/terminal/TerminalLaunchDialog";
 import { TerminalPane } from "@/components/terminal/TerminalPane";
+import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import {
   terminalOverlays,
   focusNativeTerminal,
@@ -228,6 +229,30 @@ describe("terminal workspaces", () => {
     unmount();
     vi.restoreAllMocks();
   });
+  it("lets the tab strip shrink for overflow without growing beyond its content", async () => {
+    // 标签按内容宽度排列；空间不足时只收缩轨道，不收缩关闭按钮和状态点。
+    vi.mocked(terminalApi.list).mockResolvedValueOnce([
+      snapshot(),
+      snapshot("s2"),
+    ]);
+    render(<LaunchWorkspace />);
+    await screen.findAllByRole("button", { name: "关闭终端 phi" });
+    const list = screen.getByRole("tablist", { name: "应用标签" });
+    expect(list).toHaveClass("min-w-0", "flex-initial");
+    const [active] = screen.getAllByRole("tab", { name: "运行中 phi" });
+    const rail = active.parentElement?.parentElement;
+    const strip = active.parentElement!;
+    expect(rail).toHaveClass("min-w-0", "flex-initial");
+    expect(rail?.className).toContain("overflow-x-auto");
+    // 关闭按钮与状态点都不能被标签的边界裁掉
+    expect(
+      strip.querySelector('[aria-label="关闭终端 phi"]')?.className,
+    ).toContain("shrink-0");
+    expect(active.querySelector('[aria-label="运行中"]')?.className).toContain(
+      "shrink-0",
+    );
+  });
+
   it("opens setup before launch and cancellation never starts a process", async () => {
     render(<LaunchWorkspace />);
     await waitFor(() => expect(terminalApi.list).toHaveBeenCalled());
@@ -481,6 +506,56 @@ describe("terminal workspaces", () => {
       expect(terminalApi.close).toHaveBeenCalledWith(snapshot(), true),
     );
   });
+
+  it.each([0, 2, 20])(
+    "keeps the new-tab button after %i tabs and leaves header expansion to the spacer",
+    async (count) => {
+      const sessions = Array.from({ length: count }, (_, index) => ({
+        ...snapshot(`layout-${index}`),
+        title: `很长的终端标题 ${index}`,
+      }));
+      vi.mocked(terminalApi.list).mockResolvedValueOnce(sessions);
+      function Workspace() {
+        const workspace = useTerminalWorkspace("claude", true, canLeave);
+        return (
+          <AppPageHeader
+            title="Claude"
+            tabs={<AppTerminalTabs app="claude" workspace={workspace} />}
+            actions={<button aria-label="应用更多操作">⋯</button>}
+          />
+        );
+      }
+      render(<Workspace />);
+      await waitFor(() =>
+        expect(screen.queryAllByRole("tab")).toHaveLength(
+          count === 0 ? 0 : count + 1,
+        ),
+      );
+      const newTab = screen.getByRole("button", { name: "新建终端" });
+      const group = newTab.parentElement!;
+      // JSDOM 不计算几何位置；这里只守三层 flex 契约，像素位置另用浏览器验证。
+      expect(group).toHaveClass("min-w-0", "flex-initial");
+      expect(group).not.toHaveClass("flex-1", "justify-end");
+      expect(newTab).toHaveClass("shrink-0");
+      const list = screen.getByRole("tablist");
+      expect(list.nextElementSibling).toBe(newTab);
+      expect(group.parentElement?.tagName).toBe("HEADER");
+      const spacer = group.nextElementSibling!;
+      expect(spacer).toHaveClass("flex-1");
+      expect(spacer.nextElementSibling).toContainElement(
+        screen.getByRole("button", { name: "应用更多操作" }),
+      );
+      expect(screen.queryByRole("tab", { name: "配置" }) !== null).toBe(
+        count > 0,
+      );
+      if (count > 0) {
+        fireEvent.click(screen.getAllByRole("tab")[1]);
+        const split = screen.getByRole("button", { name: "分屏" });
+        expect(newTab.nextElementSibling).toBe(split);
+        fireEvent.click(screen.getByRole("tab", { name: "配置" }));
+      }
+    },
+  );
 
   it("keeps terminal output visible beneath overlays and unmounts without closing its process", async () => {
     const rect = {

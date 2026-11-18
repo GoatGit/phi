@@ -27,7 +27,7 @@
     <div class="wrap header-inner">
       <a class="brand" href="/" aria-label="PHI 首页"><img src="/assets/phi-app.svg" width="34" height="34" alt=""><span>PHI</span></a>
       <nav class="language-switch" aria-label="切换语言">
-        <select aria-label="切换语言" onchange="if (this.value) window.location.href = this.value;">
+        <select aria-label="切换语言" onchange="switch (this.value) { case &quot;https://phi.semibot.ai/changelog/1.0.4/&quot;: window.location.assign(&quot;https://phi.semibot.ai/changelog/1.0.4/&quot;); break; case &quot;https://phi.semibot.ai/en/changelog/1.0.4/&quot;: window.location.assign(&quot;https://phi.semibot.ai/en/changelog/1.0.4/&quot;); break; case &quot;https://phi.semibot.ai/ja/changelog/1.0.4/&quot;: window.location.assign(&quot;https://phi.semibot.ai/ja/changelog/1.0.4/&quot;); break; }">
           <option value="https://phi.semibot.ai/changelog/1.0.4/" lang="zh-CN" selected>中文</option>
           <option value="https://phi.semibot.ai/en/changelog/1.0.4/" lang="en">English</option>
           <option value="https://phi.semibot.ai/ja/changelog/1.0.4/" lang="ja">日本語</option>
@@ -54,7 +54,7 @@
           <li>修复 Chat 接 Anthropic 上游时可选参数导致反复重试。</li>
           <li>上游安全拦截时返回原因，不再显示空回复。</li>
       </ul>
-      <p class="changelog-back"><a href="../">← 全部版本</a> · <a href="../1.0.3/">1.0.3 →</a></p>
+      <p class="changelog-back"><a href="../">← 全部版本</a> · <a href="../1.0.5/">1.0.5 →</a></p>
     </section>
   </main>
 

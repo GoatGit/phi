@@ -51,11 +51,7 @@ import {
   type TaskDetail,
   type TaskWorkspace,
 } from "@/lib/api/tasks";
-import {
-  superAgentApi,
-  type RouterPlanNode,
-  type RouterTaskRun,
-} from "@/lib/api/superAgent";
+import { superAgentApi, type RouterTaskRun } from "@/lib/api/superAgent";
 import { useRouterStatus } from "@/hooks/useRouterStatus";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -130,8 +126,6 @@ export function TaskBoardPage({
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<TaskCard | null>(null);
   const [dragging, setDragging] = useState<TaskCard | null>(null);
-  /** 详情里那张卡的执行计划（规划节点，规则版调度多半为空） */
-  const [plan, setPlan] = useState<RouterPlanNode[]>([]);
   const router = useRouterStatus(activeRoot);
   const liveSessions = useMemo(() => new Set(liveSessionIds), [liveSessionIds]);
 
@@ -487,9 +481,7 @@ export function TaskBoardPage({
     if (!activeRoot) return;
     try {
       setDetail(await tasksApi.detail(activeRoot, task.id));
-      // 计划与运行态一起带出来：抽屉开着时不该等下一次轮询才看到状态。
-      const nodes = await superAgentApi.plan(task.id).catch(() => []);
-      setPlan(nodes);
+      // 运行态一起带出来：抽屉开着时不该等下一次轮询才看到状态。
       void router.refresh();
     } catch (error) {
       toast.error(taskErrorMessage(error, t));
@@ -723,7 +715,6 @@ export function TaskBoardPage({
         statuses={board?.statuses ?? []}
         busy={busy}
         run={detail ? router.runsByTask.get(detail.task.id) : undefined}
-        plan={plan}
         liveSessionIds={liveSessions}
         onOpenSession={(appId, sessionId) =>
           void handleOpenSession(appId, sessionId)
@@ -826,7 +817,9 @@ function BoardColumnView({
         // 列是「托盘」：满色 bg-subtle、不描边。卡片要压在它上面，托盘自己不该带边框，
         // 否则两个有边的盒子叠在一起，谁在上看不出来。
         // 列多到放不下时（min-w 撑住）仍然走横向滚动。
-        "flex min-w-[240px] flex-1 basis-0 flex-col rounded-panel bg-subtle transition-colors",
+        // 列高度必须被看板框住（min-h-0 + overflow-hidden），否则卡片一多整列跟着长高，
+        // 页面变成一条长列表、各列底边错开，滚动条也无从出现——滚动交给列内的卡片区。
+        "flex min-h-0 min-w-[240px] flex-1 basis-0 flex-col overflow-hidden rounded-panel bg-subtle transition-colors",
         // 拖动悬停：整列压深一档。注意不能用 bg-selected/70 这类透明度写法——
         // 主题色是 var(--bg-*) 形式，Tailwind 生成不出带 alpha 的类，会静默失效。
         isOver && "bg-selected",
@@ -906,22 +899,6 @@ function TaskCardView({
         <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-fg-3">
           <RunStateBadge run={run} />
           <span className="font-mono">{task.id}</span>
-          {task.priority ? (
-            <span
-              className={cn(
-                "rounded-full px-1.5 py-[1px]",
-                task.priority === "high"
-                  ? "bg-danger-soft text-danger-text"
-                  : task.priority === "low"
-                    ? "bg-subtle text-fg-3"
-                    : "bg-warning-soft text-warning-text",
-              )}
-            >
-              {t(`tasks.priorityLevel.${task.priority}`, {
-                defaultValue: task.priority,
-              })}
-            </span>
-          ) : null}
           {task.schedule ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-subtle px-1.5 py-[1px] text-fg-2">
               <Repeat

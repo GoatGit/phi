@@ -48,6 +48,8 @@ const ARTIFACT_TITLES: [&str; 6] = [
 pub struct ArtifactRef {
     pub label: String,
     pub path: String,
+    /// 卡片里用反引号或 markdown 链接明确写出的路径，而不是一句看起来像路径的正文。
+    pub explicit: bool,
 }
 
 fn matches_title(title: &str, candidates: &[&str]) -> bool {
@@ -82,21 +84,18 @@ pub fn is_artifact_section(title: &str) -> bool {
     matches_title(title, &ARTIFACT_TITLES)
 }
 
-/// 产物清单：只认产物段落里的列表项与链接。
+/// 产物清单：先认产物段落里的列表项与链接，产物段是空的再退回结果段落。
+///
+/// 退回的那一步只认**反引号里写明的路径/链接**：worker 会在结果里用 `` `x.md` ``
+/// 点名自己交付了什么，那是用户真正要拿走的东西。产物段是 worker 按约定写的
+/// 正式清单，有它就只用它，免得把正文里顺口提到的文件名也混进来。
 pub fn artifacts(body: &str) -> Vec<ArtifactRef> {
-    let mut found: Vec<ArtifactRef> = Vec::new();
-    for section in sections(body) {
-        if !matches_title(&section.title, &ARTIFACT_TITLES) {
-            continue;
-        }
-        for line in section.body.lines() {
-            let Some(artifact) = parse_line(line) else {
-                continue;
-            };
-            if found.iter().any(|item| item.path == artifact.path) {
-                continue;
-            }
-            found.push(artifact);
+    let mut found = collect(body, &ARTIFACT_TITLES, false);
+    if found.is_empty() {
+        found = collect(body, &RESULT_TITLES, true);
+        // 老卡片只有 `## Conclusion`：它同样是人写的结果说明。
+        if found.is_empty() {
+            found = collect(body, &FALLBACK_RESULT_TITLES, true);
         }
     }
     if found.len() > MAX_ARTIFACTS {
@@ -109,9 +108,53 @@ pub fn artifacts(body: &str) -> Vec<ArtifactRef> {
     found
 }
 
+/// 按给定标题挑段落，取每段里的产物行。
+/// `strict` 为真时只认反引号写明的路径——结果段落是叙述，不是清单。
+fn collect(body: &str, titles: &[&str], strict: bool) -> Vec<ArtifactRef> {
+    let mut found: Vec<ArtifactRef> = Vec::new();
+    for section in sections(body) {
+        if !matches_title(&section.title, titles) {
+            continue;
+        }
+        for line in section.body.lines() {
+            let parsed = if strict {
+                mentioned_path(line)
+            } else {
+                parse_line(line)
+            };
+            let Some(artifact) = parsed else {
+                continue;
+            };
+            if found.iter().any(|item| item.path == artifact.path) {
+                continue;
+            }
+            found.push(artifact);
+        }
+    }
+    found
+}
+
 /// 一张卡最多列这么多产物：再多也不适合放在详情抽屉里看。
 pub const MAX_ARTIFACTS: usize = 20;
 const MAX_PATH_CHARS: usize = 512;
+
+/// 结果段落里的兜底取法：整行里第一个反引号写明的路径或链接。
+///
+/// 结论是给人读的叙述（`- 新增根目录 `x.md`，收录 7 条新闻`），不是清单，
+/// 所以这里不要求列表标记，也不拿后面的说明当标签——只认反引号里那个路径。
+fn mentioned_path(line: &str) -> Option<ArtifactRef> {
+    let trimmed = line.trim();
+    let start = trimmed.find('`')?;
+    let after = &trimmed[start + 1..];
+    let end = after.find('`')?;
+    let path = &after[..end];
+    let label = after[end + 1..]
+        .trim()
+        .trim_start_matches(['，', ',', '。', '；', ';', '—', '-', ':', '：', ' '])
+        .trim()
+        .to_string();
+    build(label, path, true)
+}
 
 fn parse_line(line: &str) -> Option<ArtifactRef> {
     let trimmed = line.trim();
@@ -127,7 +170,7 @@ fn parse_line(line: &str) -> Option<ArtifactRef> {
             let label = rest[1..open].trim().to_string();
             let after = &rest[open + 2..];
             let path = after.split(')').next()?.trim();
-            return build(label, path);
+            return build(label, path, true);
         }
     }
     // `` `路径` — 说明 ``
@@ -140,12 +183,12 @@ fn parse_line(line: &str) -> Option<ArtifactRef> {
                 .trim_start_matches(['—', '-', ':', '：', ' '])
                 .trim()
                 .to_string();
-            return build(label, path);
+            return build(label, path, true);
         }
     }
     // `路径 — 说明` / `路径：说明` / 只有路径
     let (path, label) = split_description(rest);
-    build(label.to_string(), path)
+    build(label.to_string(), path, false)
 }
 
 fn strip_list_marker(line: &str) -> Option<&str> {
@@ -176,7 +219,7 @@ fn split_description(value: &str) -> (&str, &str) {
     (value.trim(), "")
 }
 
-fn build(label: String, path: &str) -> Option<ArtifactRef> {
+fn build(label: String, path: &str, explicit: bool) -> Option<ArtifactRef> {
     let path = path.trim().trim_matches('`').trim_matches('"').trim();
     if path.is_empty() || path.chars().count() > MAX_PATH_CHARS || path.contains('\n') {
         return None;
@@ -190,10 +233,12 @@ fn build(label: String, path: &str) -> Option<ArtifactRef> {
         return Some(ArtifactRef {
             label,
             path: path.to_string(),
+            explicit,
         });
     }
-    // 路径里带空格又没加反引号时基本是一句话，不当产物。
-    if path.contains(char::is_whitespace) {
+    // 路径里带空白又没加反引号时基本是一句话，不当产物。用反引号明确写出来的
+    // 不受这条限：文件名本身就可以有空格（`今日AI新闻简报 2026-11-17.md`）。
+    if path.contains(char::is_whitespace) && !explicit {
         return None;
     }
     if path.starts_with('/') || path.contains("..") {
@@ -213,6 +258,7 @@ fn build(label: String, path: &str) -> Option<ArtifactRef> {
     Some(ArtifactRef {
         label,
         path: path.to_string(),
+        explicit,
     })
 }
 
@@ -341,10 +387,12 @@ mod tests {
             ArtifactRef {
                 label: "inside".into(),
                 path: "report.md".into(),
+                explicit: true,
             },
             ArtifactRef {
                 label: "escape".into(),
                 path: "../secret.md".into(),
+                explicit: true,
             },
         ];
         std::fs::write(temp.path().join("report.md"), "hi").unwrap();
@@ -373,5 +421,48 @@ mod tests {
     fn duplicate_artifacts_are_listed_once() {
         let body = "## 产物\n\n- a.md\n- a.md\n- b.md\n";
         assert_eq!(artifacts(body).len(), 2);
+    }
+
+    /// worker 没写「产物」段、只在结论里用反引号点名了文件：那份文件就是用户
+    /// 要拿走的东西，不能因为少写一个段落就让产物栏空着。
+    #[test]
+    fn a_file_named_in_the_outcome_count_is_still_an_artifact() {
+        let body = "## Conclusion\n\n**本轮改动：**\n- 新增根目录 `今日AI新闻简报-2026-11-17.md`，收录 7 条新闻。\n- 未改动其他任务卡。\n";
+        let items = artifacts(body);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].path, "今日AI新闻简报-2026-11-17.md");
+        // 兜底只认反引号点名的路径，正文里顺口说的「跑了一圈」不算。
+        assert_eq!(items[0].label, "收录 7 条新闻。");
+    }
+
+    /// 用线上那张真实卡片验证：worker 只写了 `## Conclusion`，产物藏在「本轮改动」里。
+    #[test]
+    fn the_live_card_is_verified_against_its_own_text() {
+        let body = "## Description\n\n按可逆假设自主推进。\n\n## Acceptance Criteria\n\n- [x] 生成简报。\n\n## Conclusion\n\n2026-11-17 01:45 执行完成。\n\n**本轮改动：**\n- 新增根目录 `今日AI新闻简报-2026-11-17.md`，收录 7 条互不重复新闻。\n- 未改动其他任务卡和历史简报。\n";
+        let items = artifacts(body);
+        assert_eq!(items.len(), 1, "got {items:?}");
+        assert_eq!(items[0].path, "今日AI新闻简报-2026-11-17.md");
+    }
+
+    #[test]
+    fn prose_in_the_outcome_is_not_mistaken_for_an_artifact() {
+        let body = "## 结果\n\n做完了。产物是 a.md，另外 3 条新闻见上面的说明。\n";
+        assert!(artifacts(body).is_empty());
+    }
+
+    #[test]
+    fn a_real_artifact_section_wins_over_the_outcome() {
+        let body = "## 结果\n\n另见 `随手提到.md`。\n\n## 产物\n\n- `正式的.md` — 要交付的那个\n";
+        let items = artifacts(body);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].path, "正式的.md");
+    }
+
+    #[test]
+    fn an_empty_artifact_section_falls_back_to_the_outcome() {
+        let body = "## 结果\n\n产出 `x.md`。\n\n## 产物\n\n无产物\n";
+        let items = artifacts(body);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].path, "x.md");
     }
 }

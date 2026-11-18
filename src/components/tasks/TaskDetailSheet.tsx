@@ -31,21 +31,19 @@ import {
 import { getAppDisplayName } from "@/components/shell/AppGlyph";
 import { fmtUsd } from "@/components/usage/format";
 import type { TaskArtifact, TaskDetail, TaskSchedule } from "@/lib/api/tasks";
-import type {
-  RouterHumanDecision,
-  RouterPlanNode,
-  RouterTaskRun,
-} from "@/lib/api/superAgent";
+import type { RouterHumanDecision, RouterTaskRun } from "@/lib/api/superAgent";
 import { cn } from "@/lib/utils";
 import { AutoRouterSection } from "./AutoRouterSection";
 import {
+  composeMoment,
   formatBytes,
   formatStamp,
-  intervalText,
   nextRunLabel,
-  parseIntervalText,
+  normalizeClock,
   scheduleKind,
   scheduleLabel,
+  splitMoment,
+  todayDate,
   type ScheduleKind,
 } from "./schedule";
 
@@ -54,9 +52,8 @@ interface TaskDetailSheetProps {
   statuses: string[];
 
   busy: boolean;
-  /** 这张卡的自动调度运行态与执行计划 */
+  /** 这张卡的自动调度运行态 */
   run: RouterTaskRun | undefined;
-  plan: RouterPlanNode[];
   /** 后端当前确实持有的会话 id；不在其中的链接表示会话已结束 */
   liveSessionIds?: ReadonlySet<string>;
   /** 打开一条已有关联会话（后台派发的 worker 不会自己出现在界面上） */
@@ -91,13 +88,13 @@ function Meta({ label, value }: { label: string; value: React.ReactNode }) {
  *
  * 顺序是刻意的：结果与产物在最上面，自动调度的运行细节与执行记录在其后。
  * 用户打开一张已完成的卡，想知道的是「东西在哪」，不是「第几次、退出码几」。
+ * 每块只放一份事实：状态在页脚、优先级在卡片、验收进度在验收清单上。
  */
 export function TaskDetailSheet({
   detail,
   statuses,
   busy,
   run,
-  plan,
   liveSessionIds,
   onOpenSession,
   onOpenWorker,
@@ -144,29 +141,9 @@ export function TaskDetailSheet({
                 onRevealArtifact={onRevealArtifact}
               />
 
+              {/* 状态与优先级不在这里重复：页脚有状态下拉，卡片上有优先级徽标。
+                  验收进度也不重复：下面那节逐条列着，带勾。 */}
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <Meta
-                  label={t("tasks.status")}
-                  value={
-                    <span className="inline-flex items-center gap-1.5">
-                      <span
-                        aria-hidden="true"
-                        className="size-1.5 rounded-full bg-fg-3"
-                      />
-                      {task.status}
-                    </span>
-                  }
-                />
-                <Meta
-                  label={t("tasks.priority")}
-                  value={
-                    task.priority
-                      ? t(`tasks.priorityLevel.${task.priority}`, {
-                          defaultValue: task.priority,
-                        })
-                      : "—"
-                  }
-                />
                 <Meta
                   label={t("tasks.assignee")}
                   value={
@@ -185,13 +162,6 @@ export function TaskDetailSheet({
                       : "—"
                   }
                 />
-                <Meta
-                  label={t("tasks.acceptance")}
-                  value={t("tasks.acceptanceProgress", {
-                    done: task.acceptanceDone,
-                    total: task.acceptanceTotal,
-                  })}
-                />
               </div>
 
               <ScheduleSection
@@ -202,7 +172,6 @@ export function TaskDetailSheet({
 
               <AutoRouterSection
                 run={run}
-                plan={plan}
                 busy={busy}
                 onStart={onAutoStart}
                 onPause={onAutoPause}
@@ -282,15 +251,12 @@ export function TaskDetailSheet({
                 </details>
               ) : null}
 
-              <section className="space-y-2">
-                <h3 className="m-0 text-body font-medium text-fg-1">
-                  {t("tasks.sessions")}
-                </h3>
-                {detail.links.length === 0 ? (
-                  <p className="m-0 text-caption text-fg-3">
-                    {t("tasks.noSessions")}
-                  </p>
-                ) : (
+              {/* 没有关联会话就不占一行：「还没有…」既不能点也不说明什么。 */}
+              {detail.links.length > 0 ? (
+                <section className="space-y-2">
+                  <h3 className="m-0 text-body font-medium text-fg-1">
+                    {t("tasks.sessions")}
+                  </h3>
                   <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
                     {detail.links.map((link) => {
                       // 应用重启后后端不再持有旧会话，链接还留在数据库里。
@@ -350,12 +316,8 @@ export function TaskDetailSheet({
                       );
                     })}
                   </ul>
-                )}
-              </section>
-
-              <p className="m-0 break-all font-mono text-[11px] text-fg-3">
-                {task.file}
-              </p>
+                </section>
+              ) : null}
             </SheetBody>
             <SheetFooter>
               <Button
@@ -487,6 +449,25 @@ function ResultSection({
 
 const MODES: ScheduleKind[] = ["none", "interval", "daily", "once"];
 
+/** 持续任务的单位；换算是分钟，跟后端 `parse_interval` 的单位一致。 */
+type IntervalUnit = "m" | "h" | "d";
+const UNITS: IntervalUnit[] = ["m", "h", "d"];
+const UNIT_MINUTES: Record<IntervalUnit, number> = { m: 1, h: 60, d: 1440 };
+/** 后端的上下界：1 分钟到 30 天之外一律拒绝。 */
+const MIN_INTERVAL_MINUTES = 1;
+const MAX_INTERVAL_MINUTES = 30 * 24 * 60;
+
+/** 分钟数 → 最贴近的「多少 + 单位」：120 → 2 小时，90 → 90 分钟。 */
+function intervalParts(minutes: number | null): {
+  amount: number;
+  unit: IntervalUnit;
+} {
+  const value = minutes || 30;
+  if (value % 1440 === 0) return { amount: value / 1440, unit: "d" };
+  if (value % 60 === 0) return { amount: value / 60, unit: "h" };
+  return { amount: value, unit: "m" };
+}
+
 /** 任务类型：普通 / 持续（每隔一段时间）/ 定时（指定时刻）。 */
 function ScheduleSection({
   schedule,
@@ -500,32 +481,60 @@ function ScheduleSection({
   const { t } = useTranslation();
   const current = scheduleKind(schedule);
   const [mode, setMode] = useState<ScheduleKind>(current);
-  const [value, setValue] = useState(() => {
-    if (current === "interval") return intervalText(schedule?.minutes ?? null);
-    if (current === "daily") return schedule?.time ?? "";
-    if (current === "once") return schedule?.at ?? "";
-    return "";
-  });
+  /** 持续任务：多少 + 单位，两个选择框，不用手敲 `2h`。 */
+  const [amount, setAmount] = useState<number | "">(() =>
+    current === "interval"
+      ? intervalParts(schedule?.minutes ?? null).amount
+      : 30,
+  );
+  const [unit, setUnit] = useState<IntervalUnit>(() =>
+    current === "interval"
+      ? intervalParts(schedule?.minutes ?? null).unit
+      : "m",
+  );
+  /** 定时任务：时分由时间选择器给，一次性任务再多一个日期。 */
+  const [time, setTime] = useState(() =>
+    current === "daily"
+      ? (schedule?.time ?? "")
+      : splitMoment(schedule?.at).time,
+  );
+  const [date, setDate] = useState(() =>
+    current === "once"
+      ? splitMoment(schedule?.at).date || todayDate()
+      : todayDate(),
+  );
 
-  const placeholder =
-    mode === "interval"
-      ? t("tasks.schedule.placeholderInterval")
-      : mode === "daily"
-        ? t("tasks.schedule.placeholderDaily")
-        : t("tasks.schedule.placeholderOnce");
-  const interval = mode === "interval" ? parseIntervalText(value) : null;
+  const interval =
+    mode === "interval" ? Number(amount) * UNIT_MINUTES[unit] : null;
+  const clock = normalizeClock(time);
+  const moment = mode === "once" ? composeMoment(date, time) : null;
   const valid =
     mode === "none" ||
-    (mode === "interval" ? interval !== null : value.trim().length > 0);
+    (mode === "interval"
+      ? Number.isInteger(amount) &&
+        interval !== null &&
+        interval >= MIN_INTERVAL_MINUTES &&
+        interval <= MAX_INTERVAL_MINUTES
+      : mode === "daily"
+        ? clock !== null
+        : moment !== null);
   const label = scheduleLabel(t, schedule);
   const next = nextRunLabel(t, schedule);
 
   const save = () => {
     if (busy || !valid) return;
     if (mode === "none") onSave(null, null);
-    else if (mode === "interval") onSave(value.trim(), null);
-    else onSave(null, value.trim());
+    else if (mode === "interval") onSave(`${amount}${unit}`, null);
+    else if (mode === "daily") onSave(null, clock);
+    else onSave(null, moment);
   };
+
+  const fieldLabel =
+    mode === "interval"
+      ? t("tasks.schedule.everyLabel")
+      : mode === "once"
+        ? t("tasks.schedule.dateLabel")
+        : t("tasks.schedule.timeLabel");
 
   return (
     <section className="space-y-2">
@@ -537,7 +546,13 @@ function ScheduleSection({
           value={mode}
           onValueChange={(nextMode) => {
             setMode(nextMode as ScheduleKind);
-            setValue("");
+            // 切类型时只清掉不属于新类型的部分，避免把刚选的时间丢掉
+            if (nextMode !== "interval") {
+              setAmount(30);
+              setUnit("m");
+            }
+            if (nextMode === "none") setTime("");
+            if (nextMode === "once" && !date) setDate(todayDate());
           }}
           disabled={busy}
         >
@@ -556,20 +571,71 @@ function ScheduleSection({
           </SelectContent>
         </Select>
         {mode === "none" ? null : (
-          <Input
-            className="w-[168px]"
-            value={value}
-            aria-label={t("tasks.schedule.value")}
-            placeholder={placeholder}
-            disabled={busy}
-            onChange={(event) => setValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                save();
-              }
-            }}
-          />
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-caption text-fg-3">{fieldLabel}</span>
+            {mode === "interval" ? (
+              <>
+                <Input
+                  type="number"
+                  min={1}
+                  max={MAX_INTERVAL_MINUTES / UNIT_MINUTES[unit]}
+                  step={1}
+                  aria-invalid={!valid}
+                  className="w-[64px] text-center"
+                  value={amount}
+                  aria-label={t("tasks.schedule.intervalAmount")}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setAmount(value === "" ? "" : Number(value));
+                  }}
+                />
+                <Select
+                  value={unit}
+                  onValueChange={(nextUnit) =>
+                    setUnit(nextUnit as IntervalUnit)
+                  }
+                  disabled={busy}
+                >
+                  <SelectTrigger
+                    className="w-[86px]"
+                    aria-label={t("tasks.schedule.intervalUnit")}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UNITS.map((item) => (
+                      <SelectItem key={item} value={item}>
+                        {t(`tasks.schedule.unit.${item}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            ) : (
+              <>
+                {mode === "once" ? (
+                  <Input
+                    type="date"
+                    className="w-[150px]"
+                    value={date}
+                    aria-label={t("tasks.schedule.dateLabel")}
+                    disabled={busy}
+                    onChange={(event) => setDate(event.target.value)}
+                  />
+                ) : null}
+                <Input
+                  type="time"
+                  step={60}
+                  className="w-[110px]"
+                  value={time}
+                  aria-label={t("tasks.schedule.timeLabel")}
+                  disabled={busy}
+                  onChange={(event) => setTime(event.target.value)}
+                />
+              </>
+            )}
+          </span>
         )}
         <Button
           variant="neutral"

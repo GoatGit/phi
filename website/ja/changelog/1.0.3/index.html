@@ -27,7 +27,7 @@
     <div class="wrap header-inner">
       <a class="brand" href="/ja/" aria-label="PHI ホーム"><img src="/assets/phi-app.svg" width="34" height="34" alt=""><span>PHI</span></a>
       <nav class="language-switch" aria-label="言語を選択">
-        <select aria-label="言語を選択" onchange="if (this.value) window.location.href = this.value;">
+        <select aria-label="言語を選択" onchange="switch (this.value) { case &quot;https://phi.semibot.ai/changelog/1.0.3/&quot;: window.location.assign(&quot;https://phi.semibot.ai/changelog/1.0.3/&quot;); break; case &quot;https://phi.semibot.ai/en/changelog/1.0.3/&quot;: window.location.assign(&quot;https://phi.semibot.ai/en/changelog/1.0.3/&quot;); break; case &quot;https://phi.semibot.ai/ja/changelog/1.0.3/&quot;: window.location.assign(&quot;https://phi.semibot.ai/ja/changelog/1.0.3/&quot;); break; }">
           <option value="https://phi.semibot.ai/changelog/1.0.3/" lang="zh-CN">中文</option>
           <option value="https://phi.semibot.ai/en/changelog/1.0.3/" lang="en">English</option>
           <option value="https://phi.semibot.ai/ja/changelog/1.0.3/" lang="ja" selected>日本語</option>
@@ -53,7 +53,7 @@
           <li>Windows 版インストーラーにサブスク機能が含まれるようになりました。</li>
           <li>macOS のユニバーサル版でもサブスクが使えるようになりました。</li>
       </ul>
-      <p class="changelog-back"><a href="../">← すべてのバージョン</a> · <a href="../1.0.4/">1.0.4 →</a></p>
+      <p class="changelog-back"><a href="../">← すべてのバージョン</a> · <a href="../1.0.5/">1.0.5 →</a></p>
     </section>
   </main>
 

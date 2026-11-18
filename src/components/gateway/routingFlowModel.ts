@@ -128,22 +128,21 @@ export function laneColor(appId: string): string {
   return FLOW_LANE_COLORS[hash % FLOW_LANE_COLORS.length];
 }
 
-/** 应用列表的优先级：进行中的请求最该被看到，其次是刚跑过流量的应用，
- *  再次是已接入路由组的应用，最后是没有接入的。 */
+/** 应用行的三档优先级：进行中的请求最该被看到；其次是接入了路由组（或旧
+ *  策略里跑过流量）的应用；最后是还没接入的。
+ *  同一档内**只按配置清单顺序**，不再按最近请求时间：每 5 秒轮询一次，一有
+ *  新请求整列就重排，用户刚想点的节点会跑掉，筛选时也会看到列表整体换位。 */
 export function flowAppRank(entry: FlowAppEntry): number {
   if (entry.lane?.live) return 0;
-  if (entry.lane) return 1;
-  return entry.staticRoutes.length > 0 ? 2 : 3;
+  if (entry.staticRoutes.length > 0 || entry.lane) return 1;
+  return 2;
 }
 
-/** 同级按最近请求时间倒序，再按配置清单顺序（而不是字母序），保证同一份
- *  数据每次都排出同样的顺序，不会在刷新之间跳动。 */
+/** 同一档内按配置清单顺序（而不是字母序），保证同一份数据每次都排出同样的
+ *  顺序，不会在刷新之间跳动。 */
 export function compareFlowApps(a: FlowAppEntry, b: FlowAppEntry): number {
   const rank = flowAppRank(a) - flowAppRank(b);
   if (rank !== 0) return rank;
-  const recency =
-    (b.lane?.trace.createdAt ?? 0) - (a.lane?.trace.createdAt ?? 0);
-  if (recency !== 0) return recency;
   const order = appOrderIndex(a.appId) - appOrderIndex(b.appId);
   if (order !== 0) return order;
   return a.appId < b.appId ? -1 : a.appId > b.appId ? 1 : 0;

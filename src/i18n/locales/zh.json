@@ -6129,12 +6129,6 @@
     "initMessage": "会创建 backlog/config.yml、tasks/ 和 archive/tasks/。已有的文件不会被覆盖。",
     "initDone": "已初始化 backlog 目录",
     "status": "状态",
-    "priority": "优先级",
-    "priorityLevel": {
-      "high": "高",
-      "medium": "中",
-      "low": "低"
-    },
     "assignee": "指派",
     "labels": "标签",
     "dependencies": "依赖",
@@ -6262,9 +6256,6 @@
       "save": "保存",
       "saved": "排期已保存",
       "hint": "持续任务每隔一段时间再跑一次，定时任务到点再跑一次。到点时卡片会被放回执行列重新派发，结算与普通任务一样；点「不重复」再保存即可取消。",
-      "placeholderInterval": "如 2h / 30m / 1d",
-      "placeholderDaily": "如 09:30",
-      "placeholderOnce": "如 2026-11-20 09:30",
       "everyMinutes": "每 {{count}} 分钟",
       "everyHours": "每 {{count}} 小时",
       "everyDays": "每 {{count}} 天",
@@ -6272,7 +6263,17 @@
       "once": "{{at}} 跑一次",
       "next": "下次 {{time}}",
       "due": "已到时间，下一轮巡检就会跑",
-      "lastRun": "上次触发 {{time}}"
+      "lastRun": "上次触发 {{time}}",
+      "everyLabel": "每隔",
+      "dateLabel": "日期",
+      "timeLabel": "时间",
+      "intervalAmount": "间隔数值",
+      "intervalUnit": "间隔单位",
+      "unit": {
+        "m": "分钟",
+        "h": "小时",
+        "d": "天"
+      }
     }
   }
 }

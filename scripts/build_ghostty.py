@@ -6,11 +6,15 @@ Downloads are checksum verified. Build/cache files remain under tmp/ghostty-buil
 The output is src-tauri/ghostty-sdk, which is linked and bundled by PHI.
 """
 import argparse
+import codecs
 import hashlib
+import math
 import os
 from pathlib import Path
 import platform
+import selectors
 import shutil
+import signal
 import subprocess
 import tarfile
 import time
@@ -19,6 +23,14 @@ ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "tmp/ghostty-build"
 VERSION = "1.2.3"
 SOURCE_SHA = "e17d39482fc70fba3d72f5f25c12e9d9a72b87dd45a61a854d9928e98b69edd8"
+# All dependency-fetch retries share this build budget; leave CI time for Rust.
+BUILD_TIMEOUT_SECONDS = 20 * 60
+BUILD_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 10
+HEARTBEAT_SECONDS = 30
+OUTPUT_TAIL_CHARS = 128 * 1024
+READ_CHUNK_BYTES = 16 * 1024
+
 ZIG_SHA = {
     "aarch64": "39f3dc5e79c22088ce878edc821dedb4ca5a1cd9f5ef915e9b3cc3053e8faefa",
     "x86_64": "b0f8bdfb9035783db58dd6c19d7dea89892acc3814421853e5752fe4573e5f43",
@@ -46,34 +58,80 @@ TRANSIENT_FETCH_ERRORS = (
     "connection timed out",
     "could not resolve host",
     "temporary failure in name resolution",
+    # CI runners lose DNS for individual dependency hosts now and then; Zig
+    # reports that as UnknownHostName rather than a resolution failure.
+    "unable to connect to server",
+    "unknownhostname",
     "network is unreachable",
 )
 
 
-def run_zig_build(command, cwd, environment, attempts=3):
+def run_build_attempt(command, cwd, environment, deadline, timeout_seconds):
+    output = ""
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    try:
+        with process.stdout, selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            heartbeat = time.monotonic() + HEARTBEAT_SECONDS
+            while selector.get_map():
+                now = time.monotonic()
+                if now >= deadline:
+                    raise subprocess.TimeoutExpired(command, timeout_seconds, output=output)
+                events = selector.select(min(deadline - now, max(0, heartbeat - now)))
+                for key, _ in events:
+                    chunk = os.read(key.fd, READ_CHUNK_BYTES)
+                    text = decoder.decode(chunk, final=not chunk)
+                    print(text, end="", flush=True)
+                    output = (output + text)[-OUTPUT_TAIL_CHARS:]
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                if time.monotonic() >= heartbeat:
+                    print("Ghostty build still running; waiting for Zig", flush=True)
+                    heartbeat = time.monotonic() + HEARTBEAT_SECONDS
+            process.wait(timeout=max(0, deadline - time.monotonic()))
+        return process.returncode, output
+    except BaseException:
+        # Zig launches compilers/fetch helpers. Killing only its leader leaks them,
+        # including children that keep stdout open after the leader has exited.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        raise
+
+
+def run_zig_build(command, cwd, environment, attempts=BUILD_ATTEMPTS, timeout_seconds=BUILD_TIMEOUT_SECONDS):
+    if attempts < 1 or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("Build attempts and timeout must be positive")
+    deadline = time.monotonic() + timeout_seconds
     for attempt in range(1, attempts + 1):
-        result = subprocess.run(
-            command,
-            cwd=cwd,
-            env=environment,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
-        print(result.stdout, end="", flush=True)
-        if result.returncode == 0:
+        print(f"Ghostty build attempt {attempt}/{attempts} (total budget {timeout_seconds:g}s)", flush=True)
+        try:
+            returncode, output = run_build_attempt(command, cwd, environment, deadline, timeout_seconds)
+        except subprocess.TimeoutExpired:
+            print(f"Ghostty build exceeded its {timeout_seconds:g}s budget; process group killed", flush=True)
+            raise
+        if returncode == 0:
             return
-        output = result.stdout.lower()
-        transient = any(marker in output for marker in TRANSIENT_FETCH_ERRORS)
+        transient = any(marker in output.lower() for marker in TRANSIENT_FETCH_ERRORS)
         if not transient or attempt == attempts:
-            raise subprocess.CalledProcessError(
-                result.returncode, command, output=result.stdout
-            )
-        delay = 10 * attempt
+            raise subprocess.CalledProcessError(returncode, command, output=output)
+        delay = RETRY_DELAY_SECONDS * attempt
+        remaining = deadline - time.monotonic()
+        if remaining <= delay:
+            print("Ghostty build has no retry budget remaining", flush=True)
+            raise subprocess.TimeoutExpired(command, timeout_seconds, output=output)
         print(
-            f"Ghostty dependency download failed (attempt {attempt}/{attempts}); "
-            f"retrying in {delay}s",
+            f"Ghostty dependency download failed (attempt {attempt}/{attempts}); retrying in {delay}s",
             flush=True,
         )
         time.sleep(delay)
@@ -84,7 +142,10 @@ def main():
     parser.add_argument("--zig", type=Path)
     parser.add_argument("--sdk", type=Path)
     parser.add_argument("--arch", choices=["aarch64", "x86_64"], help="Target architecture (defaults to this Mac)")
+    parser.add_argument("--build-timeout", type=float, default=BUILD_TIMEOUT_SECONDS, help="Total Zig build budget in seconds, including fetch retries (default: %(default)s)")
     options = parser.parse_args()
+    if not math.isfinite(options.build_timeout) or options.build_timeout <= 0:
+        parser.error("--build-timeout must be a positive finite number")
     if platform.system() != "Darwin":
         parser.error("The embedded Ghostty host currently builds on macOS only")
     arch = "aarch64" if platform.machine() == "arm64" else "x86_64"
@@ -134,7 +195,7 @@ def main():
     # vX.Y.Z format matching build.zig"). Building from PHI's release tag would
     # hit that on every release, so pin the version explicitly.
     command = [str(zig), "build", f"-Dtarget={target_arch}-macos.13.0", f"-Dversion-string={VERSION}", "-Doptimize=ReleaseFast", "-Dapp-runtime=none", "-Demit-xcframework=false", "-Demit-macos-app=false", "-Demit-docs=false", "-Demit-webdata=false", "-Demit-helpgen=false", "-Demit-themes=false", "-Dsentry=false", "-Dstrip=true", "-j4", "--prefix", str(ROOT / "src-tauri/ghostty-sdk")]
-    run_zig_build(command, source, environment)
+    run_zig_build(command, source, environment, timeout_seconds=options.build_timeout)
     subprocess.run(["python3", str(ROOT / "scripts/ghostty/collect_licenses.py"), str(source), str(zig)], check=True)
     print(f"Ghostty {VERSION} ({target_arch}) SDK ready: src-tauri/ghostty-sdk")
 

@@ -1,5 +1,38 @@
 [
   {
+    "version": "1.0.5",
+    "date": "2026-11-17",
+    "items": {
+      "zh": [
+        "任务看板支持后台持续巡检、排期和结果产物查看。",
+        "插件中心新增教训库、会话接棒和成绩单。",
+        "路由图展开与筛选更清楚，同级应用不再随刷新跳位。",
+        "修复终端主题继承与多标签横向滚动挤走页头。",
+        "后台 worker 使用持久化 zellij 会话；任务可查看结果、产物，并在需要决策时转人工。",
+        "任务排期改用日期、时间和间隔控件；一次性排期改时刻后可再触发，取消排期会清理旧起点。",
+        "路由页合并供应商入口，新增 MCP 路由管理；Codex 支持 Responses WebSocket 接入。"
+      ],
+      "en": [
+        "Task boards gain background checks, schedules, and result artifacts.",
+        "The plugin center adds lessons, session handoffs, and reliability scorecards.",
+        "Routing views clarify filters and keep app order stable within each activity tier.",
+        "Fixed terminal theme inheritance and tab scrolling shifting the page header.",
+        "Background workers use persistent zellij sessions; tasks expose outcomes and artifacts and hand off decisions to the user.",
+        "Schedules use date, time, and interval controls; moving a one-off time permits another run, and clearing a schedule resets its start.",
+        "Routing includes the provider entry and MCP routing management; Codex can connect through Responses WebSocket."
+      ],
+      "ja": [
+        "タスクボードにバックグラウンド確認、スケジュール、成果物表示を追加。",
+        "プラグインに教訓集、セッション引き継ぎ、信頼性スコアを追加。",
+        "ルーティングの絞り込みを明確にし、同じ状態のアプリ順を安定化。",
+        "ターミナルのテーマ継承と、タブのスクロールでヘッダーがずれる問題を修正。",
+        "バックグラウンド worker は永続 zellij セッションを利用。結果と成果物を確認でき、判断が必要な場合はユーザーに引き継ぎます。",
+        "日時と間隔を入力するスケジュール UI を追加。単発の実行時刻を変更すると再実行でき、解除時は以前の起点を削除します。",
+        "ルーティングにプロバイダー入口と MCP 管理を統合し、Codex の Responses WebSocket 接続に対応しました。"
+      ]
+    }
+  },
+  {
     "version": "1.0.4",
     "date": "2026-10-24",
     "items": {

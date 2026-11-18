@@ -1,0 +1,33 @@
+{
+  "version": "1.0.5",
+  "items": [
+    {
+      "type": "new",
+      "zh": "任务看板支持后台持续巡检、排期和结果产物查看",
+      "zh-TW": "任務看板支援背景持續巡檢、排程與結果產物檢視",
+      "en": "Task boards gain background checks, schedules, and result artifacts",
+      "ja": "タスクボードにバックグラウンド確認、スケジュール、成果物表示を追加"
+    },
+    {
+      "type": "new",
+      "zh": "插件中心新增教训库、会话接棒和成绩单",
+      "zh-TW": "外掛中心新增教訓庫、工作階段接棒與成績單",
+      "en": "The plugin center adds lessons, session handoffs, and reliability scorecards",
+      "ja": "プラグインに教訓集、セッション引き継ぎ、信頼性スコアを追加"
+    },
+    {
+      "type": "improve",
+      "zh": "路由图展开与筛选更清楚，同级应用不再随刷新跳位",
+      "zh-TW": "路由圖展開與篩選更清楚，同級應用不再隨重新整理跳位",
+      "en": "Routing views clarify filters and keep app order stable within each activity tier",
+      "ja": "ルーティングの絞り込みを明確にし、同じ状態のアプリ順を安定化"
+    },
+    {
+      "type": "fix",
+      "zh": "修复终端主题继承与多标签横向滚动挤走页头",
+      "zh-TW": "修復終端主題繼承與多分頁橫向捲動擠走頁首",
+      "en": "Fixed terminal theme inheritance and tab scrolling shifting the page header",
+      "ja": "ターミナルのテーマ継承と、タブのスクロールでヘッダーがずれる問題を修正"
+    }
+  ]
+}

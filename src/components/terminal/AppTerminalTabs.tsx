@@ -37,17 +37,28 @@ export function AppTerminalTabs({
     if (splitTarget) workspace.splitPane(splitTarget, direction);
   };
   useEffect(() => {
-    rail.current
-      ?.querySelector('[aria-selected="true"]')
-      ?.parentElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // 只滚标签轨自己：scrollIntoView 会连页头（甚至窗口）一起横向拉走
+    const active = rail.current?.querySelector<HTMLElement>(
+      '[aria-selected="true"]',
+    );
+    if (!rail.current || !active) return;
+    const strip = active.parentElement ?? active;
+    const railBox = rail.current.getBoundingClientRect();
+    const stripBox = strip.getBoundingClientRect();
+    if (stripBox.left < railBox.left)
+      rail.current.scrollLeft -= railBox.left - stripBox.left;
+    else if (stripBox.right > railBox.right)
+      rail.current.scrollLeft += stripBox.right - railBox.right;
   }, [workspace.current?.id, sessions.length]);
   return (
     <div
-      className="flex min-w-0 flex-1 items-center gap-1"
+      // 三层都按内容取宽、只收缩不扩张：＋紧跟标签；剩余空间交给页头的占位条。
+      className="flex min-w-0 flex-initial items-center gap-1"
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
     >
+      {/* 空间不足时收缩标签轨，配置、新建和分屏按钮保持可见。 */}
       <div
-        className="flex min-w-0 items-center gap-1"
+        className="flex min-w-0 flex-initial items-center gap-1"
         role="tablist"
         aria-label={t("terminal.tabs")}
       >
@@ -68,7 +79,7 @@ export function AppTerminalTabs({
         )}
         <div
           ref={rail}
-          className="flex min-w-0 items-center gap-1 overflow-x-auto"
+          className="flex min-w-0 flex-initial items-center gap-1 overflow-x-auto"
         >
           {sessions.map((session) => (
             <div
@@ -102,6 +113,7 @@ export function AppTerminalTabs({
               <Button
                 variant="quiet"
                 size="icon-compact"
+                className="shrink-0"
                 aria-label={t("terminal.closeLabel", { title: session.title })}
                 onClick={() => workspace.requestClose(session, true)}
               >
@@ -111,6 +123,7 @@ export function AppTerminalTabs({
           ))}
         </div>
       </div>
+      {/* ＋ 贴着最后一个标签，标签多到横向滚动时才被顶到轨道右端 */}
       <Button
         variant="quiet"
         size="icon-compact"

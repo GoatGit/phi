@@ -48,7 +48,9 @@ export function AppPageHeader({
   return (
     <header
       className={cn(
-        "flex h-[52px] shrink-0 items-center gap-5 border-b border-border pe-4 ps-6",
+        // w-full：页头本身不能按内容宽度收缩，否则「页签占满剩余宽度」时
+        // 弹性分配没有确定的可用宽度，页签栏会缩到标签内容上
+        "flex h-[52px] w-full shrink-0 items-center gap-5 border-b border-border pe-4 ps-6",
         // 收起后只避让原生红绿灯：52px 图标轨 + 44px 留白。
         "[[data-sidebar-collapsed=true]~#content-area_&]:ps-[44px]",
         className,

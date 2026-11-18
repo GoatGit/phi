@@ -366,7 +366,7 @@ describe("routing flow model", () => {
     expect(outlets.find((o) => o.key === "b|model-nested")!.state).toBeNull();
   });
 
-  it("orders apps by priority: live traffic, recent traffic, routed, then the rest", () => {
+  it("orders apps by state, then by configuration order — never by recency", () => {
     const routed: GatewayCatalog = {
       ...catalog,
       policies: [
@@ -394,8 +394,8 @@ describe("routing flow model", () => {
     const { apps } = buildRoutingFlow(page([baseTrace, codex], [live]), routed);
     expect(apps.map((app) => app.appId)).toEqual([
       "grokbuild", // 进行中
-      "codex", // 最近一次流量
-      "claude", // 更早的流量
+      "claude", // 有流量，按配置清单顺序
+      "codex", // 同上（它比 claude 新，但行不会因此上移）
       "pi", // 已接入路由组但没有流量
       "claude-desktop", // 其余按配置清单顺序
       "gemini",
@@ -594,6 +594,69 @@ describe("routing flow diagram", () => {
     ).toHaveTextContent("Historical B");
   });
 
+  it("resumes the replay from the paused step instead of restarting it", () => {
+    vi.useFakeTimers();
+    const { container } = render(<RoutingFlow data={page([baseTrace])} />);
+    const wireCount = () =>
+      container.querySelectorAll(".phi-flow-wires path").length;
+    fireEvent.click(
+      screen.getByRole("button", { name: "gateway.flow.replay" }),
+    );
+    // 第 0 步只有第一次尝试：4 条线里少掉最后一段。
+    expect(wireCount()).toBe(3);
+    act(() => vi.advanceTimersByTime(900));
+    expect(wireCount()).toBe(4);
+    fireEvent.click(screen.getByRole("button", { name: "gateway.flow.pause" }));
+    // 暂停后按钮必须是「继续」，不能写成「回放」——写成回放就等于告诉用户
+    // 按下去会从头再来。
+    const resume = screen.getByRole("button", {
+      name: "gateway.flow.resume",
+    });
+    expect(
+      screen.queryByRole("button", { name: "gateway.flow.replay" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(resume);
+    // 接着走：仍停在第 1 步（4 条线）。若退回第 0 步，这里会变回 3 条。
+    expect(wireCount()).toBe(4);
+    expect(
+      screen.getByRole("button", { name: "gateway.flow.pause" }),
+    ).toBeInTheDocument();
+  });
+
+  it("moves the gateway address out of the hub card and keeps it whole", () => {
+    render(
+      <RoutingFlow
+        data={page([])}
+        catalog={catalog}
+        gatewayAddress="http://127.0.0.1:15821/v1"
+      />,
+    );
+    const hub = document.querySelector(".phi-flow-hub")!;
+    const address = document.querySelector(".phi-flow-address")!;
+    // 地址不再挤在 hub 卡里：21 个字符放在 152px 的卡里必然被截断。
+    expect(hub.contains(address)).toBe(false);
+    // 拆成两段是为了窄窗只在「主机 / 路径」之间折行，绝不拆开 http://。
+    expect(address.querySelector(".phi-flow-address-origin")).toHaveTextContent(
+      "http://127.0.0.1:15821",
+    );
+    expect(address.querySelector(".phi-flow-address-path")).toHaveTextContent(
+      "/v1",
+    );
+  });
+
+  it("keeps the app order stable when a newer request arrives", () => {
+    const older = { ...baseTrace, id: "old", createdAt: 900 };
+    const newer = { ...baseTrace, id: "new", createdAt: 1800 };
+    const first = buildRoutingFlow(page([older]), catalog).apps.map(
+      (app) => app.appId,
+    );
+    const second = buildRoutingFlow(page([newer]), catalog).apps.map(
+      (app) => app.appId,
+    );
+    // 每 5 秒轮询一次：行顺序跟着「最近一次请求」变，用户刚想点的节点就会跑掉。
+    expect(second).toEqual(first);
+  });
+
   it("dims other lanes when an app node is focused", () => {
     const codex = {
       ...baseTrace,
@@ -636,10 +699,14 @@ describe("routing flow diagram", () => {
       screen.getByRole("button", { name: "gateway.flow.moreApps" }),
     );
     expect(list.children).toHaveLength(17);
+    // 展开后列表在自己的框里滚动：整列撑高会把另外三列推到一屏之外，
+    // 连线全变成贴边的竖线（以前就是这样）。
+    expect(list).toHaveAttribute("data-scroll", "true");
     fireEvent.click(
       screen.getByRole("button", { name: "gateway.flow.fewerApps" }),
     );
     expect(list.children).toHaveLength(5);
+    expect(list).not.toHaveAttribute("data-scroll");
   });
 
   it("shows the gateway address with its protocol and copies it as shown", () => {
@@ -703,11 +770,14 @@ describe("routing flow diagram", () => {
       screen.getByRole("button", { name: "gateway.flow.pickApps" }),
     );
     const menu = screen.getByRole("dialog");
-    // 挑七个：用户自定义的筛选不受第 1 条的折叠上限约束。
-    for (const box of within(menu).getAllByRole("checkbox").slice(0, 7)) {
+    // 勾选框起点是「全部」：取消两个，就该只剩「全部减两个」。
+    // 用户自己挑过的列表不受折叠上限约束，所以这里会多过 5 行。
+    for (const box of within(menu).getAllByRole("checkbox").slice(0, 2)) {
       fireEvent.click(box);
     }
-    await waitFor(() => expect(list.children).toHaveLength(7));
+    await waitFor(() =>
+      expect(list.children).toHaveLength(ROUTABLE_APP_IDS.length - 2),
+    );
     expect(
       screen.queryByRole("button", { name: /gateway.flow.moreApps/ }),
     ).not.toBeInTheDocument();
@@ -824,10 +894,11 @@ describe("routing flow diagram", () => {
     expect(
       regionOf(container, "group").querySelectorAll('[data-state="static"]'),
     ).toHaveLength(0);
-    // Both configured apps retain only their unused nested-model connection.
+    // 两个应用接的是同一个组、同一条出口：拓扑边只画一条（重复的 DOM 叠加
+    // 还会把 35% 透明度的灰线叠成深灰）。
     expect(
       regionOf(container, "model").querySelectorAll('[data-state="static"]'),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("keeps configured edges when historical traffic used another group", () => {
@@ -994,8 +1065,9 @@ describe("wire attachment", () => {
         'path[data-state="static"]',
       ),
     ];
-    expect(wires).toHaveLength(16);
-    // 组节点 400..464，中心 432：每个应用的灰线都落在同一点。
+    // 16 个应用共享同一条拓扑边：只画一条，而不是叠 16 层。
+    expect(wires).toHaveLength(1);
+    // 组节点 400..464，中心 432：这条灰线落在组的中心。
     for (const path of wires) expect(endY(path)).toBe(432);
     expect(new Set(wires.map((path) => path.getAttribute("d"))).size).toBe(1);
   });
@@ -1060,12 +1132,33 @@ describe("wire attachment", () => {
     expect(within(menu).getAllByRole("checkbox")).toHaveLength(
       ROUTABLE_APP_IDS.length,
     );
-    fireEvent.click(within(menu).getAllByRole("checkbox")[16]);
+    // 取消掉除最后一个以外的全部，只剩一个应用。
+    const boxes = within(menu).getAllByRole("checkbox");
+    for (const box of boxes.slice(0, -1)) fireEvent.click(box);
     await waitFor(() => expect(list.children).toHaveLength(1));
     // 挑选生效后折叠按钮让位，避免和「显示哪些应用」互相打架。
     expect(
       screen.queryByRole("button", { name: /gateway.flow.moreApps/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("unchecking an app hides it instead of hiding every other app", async () => {
+    const user = userEvent.setup();
+    render(<RoutingFlow data={page([])} catalog={catalog} />);
+    const list = screen.getByRole("list", { name: "gateway.flow.apps" });
+    await user.click(
+      screen.getByRole("button", { name: "gateway.flow.pickApps" }),
+    );
+    const menu = screen.getByRole("dialog");
+    const boxes = within(menu).getAllByRole("checkbox");
+    // 起点是「全部显示」，勾选框也都是勾上的：取消谁，就该只少谁。
+    const target = boxes[0];
+    expect(target).toBeChecked();
+    fireEvent.click(target);
+    expect(target).not.toBeChecked();
+    await waitFor(() =>
+      expect(list.children).toHaveLength(ROUTABLE_APP_IDS.length - 1),
+    );
   });
 
   it("fans parallel traffic wires out without leaving the group node", () => {

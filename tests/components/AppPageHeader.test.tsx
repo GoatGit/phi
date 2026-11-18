@@ -34,6 +34,18 @@ describe("AppPageHeader — 操作区位置", () => {
     expect(header?.querySelector(":scope > div.flex-1")).toBeNull();
   });
 
+  it("页头自己占满可用宽度，页签栏才能拿到剩余宽度", () => {
+    // 回归：页头按内容宽度收缩时，页签的 flex-1 没有确定的可用宽度可分配，
+    // 三四个标签就缩到内容上，看起来像「页签栏比窗口短」
+    const { container } = render(
+      <AppPageHeader title={null} tabs={<span>页签</span>} />,
+    );
+
+    const header = container.querySelector("header");
+    expect(header?.className).toContain("w-full");
+    expect(header?.className).toContain("shrink-0");
+  });
+
   it("没有页签的老页面仍然靠撑开的占位把操作区推到右边", () => {
     render(
       <AppPageHeader

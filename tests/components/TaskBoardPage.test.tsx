@@ -206,6 +206,18 @@ describe("TaskBoardPage — 开始会话", () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
+  it("卡片上不再显示优先级徽标", async () => {
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue(board);
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    const cardButton = within(todo).getByRole("button", { name: card.title });
+    // 旧卡片里残留 priority 也不展示：这个字段对每张卡都是同一个值，没有区分度
+    expect(within(cardButton).queryByText("中")).toBeNull();
+    expect(within(cardButton).getByText("TASK-1")).toBeInTheDocument();
+  });
+
   it("统一启动交给 router，不再从前端开无运行态的会话", async () => {
     const onStartSession = vi.fn().mockResolvedValue("s-1");
     const user = userEvent.setup();
@@ -340,6 +352,21 @@ describe("TaskBoardPage — 版心与列宽", () => {
     expect(todo.className).not.toContain("w-[300px]");
     // 版心与其它插件页一致，切页签时左右边缘不跳
     expect(container.firstElementChild?.className).toContain("max-w-[1080px]");
+  });
+
+  it("列高度被看板框住，滚动发生在列内的卡片区", async () => {
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    // 少了 min-h-0/overflow-hidden，卡片一多整列会跟着长高，看板变成长列表且没有滚动条
+    expect(todo.className).toContain("min-h-0");
+    expect(todo.className).toContain("overflow-hidden");
+
+    const list = within(todo)
+      .getByText(card.title)
+      .closest("article")?.parentElement;
+    expect(list?.className).toContain("overflow-y-auto");
+    expect(list?.className).toContain("min-h-0");
   });
 });
 
