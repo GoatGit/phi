@@ -449,12 +449,6 @@ jobs:
       - name: Install router sidecar deps
         run: npm ci --prefix sidecar
 
-      # 这个 job 只跑 `tauri bundle`（不跑 beforeBuildCommand），所以 resources 里引用的
-      # sidecar/dist/router-episode.mjs 得自己打出来，否则 bundle 报
-      # resource path `../sidecar/dist/router-episode.mjs` doesn't exist。
-      - name: Build episode sidecar
-        run: node scripts/build-sidecar.mjs
-
       # 后台 worker 跑在 zellij 里：它是 macOS 包的 externalBin，按各自的 target 取。
       - name: Fetch zellij sidecar
         run: node scripts/build-zellij.mjs --target=${{ matrix.target }}
@@ -579,6 +573,12 @@ jobs:
       # 打包阶段也会走到 tauri 的前置命令，侧车依赖同样要先备好。
       - name: Install router sidecar deps
         run: npm ci --prefix sidecar
+
+      # 这个 job 只跑 `tauri bundle`，它不会执行 beforeBuildCommand，所以 resources 里引用的
+      # sidecar/dist/router-episode.mjs 得自己打出来，否则 bundle 报
+      # resource path `../sidecar/dist/router-episode.mjs` doesn't exist。
+      - name: Build episode sidecar
+        run: node scripts/build-sidecar.mjs
 
       - name: Prepare Tauri signing key
         uses: ./.github/actions/prepare-tauri-signing-key
