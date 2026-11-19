@@ -232,6 +232,11 @@ fn auto_start_input(
     if !settings.enabled || settings.shadow || input.status.is_some() {
         return (input, false);
     }
+    // 带排期的卡得等到点：排期靠「卡片不在执行列 + 到点才挪回来」生效，新建时
+    // 直接塞进执行列会让预过滤当场派发一次，那张「每天 09:30」的卡建完就跑。
+    if input.recurrence.is_some() || input.schedule.is_some() {
+        return (input, false);
+    }
     if !statuses
         .iter()
         .any(|status| status == &settings.trigger_status)
@@ -426,6 +431,25 @@ mod tests {
         };
         let (_, auto) = auto_start_input(&settings, &statuses(), new_task());
         assert!(!auto);
+    }
+
+    #[test]
+    fn scheduled_task_waits_for_its_slot() {
+        // 排期卡不能「新建即派发」：否则「每天 09:30」建完立刻跑一次，
+        // 到点还会再跑，等于白跑一轮。
+        for (recurrence, schedule) in [
+            (Some("2h".to_string()), None),
+            (None, Some("09:30".to_string())),
+        ] {
+            let input = NewTask {
+                recurrence,
+                schedule,
+                ..new_task()
+            };
+            let (kept, auto) = auto_start_input(&running(), &statuses(), input);
+            assert!(!auto, "带排期的卡要等到点才进执行列");
+            assert!(kept.status.is_none());
+        }
     }
 
     #[test]
