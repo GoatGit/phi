@@ -380,7 +380,10 @@ jobs:
   macos-binary:
     name: Build macOS binary (${{ matrix.target }})
     needs: whats-new-check
-    runs-on: macos-14
+    # 用 macos-latest，不钉 macos-14：本仓的 macos-14 标签会解析到不支持的
+    # macos-14-arm64-us-default 配置，job 会在三秒内被取消（check-run 注释：
+    # The configuration 'macos-14-arm64-us-default' is not supported）。
+    runs-on: macos-latest
     environment: release
     strategy:
       matrix:
@@ -508,7 +511,8 @@ jobs:
   # 已经过了 release 的批准，这里再挂会在半路要求第二次批准。secret 都是仓库级的。
   macos-release:
     name: Bundle macOS release
-    runs-on: macos-14
+    # 与 macos-binary 同一个理由：macos-14 在本仓不可用。
+    runs-on: macos-latest
     needs: macos-binary
 
     steps:
