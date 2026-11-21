@@ -74,7 +74,9 @@ async function planDeterministic(request) {
   let defaultWorker = null;
   try {
     const workers = await callTool("list_workers");
-    defaultWorker = workers.default ?? workers.workers?.[0] ?? null;
+    // 新版本返回 [{id,name,description}]；老版本是字符串数组，两者都认。
+    const first = workers.workers?.[0];
+    defaultWorker = workers.default ?? (typeof first === "string" ? first : first?.id) ?? null;
   } catch (error) {
     // 拿不到 worker 表就没法提名，但不必中断：后面每张卡都会拿到同样的错误。
     process.stderr.write(`list_workers failed: ${error.code}\n`);
@@ -137,6 +139,81 @@ function textResult(text) {
   return { content: [{ type: "text", text }], details: {} };
 }
 
+/**
+ * 侧车用 pi 的 OpenAI 兼容客户端，经 phi 自己的网关出去。
+ *
+ * baseUrl 指向 `/pi/v1`，SDK 会拼上 `/chat/completions`；凭据是 phi 为本机 pi
+ * 身份签的令牌，所以这里不需要任何供应商 key。
+ */
+function channelModel(channel) {
+  return {
+    id: channel.model,
+    name: channel.model,
+    api: "openai-completions",
+    provider: "phi",
+    baseUrl: channel.baseUrl,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: channel.contextWindow ?? 200000,
+    maxTokens: channel.maxTokens ?? 4096,
+  };
+}
+
+// ---------------------------------------------------------------- 讨论
+
+/** 最后一条助手消息里的文本。pi 把回复放在 state.messages 里。 */
+function lastAssistantText(messages) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "assistant") continue;
+    const content = message.content;
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content
+      .filter((part) => part?.type === "text")
+      .map((part) => part.text)
+      .join("");
+  }
+  return "";
+}
+
+/**
+ * 讨论：没有工具表的一次补全。
+ *
+ * 「讨论阶段不动手」在这里是能力上的不可能：工具表是空的，它既改不了文件，
+ * 也提名不了 worker。系统提示词只负责说清讨论该产出什么，不负责防守。
+ */
+async function replyDiscussion(request) {
+  const channel = request.model;
+  const [{ Agent }, { streamSimple }] = await Promise.all([
+    import("@mariozechner/pi-agent-core"),
+    import("@mariozechner/pi-ai"),
+  ]);
+
+  const agent = new Agent({
+    initialState: {
+      systemPrompt: request.system ?? "",
+      model: channelModel(channel),
+      tools: [],
+    },
+    streamFn: streamSimple,
+    getApiKey: () => channel.apiKey,
+  });
+
+  await agent.prompt(request.prompt ?? "");
+
+  // pi 把上游错误收进 state 而不是抛出来，与 episode 那条路同样处理。
+  const failure = agent.state?.errorMessage;
+  if (failure) throw new Error(failure);
+
+  write({
+    type: "discussion.reply",
+    id: request.id,
+    text: lastAssistantText(agent.state?.messages ?? []),
+  });
+}
+
 /** 把七个工具接进 pi 的工具表。函数体只做转发，判断留在 Rust。 */
 function buildTools() {
   const tool = (name, label, description, parameters) => ({
@@ -160,7 +237,7 @@ function buildTools() {
       properties: { taskId: { type: "string" } },
       required: ["taskId"],
     }),
-    tool("list_workers", "看 worker", "看这一轮允许派给哪些应用", {
+    tool("list_workers", "看 worker", "看这一轮允许派给哪些智能体：id、名称、用途、应用与模型", {
       type: "object",
       properties: {},
     }),
@@ -178,7 +255,7 @@ function buildTools() {
       },
       required: ["kind", "instructions"],
     }),
-    tool("nominate_worker", "提名", "提议把这张卡派给某个应用。只有 Rust 闸门通过才生效。", {
+    tool("nominate_worker", "提名", "提议把这张卡派给某个智能体。只有 Rust 闸门通过才生效。", {
       type: "object",
       properties: {
         taskId: { type: "string" },
@@ -206,20 +283,7 @@ async function planWithModel(request) {
     import("@mariozechner/pi-ai"),
   ]);
 
-  // 走 phi 自己的网关：baseUrl 指向 `/pi/v1`，SDK 会拼上 `/chat/completions`，
-  // 凭据是 phi 为本机 pi 身份签的令牌，所以这里不需要任何供应商 key。
-  const model = {
-    id: channel.model,
-    name: channel.model,
-    api: "openai-completions",
-    provider: "phi",
-    baseUrl: channel.baseUrl,
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: channel.contextWindow ?? 200000,
-    maxTokens: channel.maxTokens ?? 4096,
-  };
+  const model = channelModel(channel);
 
   const agent = new Agent({
     initialState: {
@@ -242,7 +306,9 @@ async function planWithModel(request) {
         run: candidate.run,
       })),
     ),
-    `允许的 worker：${JSON.stringify(request.settings?.workerApps ?? [])}`,
+    `允许的 worker：${JSON.stringify(
+      request.settings?.agents ?? request.settings?.workerApps ?? [],
+    )}`,
     `步数上限 ${request.budget?.steps ?? "?"}，判官上限 ${request.budget?.judgeCalls ?? "?"}。`,
   ].join("\n");
 
@@ -285,6 +351,24 @@ lines.on("line", (line) => {
 
   if (frame.type === "tool.result") {
     onFrame(frame);
+    return;
+  }
+
+  // 讨论与 episode 是两条路：讨论没有工具、没有闸门，只回一段文本。
+  // 失败也要走 discussion.error，而不是让 Rust 那边等满超时。
+  if (frame.type === "discussion.request") {
+    replyDiscussion(frame)
+      .catch((error) =>
+        write({
+          type: "discussion.error",
+          id: frame.id,
+          message: error?.message ?? String(error),
+        }),
+      )
+      .finally(() => {
+        lines.close();
+        process.exit(0);
+      });
     return;
   }
 

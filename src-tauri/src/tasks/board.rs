@@ -88,6 +88,9 @@ mod tests {
 
     fn task(id: &str, status: &str, priority: Option<&str>) -> Task {
         Task {
+            kind: crate::tasks::model::KIND_TASK.into(),
+            source_task: None,
+            round: None,
             id: id.into(),
             title: id.into(),
             status: status.into(),
@@ -102,6 +105,8 @@ mod tests {
             artifact_count: 0,
             schedule: None,
             schedule_spec: None,
+            discussion_hold: false,
+            discussion_question: None,
             file: format!("backlog/tasks/{}.md", id.to_lowercase()),
             fingerprint: String::new(),
         }

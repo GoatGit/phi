@@ -651,6 +651,11 @@ impl Database {
                         Self::migrate_v30_to_v31(conn)?;
                         Self::set_user_version(conn, 31)?;
                     }
+                    31 => {
+                        log::info!("迁移数据库从 v31 到 v32（派发时的智能体快照）");
+                        Self::migrate_v31_to_v32(conn)?;
+                        Self::set_user_version(conn, 32)?;
+                    }
                     _ => {
                         return Err(AppError::Database(format!(
                             "未知的数据库版本 {version}，无法迁移到 {SCHEMA_VERSION}"
@@ -1873,6 +1878,13 @@ impl Database {
     /// 同样是幂等建表。排期写在卡片里，这里只有「上次什么时候触发的」；
     /// 升级前没有排期概念，所以不需要回填。
     fn migrate_v30_to_v31(conn: &Connection) -> Result<(), AppError> {
+        crate::super_agent::create_tables(conn)
+    }
+
+    /// v31 -> v32: 新增「派发时的智能体快照」表。
+    ///
+    /// 仍是幂等建表：升级前派发的运行没有快照，卡片上继续只显示应用，不回填。
+    fn migrate_v31_to_v32(conn: &Connection) -> Result<(), AppError> {
         crate::super_agent::create_tables(conn)
     }
 

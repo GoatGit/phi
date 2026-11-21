@@ -6,6 +6,30 @@
 
 use serde::{Deserialize, Serialize};
 
+/// 智能体 harness 的长度上限（字符数）。
+///
+/// 超了在**保存时**就报错：派发时才失败会变成 CLI 的 `invalid-arguments`，
+/// 卡片停在「运行中」其实从没跑起来，人只能看到一张永远不动的卡。
+pub const AGENT_HARNESS_LIMIT: usize = 6000;
+
+/// 五段式里成段文本的上限（结果、边界、完工标准），按字符数算。
+pub const AGENT_TEXT_LIMIT: usize = 2000;
+/// 五段式里列表单项的上限。
+pub const AGENT_LIST_ITEM_LIMIT: usize = 600;
+/// 「需要先问用户」最多几条。
+pub const AGENT_ASK_USER_LIMIT: usize = 8;
+/// 「执行步骤」最多几步。
+pub const AGENT_STEPS_LIMIT: usize = 12;
+/// 「必须遵守」最多几条。
+pub const AGENT_CONSTRAINTS_LIMIT: usize = 8;
+/// 「完工自查」最多几条。
+pub const AGENT_EVIDENCE_LIMIT: usize = 8;
+
+/// 可选头像的数量，与前端 `src/assets/bot-avatars/avatar-01…16.webp` 一一对应。
+///
+/// 设置里存的是键名（`avatar-07`），不是路径：换文件名等于换一批素材，键名不能随便改。
+pub const AGENT_AVATAR_COUNT: usize = 16;
+
 /// 一次 tick 最多走过的候选任务数（超过就交给注意力分桶收窄）。
 pub const DEFAULT_ATTENTION_THRESHOLD: usize = 8;
 /// 单个任务连续失败多少次之后不再自动派发，转人工。
@@ -18,6 +42,57 @@ pub const DEFAULT_MONITOR_SECONDS: i64 = 120;
 pub const MIN_MONITOR_SECONDS: i64 = 15;
 /// 「等你看」多久没人处理就自动继续（秒）。
 pub const DEFAULT_NEEDS_YOU_SECONDS: i64 = 3600;
+
+/// 「怎样才算完成」：交付标准 + 必须给出的自查证据。
+///
+/// 它与任务的验收标准是叠加关系，不是替代：任务的验收是这张卡的真相，这一份是
+/// 「这类活我一律还要多做到这些」。两者任一不过就是没完成。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentCompletion {
+    /// 交付时做到什么算完。
+    pub result: String,
+    /// 交付前逐条自查的证据。
+    pub evidence: Vec<String>,
+}
+
+/// 一个可被派发的智能体：判官只在它们之间选人，执行细节（应用、模型、
+/// 追加参数、角色提示词）都写在这里，不在派发时临时猜。
+///
+/// `id` 是稳定标识，派发、允许列表与运行记录都用它；改名不改 id，所以卡片上的
+/// `assignee` 一直有效。`name` 与 `description` 只给人看，也是判官选人的依据。
+///
+/// 前六个字段回答「怎么启动」，后面五段回答「它是谁、负责什么、怎样算完成」。
+/// 五个新段全为空时 [`RouterAgent::harness`] 返回空串，派发退回老行为。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RouterAgent {
+    pub id: String,
+    pub name: String,
+    /// 选过的头像键（`avatar-01`…`avatar-16`）。
+    ///
+    /// 空 = 没选过，前端按 id 哈希派生一张，所以老设置不需要迁移。它只影响显示，
+    /// 不参与编译 harness，也不进派发参数。
+    pub avatar: String,
+    /// 一句话说明「什么任务适合派给它」。判官按名称与用途选人，不猜模型强弱。
+    pub description: String,
+    pub app_id: String,
+    pub prompt: String,
+    pub model: String,
+    pub arguments: Vec<String>,
+    /// 它负责的结果：接这类活要交出什么。
+    pub outcome: String,
+    /// 负责边界：什么不接，遇到什么转给别人。
+    pub boundary: String,
+    /// 动手前必须先问用户的情况。
+    pub ask_user_when: Vec<String>,
+    /// 执行步骤，按顺序。
+    pub steps: Vec<String>,
+    /// 必须遵守的约束（比步骤更硬）。
+    pub constraints: Vec<String>,
+    /// 怎样才算完成。
+    pub completion: AgentCompletion,
+}
 
 /// Router 的开关、配额与阈值。整份存进 `router_settings` 一行 JSON。
 ///
@@ -42,8 +117,16 @@ pub struct RouterSettings {
     pub judge_calls_per_day: usize,
     /// 候选超过这个数量时先让判官收窄。
     pub attention_threshold: usize,
-    /// 允许被派发的 worker（应用 id），第一个作为默认值。
+    /// 允许被派发的智能体 id，顺序即优先级（第一个是默认值）。
+    ///
+    /// 老版本这里存的是应用 id；`agent()` 会把它们当成「跟随应用」的智能体认回来，
+    /// 升级后不需要重新配置，也不会因为智能体列表为空而停派。
     pub worker_apps: Vec<String>,
+    pub agents: Vec<RouterAgent>,
+    /// Router 自己的头像键（`avatar-01`…`avatar-16`），空 = 按固定 id 派生一张。
+    ///
+    /// 它不是智能体：只决定讨论区那一行画哪张脸，不进派发、不进允许名单。
+    pub router_avatar: String,
     /// 连续失败多少次（同一版卡片）之后不再自动派发，转人工。
     /// 卡片被改动或被拖回执行列时这个计数会清零：预算管的是「同一版卡片」，
     /// 不是这张卡——人一动手就是新的一版。
@@ -84,6 +167,8 @@ impl Default for RouterSettings {
             dispatches_per_day: 40,
             judge_calls_per_day: 200,
             attention_threshold: DEFAULT_ATTENTION_THRESHOLD,
+            agents: Vec::new(),
+            router_avatar: String::new(),
             worker_apps: vec!["claude".into(), "codex".into()],
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             stall_seconds: DEFAULT_STALL_SECONDS,
@@ -100,9 +185,69 @@ impl Default for RouterSettings {
 }
 
 impl RouterSettings {
+    pub fn agent(&self, id: &str) -> Option<RouterAgent> {
+        self.agents
+            .iter()
+            .find(|a| a.id == id)
+            .cloned()
+            .or_else(|| {
+                // 老设置只存应用 id，不改变原有的默认顺序。
+                id.parse::<crate::app_config::AppType>()
+                    .ok()
+                    .filter(|app| app.as_str() == id && id != "claude-desktop")
+                    .map(|_| RouterAgent {
+                        id: id.into(),
+                        name: id.into(),
+                        app_id: id.into(),
+                        ..Default::default()
+                    })
+            })
+    }
+
+    /// 把运行记录里的 `worker_app` 认回一个智能体 id。
+    ///
+    /// 落盘的 `worker_app` 是执行用的**应用**（`spec.app_id`），而 `worker_apps`
+    /// 列的是**智能体** id。两个 id 在自定义智能体下不同名，直接比较会失配并
+    /// 悄悄退回默认智能体——同一张卡自动派发用一种 prompt/model，人点「开始」
+    /// 换成另一种，行为就对不上了。同 id 优先，其次取该应用下第一个被允许的。
+    pub fn agent_for_worker(&self, worker: &str) -> Option<String> {
+        if self.worker_apps.iter().any(|id| id == worker) {
+            return Some(worker.to_string());
+        }
+        self.agents
+            .iter()
+            .find(|a| a.app_id == worker && self.worker_apps.contains(&a.id))
+            .map(|a| a.id.clone())
+    }
+
+    /// 这张卡上次派给谁。快照里的 `agent_id` 优先：同一个应用可以建几个智能体
+    /// （便宜的写文档、强的做审查），只靠应用 id 会认回其中第一个，人点「开始」
+    /// 就换了一个人。老记录没有快照时才退回按应用猜。
+    pub fn agent_for_run(&self, run: &TaskRun) -> Option<String> {
+        if let Some(id) = run.agent_id.as_deref() {
+            if self.worker_apps.iter().any(|allowed| allowed == id) {
+                return Some(id.to_string());
+            }
+        }
+        run.worker_app
+            .as_deref()
+            .and_then(|worker| self.agent_for_worker(worker))
+    }
+
     /// 派发时用的默认 worker。`worker_apps` 为空时返回 None（谁来都不对）。
     pub fn default_worker(&self) -> Option<&str> {
         self.worker_apps.first().map(String::as_str)
+    }
+
+    /// 这一轮允许派发的智能体，按允许列表的顺序（第一个是默认）。
+    ///
+    /// 认不出来的 id 直接跳过：设置被手改过或智能体被删掉时，宁可不派，
+    /// 也不要落到一个猜出来的应用上。
+    pub fn allowed_agents(&self) -> Vec<RouterAgent> {
+        self.worker_apps
+            .iter()
+            .filter_map(|id| self.agent(id))
+            .collect()
     }
 }
 
@@ -169,7 +314,12 @@ pub struct TaskRun {
     pub task_id: String,
     pub root: String,
     pub state: RunState,
+    /// 实际执行用的应用 id。历史记录按它显示，不随智能体改名而变。
     pub worker_app: Option<String>,
+    /// 派发那一刻的智能体快照：改配置或删掉智能体都不改历史。
+    pub agent_id: Option<String>,
+    pub agent_name: Option<String>,
+    pub agent_model: Option<String>,
     pub session_id: Option<String>,
     pub attempts: u32,
     pub detail: Option<String>,
@@ -181,8 +331,9 @@ pub struct TaskRun {
 }
 
 /// 一个候选任务：看板上的卡片加上它当前的运行态。
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Candidate {
+    pub discussion_hold: bool,
     pub task_id: String,
     pub root: String,
     pub title: String,
@@ -194,6 +345,10 @@ pub struct Candidate {
     pub dependencies: Vec<String>,
     /// 持续 / 定时任务的排期；普通任务是 `None`。
     pub schedule: Option<crate::tasks::schedule::Spec>,
+    /// 卡片 frontmatter 里的归属人（`assignee`）。有值时派发给谁由它说了算。
+    pub assignees: Vec<String>,
+    /// 卡片的标签。用于调度器提议「同类活反复派给同一个应用」。
+    pub labels: Vec<String>,
     pub run: Option<TaskRun>,
 }
 
@@ -207,6 +362,44 @@ impl Candidate {
 
     pub fn attempts(&self) -> u32 {
         self.run.as_ref().map(|run| run.attempts).unwrap_or(0)
+    }
+
+    /// 这张卡被指派给谁。
+    ///
+    /// `None` = 没指派（交给判官选人）；`Some(Err(id))` = 指派了一个本机不认识的
+    /// 智能体。认不出来时**不猜、也不降级**：卡面上写着一个人的名字，机器不能
+    /// 自己换个人去干，更不能悄悄落到「随便找个人跑」。
+    pub fn assignee_agent(&self, settings: &RouterSettings) -> Option<Result<String, String>> {
+        let raw = self
+            .assignees
+            .iter()
+            .map(|value| value.trim())
+            .find(|value| !value.is_empty())?;
+        // Backlog.md 的习俗是写 `@codex`，本机的智能体 id 不带 @。
+        let id = raw.trim_start_matches('@');
+        if id.is_empty() {
+            return None;
+        }
+        // 1. 就是允许名单里的一个智能体 id。
+        if settings.worker_apps.iter().any(|allowed| allowed == id)
+            && settings.agents.iter().any(|agent| agent.id == id)
+        {
+            return Some(Ok(id.to_string()));
+        }
+        // 2. 老卡写的是应用名：认回该应用下第一个被允许的智能体。
+        if let Some(found) = settings
+            .agents
+            .iter()
+            .find(|agent| agent.app_id == id && settings.worker_apps.contains(&agent.id))
+        {
+            return Some(Ok(found.id.clone()));
+        }
+        // 3. 允许名单里直接存着应用 id（没有显式定义时的兼容形态）。
+        if settings.worker_apps.iter().any(|allowed| allowed == id) && settings.agent(id).is_some()
+        {
+            return Some(Ok(id.to_string()));
+        }
+        Some(Err(id.to_string()))
     }
 }
 
@@ -365,6 +558,7 @@ pub struct DispatchSpec {
     pub task_id: String,
     pub root: String,
     pub app_id: String,
+    pub agent: RouterAgent,
     /// 相对仓库根的任务文件路径。
     pub file: String,
     pub title: String,
@@ -372,8 +566,12 @@ pub struct DispatchSpec {
 
 impl DispatchSpec {
     /// 交给 CLI 的初始指令。一句话，不做花活：worker 自己会读卡片。
+    ///
+    /// 生产路径已经直接走 `self.agent.launch_arguments`（要带上智能体的 arguments
+    /// 与 model），所以这里只留给测试断言「两条入口说的是同一句话」。
+    #[cfg(test)]
     pub fn prompt(&self) -> String {
-        task_prompt(&self.file)
+        self.agent.task_prompt(&self.file)
     }
 }
 

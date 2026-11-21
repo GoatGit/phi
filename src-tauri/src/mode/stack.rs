@@ -49,6 +49,14 @@ pub fn supports_stack(app: &AppType) -> bool {
     matches!(app, AppType::Claude | AppType::Codex)
 }
 
+/// 能不能在启动时给这个应用单独指定模型（`claude --model` / `codex exec -m`）。
+///
+/// 只有这两个 CLI 接受该参数，也只有它们发布 Stack 模型，所以和 [`supports_stack`] 是
+/// 同一份名单；单独起个名字是因为调用方问的是「会话级隔离」，不是「聚合模式」。
+pub fn supports_session_model(app: &AppType) -> bool {
+    supports_stack(app)
+}
+
 /// 给 `provider` 一个 key：登记过就用原来的（移除后重新加入，旧会话里的 id 继续有效），
 /// 没有就按图标、名称生成一个新的写进登记簿。
 ///
@@ -321,15 +329,13 @@ fn stack_models(key: &str, provider: &Provider, found: Vec<Found>) -> Vec<StackM
 /// Codex 行发布的模型 id：行里的模型目录，没有配置目录时只有行的 `model`。显示名和窗口
 /// 由目录条目决定（`codex_config::plan_codex_stack_catalog`）。
 pub fn codex_model_ids(key: &str, provider: &Provider) -> Vec<String> {
-    let config = provider
-        .settings_config
-        .get("config")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    crate::codex_config::codex_published_models(&provider.settings_config, config)
-        .into_iter()
-        .map(|model| encode(&AppType::Codex, key, &model, false))
-        .collect()
+    crate::codex_config::codex_published_models(
+        &provider.settings_config,
+        codex_config_text(provider),
+    )
+    .into_iter()
+    .map(|model| encode(&AppType::Codex, key, &model, false))
+    .collect()
 }
 
 /// 选择器里 Stack 模型的显示名：`<模型显示名>（<供应商名>）`。
@@ -473,6 +479,94 @@ pub fn is_member(app: &AppType, provider_id: &str) -> Result<bool, AppError> {
         return Ok(false);
     }
     Ok(state::stack(&DeviceStore::for_device(), app.as_str())?.is_member(provider_id))
+}
+
+/// 这个应用现在可以按会话（一次启动）指定的模型 id。
+///
+/// 两处来源合在一起，不切换任何应用的路由：
+/// - Stack 发布给客户端的 id（代理模式且 Stack 模式开着）：带保留前缀，请求经网关落到
+///   名单里的那一家；
+/// - 正在用的那家自己配的模型：不带前缀，普通模型名照旧走代理路由或直连。
+///
+/// 这里只能证明「本机现在认得这些模型」，不能证明「网关一定按会话把它路由到目标」。
+/// 调用方可以再填列表以外的模型名，由 CLI 自己判断认不认。
+pub fn worker_models(db: &Database, app: &AppType) -> Result<Vec<String>, AppError> {
+    if !supports_session_model(app) {
+        return Ok(Vec::new());
+    }
+    let store = DeviceStore::for_device();
+    let mode = state::mode_state(&store, app.as_str())?;
+    let mut ids = Vec::new();
+    if mode.is_proxy() {
+        let stack = state::stack(&store, app.as_str())?;
+        ids.extend(
+            published_members(db, app, &stack, mode.proxy_route.as_deref())?
+                .into_iter()
+                .flat_map(|member| member.model_ids),
+        );
+    }
+    if let Some(provider) = super::current::provider_in_use(db, app)? {
+        ids.extend(provider_models(app, &provider));
+    }
+    if matches!(app, AppType::Codex) {
+        ids = codex_accepts(ids);
+    }
+    // 同一模型可能被多处列出：下拉里只能出现一次。
+    let mut seen = std::collections::HashSet::new();
+    ids.retain(|id| seen.insert(id.clone()));
+    Ok(ids)
+}
+
+/// 一家供应商自己配的模型，可以直接当普通模型名下发（不带 Stack 前缀）。
+fn provider_models(app: &AppType, provider: &Provider) -> Vec<String> {
+    match app {
+        AppType::Claude => claude_env(provider)
+            .map(|env| {
+                mapped_models(env)
+                    .into_iter()
+                    .map(|found| found.model)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        AppType::Codex => crate::codex_config::codex_published_models(
+            &provider.settings_config,
+            codex_config_text(provider),
+        ),
+        _ => Vec::new(),
+    }
+}
+
+fn codex_config_text(provider: &Provider) -> &str {
+    provider
+        .settings_config
+        .get("config")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+}
+
+/// Codex 只认落盘模型目录里的 slug。目录是 PHI 写的时候，名单就以目录为准；
+/// 目录不是 PHI 的（用户自己指的、或直连模式根本没有），交给 Codex 自己判断。
+fn codex_accepts(ids: Vec<String>) -> Vec<String> {
+    let ours = std::fs::read_to_string(crate::codex_config::get_codex_config_path())
+        .map(|text| crate::live::project::codex::live_catalog_is_ours(&text))
+        .unwrap_or(false);
+    let Some(catalog) = ours.then(read_codex_catalog).flatten() else {
+        return ids;
+    };
+    ids.into_iter()
+        .filter(|id| catalog.iter().any(|slug| slug == id))
+        .collect()
+}
+
+fn read_codex_catalog() -> Option<Vec<String>> {
+    let bytes = std::fs::read(crate::codex_config::get_codex_model_catalog_path()).ok()?;
+    let catalog: Value = serde_json::from_slice(&bytes).ok()?;
+    let slugs: Vec<String> = catalog["models"]
+        .as_array()?
+        .iter()
+        .filter_map(|model| model["slug"].as_str().map(str::to_string))
+        .collect();
+    (!slugs.is_empty()).then_some(slugs)
 }
 
 /// Claude Code 现在发布的 Stack 模型：代理模式下按已落定的名单和路由算，不在代理模式时没有。
@@ -823,6 +917,38 @@ mod tests {
         assert_eq!(
             claude_models("r", &default_window)[0].window,
             CLAUDE_DEFAULT_WINDOW
+        );
+    }
+
+    #[test]
+    fn the_in_use_row_publishes_its_own_models_without_a_prefix() {
+        let claude = provider(
+            "kimi",
+            "Kimi",
+            None,
+            json!({
+                "ANTHROPIC_MODEL": "kimi-k3",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k2[1M]"
+            }),
+        );
+        // 不带 Stack 前缀：这些名字原样发给当前这家，不需要网关解。
+        assert_eq!(
+            provider_models(&AppType::Claude, &claude),
+            vec!["kimi-k3".to_string(), "kimi-k2".to_string()]
+        );
+        // 没有任何模型映射：不编一个默认模型出来。
+        let bare = provider("q", "Bare", None, json!({ "ANTHROPIC_AUTH_TOKEN": "sk" }));
+        assert!(provider_models(&AppType::Claude, &bare).is_empty());
+
+        let codex = Provider::with_id(
+            "relay".into(),
+            "Relay".into(),
+            json!({ "config": "model = \"gpt-5.5\"\n" }),
+            None,
+        );
+        assert_eq!(
+            provider_models(&AppType::Codex, &codex),
+            vec!["gpt-5.5".to_string()]
         );
     }
 

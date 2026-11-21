@@ -99,6 +99,9 @@ export function PluginCenterPage({
   const pinned = activePluginId
     ? pinnedPluginIds.includes(activePluginId)
     : false;
+  // 任务看板是一个要铺满一屏的看板：列内部滚动，页面本身不滚。
+  // 其它插件页是普通文档流，继续交给外层滚动。
+  const fullHeightPage = activePluginId === "task-board";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -141,12 +144,16 @@ export function PluginCenterPage({
       />
       <div
         id="main-content"
-        className="min-h-0 flex-1 overflow-y-auto scroll-stable pt-3"
+        className={cn(
+          "min-h-0 flex-1 scroll-stable pt-3",
+          fullHeightPage ? "flex flex-col overflow-hidden" : "overflow-y-auto",
+        )}
       >
         <div
           id="plugin-center-tabpanel"
           role="tabpanel"
           aria-labelledby={`plugin-center-tab-${activePluginId ?? HOME_TAB}`}
+          className={cn(fullHeightPage && "flex min-h-0 flex-1 flex-col")}
         >
           {activePluginId ? (
             <PluginPage

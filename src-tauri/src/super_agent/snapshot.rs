@@ -48,6 +48,7 @@ pub(crate) fn collect(db: &Database) -> Result<Snapshot, String> {
         for task in tasks {
             let run = runs.get(&(root.clone(), task.id.clone())).cloned();
             snapshot.candidates.push(Candidate {
+                discussion_hold: task.discussion_hold,
                 run,
                 schedule: task.schedule_spec.clone(),
                 task_id: task.id,
@@ -57,6 +58,8 @@ pub(crate) fn collect(db: &Database) -> Result<Snapshot, String> {
                 file: task.file,
                 fingerprint: task.fingerprint,
                 dependencies: task.dependencies,
+                assignees: task.assignees,
+                labels: task.labels,
             });
         }
     }

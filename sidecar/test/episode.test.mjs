@@ -182,3 +182,53 @@ test("没有 model 字段时完全走确定性策略，不会去连模型", asyn
   // 没标题的卡转人工，不提名。
   assert.deepEqual(names, ["list_workers", "read_task", "ask_user", "finish"]);
 });
+
+test("讨论只回一段文本：不调工具，也不产出决策", async () => {
+  const stub = await startStubModel([{ text: "建议先改验收，再拆成两张。" }]);
+
+  const { code, frames, stderr } = await runSidecar(
+    {
+      type: "discussion.request",
+      id: "d1",
+      system: "你是 phi 的 Router",
+      prompt: "用户刚说：先定范围",
+      model: {
+        baseUrl: `http://127.0.0.1:${stub.port}/pi/v1`,
+        apiKey: "phi-local-v1:pi:test",
+        model: "phi-test",
+      },
+    },
+    () => ({ result: {} }),
+  );
+  stub.server.close();
+
+  assert.equal(code, 0, `侧车应正常退出；stderr=${stderr}`);
+  const reply = frames.find((frame) => frame.type === "discussion.reply");
+  assert.ok(reply, `应有 discussion.reply；frames=${JSON.stringify(frames)}`);
+  assert.equal(reply.id, "d1");
+  assert.match(reply.text, /建议先改验收/);
+  // 讨论阶段没有手：工具表是空的，一个 tool.call 都不该出现。
+  assert.equal(frames.filter((frame) => frame.type === "tool.call").length, 0);
+});
+
+test("讨论连不上模型时回 discussion.error，不让 Rust 等到超时", async () => {
+  const { code, frames, stderr } = await runSidecar(
+    {
+      type: "discussion.request",
+      id: "d2",
+      system: "",
+      prompt: "在吗",
+      model: {
+        baseUrl: "http://127.0.0.1:9/pi/v1",
+        apiKey: "phi-local-v1:pi:test",
+        model: "phi-test",
+      },
+    },
+    () => ({ result: {} }),
+  );
+
+  assert.equal(code, 0, `侧车应正常退出；stderr=${stderr}`);
+  const failed = frames.find((frame) => frame.type === "discussion.error");
+  assert.ok(failed, `应有 discussion.error；frames=${JSON.stringify(frames)}`);
+  assert.equal(failed.id, "d2");
+});

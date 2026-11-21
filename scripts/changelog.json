@@ -1,5 +1,41 @@
 [
   {
+    "version": "1.1.0",
+    "date": "2026-11-22",
+    "items": {
+      "zh": [
+        "任务看板新增智能体视图：一行一个智能体，第一行是与 Router 的讨论区。",
+        "智能体定义扩展为「它是谁、负责什么、能使用什么、怎样算完成」，派发时编译进启动指令。",
+        "添加智能体时和 Router 多轮对话起草，左侧对话、右侧定义，任意版本可切回继续聊。",
+        "智能体与 Router 都有头像，点一下即可更换。",
+        "任务详情页可直接与 Router 讨论需求，结论写回卡片，Router 给出的表单能在对话里直接填写提交。",
+        "讨论与执行互斥：讨论卡不参与自动派发；已完成的卡可「重新讨论」派生带背景的新一轮。",
+        "卡片可指派给某个智能体，指派与开工分开；派发时记录智能体快照，历史不随配置变化。",
+        "修复拖拽经过行与建议卡片因透明度写法不生效而缺失的底色。"
+      ],
+      "en": [
+        "The task board gains an agent view: one row per agent, with a discussion row first.",
+        "Agent definitions now cover who it is, what it owns, what it may use and how done is judged, compiled into the launch prompt.",
+        "Draft an agent by talking to Router: conversation on the left, definition on the right, any version can be resumed.",
+        "Agents and Router have avatars that can be changed with one click.",
+        "Task details can discuss requirements with Router; conclusions are written back and Router's forms can be filled in place.",
+        "Discussion and execution are exclusive: discussion cards are never dispatched, and finished cards can start a new round.",
+        "Cards can be assigned to an agent, separately from starting it; dispatches record the agent snapshot.",
+        "Fixed missing backgrounds on drag targets and suggestion cards caused by unsupported opacity modifiers."
+      ],
+      "ja": [
+        "タスクボードにエージェントビューを追加：1 行 1 エージェント、先頭は Router との相談行です。",
+        "エージェント定義を「誰か・何を担うか・何を使えるか・完了条件」に拡張し、起動時の指示に組み込みます。",
+        "Router と対話してエージェントを起草：左に対話、右に定義、任意の版から続けられます。",
+        "エージェントと Router にアバターを追加し、クリックで変更できます。",
+        "タスク詳細で Router と要件を相談でき、結論はカードに書き戻され、フォームはその場で入力できます。",
+        "相談と実行は排他：相談カードは自動派遣されず、完了カードから新しい相談を派生できます。",
+        "カードをエージェントに割り当てられ、割り当てと着手は別操作。派遣時のスナップショットを記録します。",
+        "透明度指定が効かずドラッグ先と提案カードの背景が欠けていた問題を修正しました。"
+      ]
+    }
+  },
+  {
     "version": "1.0.5",
     "date": "2026-11-17",
     "items": {

@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { pluginIdentity } from "./pluginIdentity";
 
@@ -55,14 +56,102 @@ export function PluginGuide({
   what,
   steps,
   notes,
+  collapsible = false,
+  defaultCollapsed = false,
 }: {
   pluginId: string;
   what: ReactNode;
   steps: ReactNode[];
   notes?: ReactNode;
+  /** 让「这个插件做什么」收成一行：给把整屏都用来做事的页（任务看板） */
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
 }) {
   const { t } = useTranslation();
   const identity = pluginIdentity(pluginId);
+  const [open, setOpen] = useState(!defaultCollapsed);
+
+  const body = (
+    <dl className="space-y-2 text-body">
+      <div className="flex gap-3">
+        <dt className="w-12 shrink-0 text-caption leading-[20px] text-fg-3">
+          {t("pluginCenter.guide.what")}
+        </dt>
+        <dd className="min-w-0 flex-1 text-fg-2">{what}</dd>
+      </div>
+      <div className="flex gap-3">
+        <dt className="w-12 shrink-0 text-caption leading-[20px] text-fg-3">
+          {t("pluginCenter.guide.steps")}
+        </dt>
+        <dd className="min-w-0 flex-1">
+          <ol className="space-y-1 text-fg-2">
+            {steps.map((step, index) => (
+              <li key={index} className="flex gap-2">
+                <span className="w-3 shrink-0 text-end tabular-nums text-fg-3">
+                  {index + 1}
+                </span>
+                <span className="min-w-0 flex-1">{step}</span>
+              </li>
+            ))}
+          </ol>
+        </dd>
+      </div>
+      {notes && (
+        <div className="flex gap-3">
+          <dt className="w-12 shrink-0 text-caption leading-[20px] text-fg-3">
+            {t("pluginCenter.guide.notes")}
+          </dt>
+          <dd className="min-w-0 flex-1 text-caption leading-[20px] text-fg-2">
+            {notes}
+          </dd>
+        </div>
+      )}
+    </dl>
+  );
+
+  if (collapsible) {
+    return (
+      <section
+        aria-labelledby={`plugin-guide-${pluginId}`}
+        className="relative overflow-hidden rounded-panel border border-border"
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            "absolute inset-y-0 start-0 w-[3px] bg-current",
+            identity.ink,
+          )}
+        />
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={`plugin-guide-body-${pluginId}`}
+          onClick={() => setOpen(!open)}
+          className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-start text-strong font-medium text-fg-1 hover:bg-subtle"
+        >
+          <span id={`plugin-guide-${pluginId}`}>
+            {t("pluginCenter.guide.title")}
+          </span>
+          <ChevronRight
+            aria-hidden="true"
+            className={cn(
+              "size-3.5 shrink-0 text-fg-3 transition-transform",
+              open && "rotate-90",
+            )}
+            strokeWidth={1.5}
+          />
+        </button>
+        {open ? (
+          <div
+            id={`plugin-guide-body-${pluginId}`}
+            className="border-t border-border px-4 py-3 pe-4 ps-[19px]"
+          >
+            {body}
+          </div>
+        ) : null}
+      </section>
+    );
+  }
 
   return (
     <section
@@ -82,41 +171,7 @@ export function PluginGuide({
       >
         {t("pluginCenter.guide.title")}
       </h3>
-      <dl className="space-y-2 text-body">
-        <div className="flex gap-3">
-          <dt className="w-12 shrink-0 text-caption leading-[20px] text-fg-3">
-            {t("pluginCenter.guide.what")}
-          </dt>
-          <dd className="min-w-0 flex-1 text-fg-2">{what}</dd>
-        </div>
-        <div className="flex gap-3">
-          <dt className="w-12 shrink-0 text-caption leading-[20px] text-fg-3">
-            {t("pluginCenter.guide.steps")}
-          </dt>
-          <dd className="min-w-0 flex-1">
-            <ol className="space-y-1 text-fg-2">
-              {steps.map((step, index) => (
-                <li key={index} className="flex gap-2">
-                  <span className="w-3 shrink-0 text-end tabular-nums text-fg-3">
-                    {index + 1}
-                  </span>
-                  <span className="min-w-0 flex-1">{step}</span>
-                </li>
-              ))}
-            </ol>
-          </dd>
-        </div>
-        {notes && (
-          <div className="flex gap-3">
-            <dt className="w-12 shrink-0 text-caption leading-[20px] text-fg-3">
-              {t("pluginCenter.guide.notes")}
-            </dt>
-            <dd className="min-w-0 flex-1 text-caption leading-[20px] text-fg-2">
-              {notes}
-            </dd>
-          </div>
-        )}
-      </dl>
+      {body}
     </section>
   );
 }

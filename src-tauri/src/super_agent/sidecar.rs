@@ -173,6 +173,21 @@ enum Inbound {
     },
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum DiscussionInbound {
+    #[serde(rename = "discussion.reply")]
+    Reply {
+        #[serde(default)]
+        text: Option<String>,
+    },
+    #[serde(rename = "discussion.error")]
+    Failed {
+        #[serde(default)]
+        message: Option<String>,
+    },
+}
+
 /// 工具失败的形状。模型看到的是「自己的一次调用失败了」，不是「有人拒绝了它」。
 struct ToolError {
     code: &'static str,
@@ -219,6 +234,12 @@ impl SidecarEpisode {
         if !model.trim().is_empty() {
             self.model = Some(model);
         }
+        self
+    }
+
+    /// 换一个墙钟上限。讨论等在人的面前，比一轮 tick 宽松。
+    pub(crate) fn with_deadline(mut self, deadline: Duration) -> Self {
+        self.deadline = deadline;
         self
     }
 
@@ -297,6 +318,53 @@ impl SidecarEpisode {
     }
 }
 
+impl SidecarEpisode {
+    /// 一次纯对话：给一段系统提示词与用户输入，拿回一段文本。
+    ///
+    /// 与 episode 的区别只有两点：没有工具表，也没有决策产出。讨论阶段 Router
+    /// 能做的最多就是回答——这就是「讨论不动手」的实现方式，而不是一句叮嘱。
+    pub(crate) async fn chat(&self, system: &str, prompt: &str) -> Result<String, String> {
+        let model = self
+            .model_channel()
+            .ok_or_else(|| "router-gateway-unavailable".to_string())?;
+        let mut channel = self.open().await?;
+        let deadline = tokio::time::Instant::now() + self.deadline;
+        let request = json!({
+            "type": "discussion.request",
+            "id": uuid::Uuid::new_v4().to_string(),
+            "system": system,
+            "prompt": prompt,
+            "model": model,
+            "deadlineMs": self.deadline.as_millis() as u64,
+        });
+        if let Err(reason) = send_within(&mut *channel, &request, deadline).await {
+            channel.kill();
+            return Err(reason);
+        }
+
+        // 讨论只回一帧：reply 或 error。侧车说完就退出，不需要循环。
+        let outcome = match recv_within(&mut *channel, deadline).await {
+            Ok(Some(line)) => match serde_json::from_str::<DiscussionInbound>(&line) {
+                Ok(DiscussionInbound::Reply { text }) => {
+                    match text.map(|text| text.trim().to_string()) {
+                        Some(text) if !text.is_empty() => Ok(text),
+                        // 模型一个字都没说：当成失败，不要把空回复写进 timeline。
+                        _ => Err("empty-reply".to_string()),
+                    }
+                }
+                Ok(DiscussionInbound::Failed { message }) => {
+                    Err(message.unwrap_or_else(|| "discussion-failed".into()))
+                }
+                Err(error) => Err(format!("protocol: {error}")),
+            },
+            Ok(None) => Err("router-sidecar-exited".into()),
+            Err(reason) => Err(reason),
+        };
+        channel.kill();
+        outcome
+    }
+}
+
 impl Episode for SidecarEpisode {
     fn run<'a>(
         &'a self,
@@ -316,7 +384,24 @@ impl Episode for SidecarEpisode {
                 "budget": { "steps": input.steps, "judgeCalls": input.judge_calls },
                 "settings": {
                     "triggerStatus": input.settings.trigger_status,
+                    // 允许派发的智能体 id；名称与用途在 list_workers 里给，
+                    // 判官按角色选人需要的是后者。
                     "workerApps": input.settings.worker_apps,
+                    // 只给“认人”需要的字段：角色提示词是执行配置，不往调度模型那边发。
+                    "agents": input
+                        .settings
+                        .allowed_agents()
+                        .into_iter()
+                        .map(|agent| {
+                            json!({
+                                "id": agent.id,
+                                "name": agent.name,
+                                "description": agent.description,
+                                "app": agent.app_id,
+                                "model": agent.model,
+                            })
+                        })
+                        .collect::<Vec<_>>(),
                     "maxAttempts": input.settings.max_attempts,
                 },
                 "candidates": input.candidates.iter().map(view).collect::<Vec<_>>(),
@@ -520,7 +605,21 @@ impl<'a> Session<'a> {
         match name {
             "read_task" => self.read_task(args),
             "list_workers" => Ok(json!({
-                "workers": self.input.settings.worker_apps,
+                // 返回可以认人的描述，而不是一串应用 id：判官靠「谁适合这类活」
+                // 选人，只给品牌名等于让它猜模型强弱。id 仍是唯一的提名依据。
+                "workers": self
+                    .input
+                    .settings
+                    .allowed_agents()
+                    .into_iter()
+                    .map(|agent| json!({
+                        "id": agent.id,
+                        "name": agent.name,
+                        "description": agent.description,
+                        "app": agent.app_id,
+                        "model": agent.model,
+                    }))
+                    .collect::<Vec<_>>(),
                 "default": self.input.settings.default_worker(),
             })),
             "read_budget" => Ok(json!({
@@ -608,7 +707,7 @@ impl<'a> Session<'a> {
                 {
                     return Err(ToolError::new(
                         "options-not-closed",
-                        "choice 的候选只能是 list_workers 里的 app",
+                        "choice 的候选只能是 list_workers 里的智能体 id",
                     ));
                 }
                 Question::choice(instructions, options)
@@ -693,7 +792,7 @@ impl<'a> Session<'a> {
         {
             return Err(ToolError::new(
                 "gate-denied",
-                format!("{app_id} 不在这一轮允许的 worker 里"),
+                format!("{app_id} 不在这一轮允许的智能体里"),
             ));
         }
         let task_id = self.candidate(args)?.task_id.clone();
@@ -837,6 +936,7 @@ mod tests {
 
     fn candidate(id: &str, title: &str) -> Candidate {
         Candidate {
+            discussion_hold: false,
             task_id: id.into(),
             root: "/nonexistent".into(),
             title: title.into(),
@@ -845,6 +945,8 @@ mod tests {
             fingerprint: "fp".into(),
             dependencies: Vec::new(),
             schedule: None,
+            assignees: Vec::new(),
+            labels: Vec::new(),
             run: None,
         }
     }

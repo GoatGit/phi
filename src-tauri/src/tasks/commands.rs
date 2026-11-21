@@ -43,7 +43,7 @@ pub(crate) fn open_in(db: &Database, root: &str) -> Result<document::Workspace, 
     document::open(&registered_in(db, root)?)
 }
 
-fn detail_with_links(
+pub(super) fn detail_with_links(
     state: &AppState,
     workspace: &document::Workspace,
     id: &str,
@@ -55,6 +55,10 @@ fn detail_with_links(
         .task_links(&key, &detail.task.id)
         .map_err(|e| e.to_string())?;
     fill_schedule(&state.db, &key, &mut detail.task);
+    detail.discussion_turns = state
+        .db
+        .discussion_turns(&key, &detail.task.id)
+        .map_err(|e| e.to_string())?;
     detail.artifacts = crate::tasks::result::resolve(
         &workspace.root,
         &crate::tasks::result::artifacts(&detail.body),
@@ -229,7 +233,7 @@ fn auto_start_input(
     statuses: &[String],
     input: NewTask,
 ) -> (NewTask, bool) {
-    if !settings.enabled || settings.shadow || input.status.is_some() {
+    if input.discussion_hold || !settings.enabled || settings.shadow || input.status.is_some() {
         return (input, false);
     }
     // 带排期的卡得等到点：排期靠「卡片不在执行列 + 到点才挪回来」生效，新建时
@@ -331,6 +335,57 @@ pub fn task_archive(
     repository::archive(&workspace, &task_id, &fingerprint)
 }
 
+/// 从一张已完成的任务派生出一张新的讨论卡。
+///
+/// 原卡不改：它的状态、结束时间与结论保持原样，新卡用 `phi_source_task` 指回去。
+/// 返回新卡（含它的背景区块与用户这一轮的输入），前端直接跳到新卡详情继续讨论。
+#[tauri::command]
+pub fn task_discussion_derive(
+    state: State<'_, AppState>,
+    root: String,
+    task_id: String,
+    note: String,
+) -> Result<TaskDetail, String> {
+    let workspace = open(&state, &root)?;
+    let detail = repository::discussion_derive(&workspace, &task_id, &note)?;
+    detail_with_links(&state, &workspace, &detail.task.id)
+}
+
+/// 把一张待办列上的执行卡就地转成讨论卡。
+///
+/// 讨论只在讨论卡里发生，所以普通待办卡要先转类型；转换后卡片内容不变，
+/// 详情页才出现输入框。已经开工的卡由 `discussion-not-pending` 拒绝。
+#[tauri::command]
+pub fn task_discussion_convert(
+    state: State<'_, AppState>,
+    root: String,
+    task_id: String,
+    fingerprint: String,
+) -> Result<TaskDetail, String> {
+    let workspace = open(&state, &root)?;
+    let detail = repository::to_discussion(&workspace, &task_id, &fingerprint)?;
+    detail_with_links(&state, &workspace, &detail.task.id)
+}
+
+/// 删掉一张讨论卡。还在讨论列上就允许删，卡片里的结论也跟着一起消失。
+#[tauri::command]
+pub fn task_discussion_discard(
+    state: State<'_, AppState>,
+    root: String,
+    task_id: String,
+    fingerprint: String,
+) -> Result<(), String> {
+    let workspace = open(&state, &root)?;
+    repository::discard_discussion(&workspace, &task_id, &fingerprint)?;
+    // 卡没了，它的对话也不该留着：下次读到同一张卡时不该接上上一轮的聊天。
+    let key = workspace.root.to_string_lossy().into_owned();
+    state
+        .db
+        .clear_discussion_turns(&key, &task_id)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn task_link_session(
     state: State<'_, AppState>,
@@ -384,6 +439,7 @@ mod tests {
 
     fn new_task() -> NewTask {
         NewTask {
+            discussion_hold: false,
             title: "整理今天的AI新闻".into(),
             description: None,
             status: None,

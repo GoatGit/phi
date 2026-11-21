@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { server } from "../msw/server";
 import { defaultRouterSettings } from "../msw/handlers";
@@ -9,6 +15,7 @@ import i18n from "i18next";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import zh from "@/i18n/locales/zh.json";
 import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
+import { formatStamp } from "@/components/tasks/schedule";
 import type { TaskBoard, TaskCard, TaskWorkspace } from "@/lib/api/tasks";
 
 const apiMocks = vi.hoisted(() => ({
@@ -17,6 +24,12 @@ const apiMocks = vi.hoisted(() => ({
   create: vi.fn(),
   detail: vi.fn(),
   linkSession: vi.fn(),
+  setStatus: vi.fn(),
+  discussionUpdate: vi.fn(),
+  discussionSay: vi.fn(),
+  deriveDiscussion: vi.fn(),
+  convertDiscussion: vi.fn(),
+  discardDiscussion: vi.fn(),
 }));
 
 vi.mock("@/lib/api/tasks", async (importOriginal) => {
@@ -35,6 +48,38 @@ vi.mock("@/lib/api/tasks", async (importOriginal) => {
         sessionId: string,
         appId: string,
       ) => apiMocks.linkSession(root, taskId, sessionId, appId),
+      setStatus: (
+        root: string,
+        taskId: string,
+        status: string,
+        fingerprint: string,
+      ) => apiMocks.setStatus(root, taskId, status, fingerprint),
+      discussionUpdate: (
+        root: string,
+        taskId: string,
+        question: string | null,
+        confirmed: string | null,
+        fingerprint: string,
+      ) =>
+        apiMocks.discussionUpdate(
+          root,
+          taskId,
+          question,
+          confirmed,
+          fingerprint,
+        ),
+      discussionSay: (
+        root: string,
+        taskId: string,
+        message: string,
+        fingerprint: string,
+      ) => apiMocks.discussionSay(root, taskId, message, fingerprint),
+      deriveDiscussion: (root: string, taskId: string, note: string) =>
+        apiMocks.deriveDiscussion(root, taskId, note),
+      convertDiscussion: (root: string, taskId: string, fingerprint: string) =>
+        apiMocks.convertDiscussion(root, taskId, fingerprint),
+      discardDiscussion: (root: string, taskId: string, fingerprint: string) =>
+        apiMocks.discardDiscussion(root, taskId, fingerprint),
     },
   };
 });
@@ -49,11 +94,33 @@ beforeEach(() => {
   apiMocks.create.mockReset();
   apiMocks.detail.mockReset();
   apiMocks.linkSession.mockReset();
+  apiMocks.setStatus.mockReset();
+  apiMocks.discussionUpdate.mockReset();
+  apiMocks.discussionSay.mockReset();
+  // 建完讨论卡会立刻把第一句发给 Router：默认给一个能直接铺进 timeline 的回复
+  apiMocks.discussionSay.mockResolvedValue({
+    task: { ...card, kind: "discussion", discussionHold: true },
+    body: "",
+    sections: [],
+    acceptance: [],
+    links: [],
+    outcome: null,
+    artifacts: [],
+    discussionTurns: [],
+  });
+  apiMocks.deriveDiscussion.mockReset();
+  apiMocks.convertDiscussion.mockReset();
+  apiMocks.discardDiscussion.mockReset();
   localStorage.clear();
 });
 
 const card: TaskCard = {
   id: "TASK-1",
+  kind: "task",
+  sourceTask: null,
+  round: null,
+  discussionHold: false,
+  discussionQuestion: null,
   title: "芳芳说的发生",
   status: "To Do",
   assignees: [],
@@ -118,6 +185,7 @@ describe("TaskBoardPage — 快速新建任务", () => {
       links: [],
       outcome: null,
       artifacts: [],
+      discussionTurns: [],
     });
   });
 
@@ -156,6 +224,227 @@ describe("TaskBoardPage — 快速新建任务", () => {
     await waitFor(() => expect(input).toHaveValue(""));
     expect(apiMocks.board).toHaveBeenCalledTimes(2);
   });
+
+  it("一句话就能进讨论：卡带着「讨论中」建出来，详情页的讨论区直接展开", async () => {
+    const user = userEvent.setup();
+    apiMocks.create.mockResolvedValue({
+      task: { ...card, kind: "discussion", discussionHold: true },
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      artifacts: [],
+      discussionTurns: [],
+    });
+    renderBoard();
+    const todo = await screen.findByRole("region", { name: "To Do" });
+
+    await user.click(
+      within(todo).getByRole("button", { name: zh.tasks.discussion.start }),
+    );
+    const input = within(todo).getByPlaceholderText(
+      zh.tasks.discussion.newPlaceholder,
+    );
+    // 还在讨论就先不排期：这个模式下不该出现任务类型
+    expect(
+      within(todo).queryByRole("combobox", { name: zh.tasks.schedule.title }),
+    ).toBeNull();
+
+    await user.type(input, "每天整理 AI 新闻，是不是该换个做法？");
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    apiMocks.discussionSay.mockResolvedValue({
+      task: { ...card, kind: "discussion", discussionHold: true },
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      artifacts: [],
+      discussionTurns: [
+        {
+          role: "user",
+          text: "每天整理 AI 新闻，是不是该换个做法？",
+          createdAt: 1,
+        },
+        { role: "router", text: "先看现在的入口在哪。", createdAt: 2 },
+      ],
+    });
+    await user.keyboard("{Control>}{Enter}{/Control}");
+
+    await waitFor(() =>
+      expect(apiMocks.create).toHaveBeenCalledWith("/repo", {
+        title: "每天整理 AI 新闻，是不是该换个做法？",
+        discussionHold: true,
+      }),
+    );
+    // 这一句就是第一轮发言：建完卡立刻交给 Router，不用到详情页再打一遍
+    await waitFor(() =>
+      expect(apiMocks.discussionSay).toHaveBeenCalledWith(
+        "/repo",
+        "TASK-1",
+        "每天整理 AI 新闻，是不是该换个做法？",
+        "12:abcd",
+      ),
+    );
+    // 详情页自己展开，后面的对话直接在输入框里说
+    expect(
+      await screen.findByPlaceholderText(zh.tasks.discussion.sayPlaceholder),
+    ).toBeInTheDocument();
+  });
+
+  it("讨论不需要终端应用：没有可用应用也能建卡进讨论", async () => {
+    const user = userEvent.setup();
+    render(
+      <TaskBoardPage
+        terminalApps={[]}
+        onStartSession={vi.fn()}
+        onOpenSession={vi.fn()}
+        onOpenWorker={vi.fn().mockResolvedValue(true)}
+        liveSessionIds={[]}
+      />,
+    );
+    const todo = await screen.findByRole("region", { name: "To Do" });
+
+    await user.click(
+      within(todo).getByRole("button", { name: zh.tasks.discussion.start }),
+    );
+    const input = within(todo).getByPlaceholderText(
+      zh.tasks.discussion.newPlaceholder,
+    );
+    await user.type(input, "先讨论清楚再说");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+
+    await waitFor(() =>
+      expect(apiMocks.create).toHaveBeenCalledWith("/repo", {
+        title: "先讨论清楚再说",
+        discussionHold: true,
+      }),
+    );
+    // 讨论入口不再被终端能力卡住
+    await waitFor(() =>
+      expect(
+        within(todo).queryByPlaceholderText(zh.tasks.discussion.newPlaceholder),
+      ).toBeNull(),
+    );
+  });
+
+  it("建卡时就能选持续任务，间隔跟着带进去", async () => {
+    const user = userEvent.setup();
+    Element.prototype.scrollIntoView = vi.fn();
+    renderBoard();
+    const todo = await screen.findByRole("region", { name: "To Do" });
+
+    await user.click(
+      within(todo).getByRole("button", { name: zh.tasks.newTask }),
+    );
+    await user.click(
+      within(todo).getByRole("combobox", { name: zh.tasks.schedule.title }),
+    );
+    await user.click(
+      await screen.findByRole("option", {
+        name: zh.tasks.schedule.mode.interval,
+      }),
+    );
+
+    fireEvent.change(
+      within(todo).getByLabelText(zh.tasks.schedule.intervalAmount),
+      { target: { value: "2" } },
+    );
+    await user.click(
+      within(todo).getByRole("combobox", {
+        name: zh.tasks.schedule.intervalUnit,
+      }),
+    );
+    await user.click(
+      await screen.findByRole("option", { name: zh.tasks.schedule.unit.h }),
+    );
+
+    await user.type(
+      within(todo).getByPlaceholderText(zh.tasks.newTaskPlaceholder),
+      "每两小时巡检",
+    );
+    await user.click(
+      within(todo).getByRole("button", { name: zh.tasks.newTaskSend }),
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.create).toHaveBeenCalledWith("/repo", {
+        title: "每两小时巡检",
+        recurrence: "2h",
+      }),
+    );
+    // 建完回到「不重复」：下一张卡不默默继承上一张的排期
+    expect(
+      within(todo).getByRole("combobox", { name: zh.tasks.schedule.title }),
+    ).toHaveTextContent(zh.tasks.schedule.mode.none);
+  });
+
+  it("建卡时选定时任务：没填时刻不能提交，填了才带 schedule", async () => {
+    const user = userEvent.setup();
+    Element.prototype.scrollIntoView = vi.fn();
+    renderBoard();
+    const todo = await screen.findByRole("region", { name: "To Do" });
+
+    await user.click(
+      within(todo).getByRole("button", { name: zh.tasks.newTask }),
+    );
+    await user.type(
+      within(todo).getByPlaceholderText(zh.tasks.newTaskPlaceholder),
+      "早上汇总",
+    );
+    await user.click(
+      within(todo).getByRole("combobox", { name: zh.tasks.schedule.title }),
+    );
+    await user.click(
+      await screen.findByRole("option", {
+        name: zh.tasks.schedule.mode.daily,
+      }),
+    );
+
+    // 类型选了但时刻还空着：建出来会是一张不会跑的卡，所以先不让提交
+    const send = within(todo).getByRole("button", {
+      name: zh.tasks.newTaskSend,
+    });
+    expect(send).toBeDisabled();
+
+    fireEvent.change(within(todo).getByLabelText(zh.tasks.schedule.timeLabel), {
+      target: { value: "09:30" },
+    });
+    await user.click(send);
+
+    await waitFor(() =>
+      expect(apiMocks.create).toHaveBeenCalledWith("/repo", {
+        title: "早上汇总",
+        schedule: "09:30",
+      }),
+    );
+  });
+});
+
+it("Done 只预览最近五张；日期回退后按任务号倒序，展开后可以收起", async () => {
+  const tasks = [2, 10, 3, 4, 5, 6, 7].map((n) => ({
+    ...card,
+    status: "Done",
+    id: `TASK-${n}`,
+    updatedDate: n === 3 ? "2026-11-20 10:00" : null,
+    createdDate:
+      n === 4 ? "2026-11-21" : [5, 6, 7].includes(n) ? "2026-11-19" : null,
+  }));
+  apiMocks.workspaces.mockResolvedValue([workspace]);
+  apiMocks.board.mockResolvedValue({
+    ...board,
+    columns: [...board.columns.slice(0, 2), { status: "Done", tasks }],
+  });
+  renderBoard();
+  const done = within(await screen.findByRole("region", { name: "Done" }));
+  const ids = () => done.getAllByText(/^TASK-/).map((el) => el.textContent);
+  const preview = ["TASK-4", "TASK-3", "TASK-7", "TASK-6", "TASK-5"];
+  expect(ids()).toEqual(preview);
+  await userEvent.click(done.getByRole("button", { name: "展开其余 2 张" }));
+  expect(ids()).toEqual([...preview, "TASK-10", "TASK-2"]);
+  await userEvent.click(done.getByRole("button", { name: "收起" }));
+  expect(ids()).toEqual(preview);
 });
 
 describe("TaskBoardPage — 仓库下拉", () => {
@@ -402,6 +691,7 @@ describe("TaskBoardPage — 自动调度", () => {
       judgeCallsPerDay: 200,
       attentionThreshold: 8,
       workerApps: ["claude"],
+      agents: [],
       maxAttempts: 3,
       stallSeconds: 3600,
       monitorIntervalSeconds: 120,
@@ -636,5 +926,822 @@ describe("TaskBoardPage — 持续 / 定时任务", () => {
         zh.tasks.schedule.daily.replace("{{time}}", "09:30"),
       ),
     ).toBeTruthy();
+  });
+});
+
+describe("TaskBoardPage — 排期的等待提示", () => {
+  /** 一张带排期的卡；`nextRunAt` 由后端按上次触发算好。 */
+  function scheduled(input: {
+    kind: "interval" | "daily" | "once";
+    minutes?: number | null;
+    time?: string | null;
+    at?: string | null;
+    nextRunAt: number | null;
+  }): TaskCard {
+    return {
+      ...card,
+      schedule: {
+        kind: input.kind,
+        minutes: input.minutes ?? null,
+        time: input.time ?? null,
+        at: input.at ?? null,
+        lastRunAt: null,
+        nextRunAt: input.nextRunAt,
+      },
+    };
+  }
+
+  function boardWith(tasks: TaskCard[], status = "To Do"): TaskBoard {
+    return {
+      ...board,
+      columns: [
+        { status: "To Do", tasks: status === "To Do" ? tasks : [] },
+        { status: "In Progress", tasks: status === "In Progress" ? tasks : [] },
+        { status: "Done", tasks: [] },
+      ],
+    };
+  }
+
+  const run = (state: string) => ({
+    taskId: "TASK-1",
+    root: "/repo",
+    state,
+    workerApp: "claude",
+    sessionId: "s1",
+    attempts: 1,
+    detail: null,
+    cardFingerprint: "12:abcd",
+    shadow: false,
+    updatedAt: 1,
+  });
+
+  beforeEach(() => {
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+  });
+
+  it("等待期就标出下次什么时候跑", async () => {
+    const nextRunAt = new Date(2030, 0, 2, 18, 30).getTime();
+    apiMocks.board.mockResolvedValue(
+      boardWith([scheduled({ kind: "interval", minutes: 120, nextRunAt })]),
+    );
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    expect(
+      within(todo).getByText(
+        zh.tasks.schedule.next.replace("{{time}}", formatStamp(nextRunAt)),
+      ),
+    ).toBeTruthy();
+  });
+
+  it("到点后换成「已到点」，整句解释放在 title 里", async () => {
+    const nextRunAt = Date.now() - 60_000;
+    apiMocks.board.mockResolvedValue(
+      boardWith([scheduled({ kind: "interval", minutes: 120, nextRunAt })]),
+    );
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    const hint = within(todo).getByText(zh.tasks.schedule.dueShort);
+    expect(hint.getAttribute("title")).toBe(zh.tasks.schedule.due);
+    expect(within(todo).queryByText(/下次 /)).toBeNull();
+  });
+
+  it("还在跑的卡不承诺下次时间，这个时间不会真的触发", async () => {
+    // 后端 advance_schedules 会跳过在跑 / 等人回话 / 被暂停的卡，到点也不会被挪走。
+    server.use(
+      http.post(`${TAURI_ENDPOINT}/router_status`, () =>
+        HttpResponse.json({
+          settings: defaultRouterSettings,
+          runs: [run("working")],
+          traces: [],
+          today: { dispatches: 0, judgeCalls: 0 },
+        }),
+      ),
+    );
+    apiMocks.board.mockResolvedValue(
+      boardWith(
+        [
+          scheduled({
+            kind: "interval",
+            minutes: 120,
+            nextRunAt: Date.now() - 60_000,
+          }),
+        ],
+        "In Progress",
+      ),
+    );
+    renderBoard();
+
+    const column = await screen.findByRole("region", { name: "In Progress" });
+    expect(
+      await within(column).findByText(zh.tasks.router.state.working),
+    ).toBeTruthy();
+    expect(within(column).queryByText(zh.tasks.schedule.dueShort)).toBeNull();
+    expect(within(column).queryByText(/下次 /)).toBeNull();
+  });
+
+  it("一次性任务的时刻只写一遍，不再重复一个「下次」", async () => {
+    const at = new Date(2030, 0, 2, 18, 30);
+    apiMocks.board.mockResolvedValue(
+      boardWith([
+        scheduled({
+          kind: "once",
+          at: "2030-01-02 18:30",
+          nextRunAt: at.getTime(),
+        }),
+      ]),
+    );
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    expect(
+      within(todo).getByText(
+        zh.tasks.schedule.once.replace("{{at}}", "2030-01-02 18:30"),
+      ),
+    ).toBeTruthy();
+    expect(within(todo).queryByText(/下次 /)).toBeNull();
+  });
+});
+
+describe("TaskBoardPage — 需求讨论", () => {
+  const question = "默认看最近 5 条，还是按日期分组？";
+  const talking = {
+    ...card,
+    kind: "discussion" as const,
+    discussionHold: true,
+    discussionQuestion: question,
+  };
+
+  beforeEach(() => {
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        { status: "To Do", tasks: [talking] },
+        { status: "In Progress", tasks: [] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+    apiMocks.detail.mockResolvedValue({
+      task: talking,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: null,
+      artifacts: [],
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("待办卡面直接写出待决定的问题，并标出讨论中", async () => {
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    expect(within(todo).getByText(question)).toBeInTheDocument();
+    expect(
+      within(todo).getByText(zh.tasks.discussion.held),
+    ).toBeInTheDocument();
+  });
+
+  it("讨论交给 Router：在详情里说一句，走 discussionSay，不开终端会话", async () => {
+    const onStartSession = vi.fn().mockResolvedValue("s-talk");
+    const said = {
+      task: talking,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: null,
+      artifacts: [],
+      discussionTurns: [{ role: "user", text: "先定范围", createdAt: 1 }],
+    };
+    apiMocks.discussionSay.mockResolvedValue(said);
+    const user = userEvent.setup();
+    render(
+      <TaskBoardPage
+        terminalApps={["codex"]}
+        onStartSession={onStartSession}
+        onOpenSession={vi.fn()}
+        onOpenWorker={vi.fn().mockResolvedValue(true)}
+        liveSessionIds={[]}
+      />,
+    );
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    await user.click(within(todo).getByRole("button", { name: card.title }));
+
+    const input = await screen.findByPlaceholderText(
+      zh.tasks.discussion.sayPlaceholder,
+    );
+    await user.type(input, "先定范围");
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.discussion.send }),
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.discussionSay).toHaveBeenCalledWith(
+        "/repo",
+        "TASK-1",
+        "先定范围",
+        "12:abcd",
+      ),
+    );
+    // 讨论不派 worker，也不开终端会话
+    expect(onStartSession).not.toHaveBeenCalled();
+  });
+
+  it("已完成的任务不回退讨论态，而是派生一张新的讨论卡", async () => {
+    const doneCard = { ...card, status: "Done" };
+    const derivedCard = {
+      ...card,
+      id: "TASK-2",
+      kind: "discussion" as const,
+      round: 2,
+      sourceTask: "TASK-1",
+      status: "To Do",
+      discussionHold: true,
+      discussionQuestion: "按日期分组？",
+      title: "讨论：芳芳说的发生",
+    };
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        { status: "To Do", tasks: [] },
+        { status: "In Progress", tasks: [] },
+        { status: "Done", tasks: [doneCard] },
+      ],
+    });
+    apiMocks.detail.mockResolvedValue({
+      task: doneCard,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: null,
+      derived: [],
+      artifacts: [],
+    });
+    apiMocks.deriveDiscussion.mockResolvedValue({
+      task: derivedCard,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: null,
+      derived: [],
+      artifacts: [],
+    });
+    const user = userEvent.setup();
+    renderBoard();
+
+    const done = await screen.findByRole("region", { name: "Done" });
+    await user.click(
+      within(done).getByRole("button", { name: doneCard.title }),
+    );
+    // 已完成的任务没有输入框，只有「重新讨论」与一句话输入
+    expect(
+      screen.queryByRole("button", { name: zh.tasks.discussion.sendTask }),
+    ).toBeNull();
+    const note = await screen.findByLabelText(zh.tasks.discussion.deriveLabel);
+    await user.type(note, "按日期分组？");
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.discussion.derive }),
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.deriveDiscussion).toHaveBeenCalledWith(
+        "/repo",
+        "TASK-1",
+        "按日期分组？",
+      ),
+    );
+    // 跳到新卡：第 2 轮、指向原卡，输入框就在这一页
+    expect(await screen.findByText("第 2 轮讨论")).toBeInTheDocument();
+    expect(screen.getByText("来自 TASK-1")).toBeInTheDocument();
+    // 派生时写下的那句话就是第一句发言，不用到详情页再打一遍
+    await waitFor(() =>
+      expect(apiMocks.discussionSay).toHaveBeenCalledWith(
+        "/repo",
+        "TASK-2",
+        "按日期分组？",
+        "12:abcd",
+      ),
+    );
+    expect(screen.getByText("按日期分组？")).toBeInTheDocument();
+  });
+
+  it("只有讨论卡能发起讨论：待办卡先转成讨论卡，转换后输入框才出现", async () => {
+    const converted = {
+      ...card,
+      kind: "discussion" as const,
+      discussionHold: true,
+    };
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        { status: "To Do", tasks: [card] },
+        { status: "In Progress", tasks: [] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+    apiMocks.detail.mockResolvedValue({
+      task: card,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: null,
+      derived: [],
+      artifacts: [],
+    });
+    apiMocks.convertDiscussion.mockResolvedValue({
+      task: converted,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: null,
+      derived: [],
+      artifacts: [],
+    });
+    const user = userEvent.setup();
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    await user.click(within(todo).getByRole("button", { name: card.title }));
+
+    // 普通待办卡不能就地讨论：没有输入框，只有一次显式类型转换。
+    expect(
+      screen.queryByPlaceholderText(zh.tasks.discussion.sayPlaceholder),
+    ).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.discussion.pendingConvert }),
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.convertDiscussion).toHaveBeenCalledWith(
+        "/repo",
+        "TASK-1",
+        "12:abcd",
+      ),
+    );
+    // 转换后仍是同一张卡，只是现在是讨论卡：输入框出现在这一页。
+    expect(
+      await screen.findByPlaceholderText(zh.tasks.discussion.sayPlaceholder),
+    ).toBeInTheDocument();
+  });
+
+  it("运行中的任务不显示需求讨论板块", async () => {
+    const runningCard = { ...card, status: "In Progress" };
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        { status: "To Do", tasks: [] },
+        { status: "In Progress", tasks: [runningCard] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+    apiMocks.detail.mockResolvedValue({
+      task: runningCard,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: null,
+      derived: [],
+      artifacts: [],
+    });
+    const user = userEvent.setup();
+    renderBoard();
+
+    const running = await screen.findByRole("region", { name: "In Progress" });
+    await user.click(
+      within(running).getByRole("button", { name: runningCard.title }),
+    );
+
+    // 详情页确实打开了（验收为空时的说明能在），但这一页没有「需求讨论」这一块：
+    // 既没有说明，也没有输入框或任何入口。
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).getByText(zh.tasks.noAcceptance)).toBeInTheDocument();
+    expect(within(sheet).queryByText(zh.tasks.discussion.title)).toBeNull();
+    expect(
+      within(sheet).queryByPlaceholderText(zh.tasks.discussion.sayPlaceholder),
+    ).toBeNull();
+    expect(
+      within(sheet).queryByPlaceholderText(
+        zh.tasks.discussion.derivePlaceholder,
+      ),
+    ).toBeNull();
+    for (const label of [
+      zh.tasks.discussion.pendingConvert,
+      zh.tasks.discussion.derive,
+      zh.tasks.discussion.sendTask,
+    ]) {
+      expect(within(sheet).queryByRole("button", { name: label })).toBeNull();
+    }
+  });
+
+  it("看板仅为讨论卡提供删除入口，取消不删除，确认删除指定卡片", async () => {
+    const discussionCard = {
+      ...card,
+      id: "TASK-2",
+      title: "讨论范围",
+      kind: "discussion" as const,
+      fingerprint: "discussion:123",
+    };
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        { status: "To Do", tasks: [card, discussionCard] },
+        { status: "In Progress", tasks: [] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+    apiMocks.discardDiscussion.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    expect(
+      within(todo).queryByRole("button", {
+        name: `${zh.tasks.discussion.discard}：${card.title}`,
+      }),
+    ).toBeNull();
+    const deleteButton = within(todo).getByRole("button", {
+      name: `${zh.tasks.discussion.discard}：${discussionCard.title}`,
+    });
+    await user.click(deleteButton);
+    expect(apiMocks.detail).not.toHaveBeenCalled();
+    expect(apiMocks.discardDiscussion).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: zh.common.cancel }));
+    expect(apiMocks.discardDiscussion).not.toHaveBeenCalled();
+
+    await user.click(deleteButton);
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.discussion.discard }),
+    );
+    await waitFor(() =>
+      expect(apiMocks.discardDiscussion).toHaveBeenCalledWith(
+        "/repo",
+        "TASK-2",
+        "discussion:123",
+      ),
+    );
+  });
+
+  it("关掉讨论卡要再确认一次：删文件不可撤销，误点不应该就没了", async () => {
+    const discussionCard = {
+      ...card,
+      kind: "discussion" as const,
+      discussionHold: true,
+      discussionQuestion: "按日期分组？",
+    };
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        { status: "To Do", tasks: [discussionCard] },
+        { status: "In Progress", tasks: [] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+    apiMocks.detail.mockResolvedValue({
+      task: discussionCard,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: null,
+      derived: [],
+      artifacts: [],
+    });
+    apiMocks.discardDiscussion.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    await user.click(
+      within(todo).getByRole("button", { name: discussionCard.title }),
+    );
+
+    const close = await screen.findByRole("button", {
+      name: zh.tasks.discussion.discard,
+    });
+    await user.click(close);
+    // 第一次点击只是问一句，文件还在
+    expect(
+      await screen.findByText(zh.tasks.discussion.discardTitle),
+    ).toBeInTheDocument();
+    expect(apiMocks.discardDiscussion).not.toHaveBeenCalled();
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.discussion.discard }),
+    );
+    await waitFor(() =>
+      expect(apiMocks.discardDiscussion).toHaveBeenCalledWith(
+        "/repo",
+        "TASK-1",
+        "12:abcd",
+      ),
+    );
+  });
+
+  it("发送任务：讨论结束的卡直接进执行列，不用自己拖", async () => {
+    const discussionCard = {
+      ...card,
+      kind: "discussion" as const,
+      discussionHold: true,
+      discussionQuestion: "按日期分组？",
+    };
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        { status: "To Do", tasks: [discussionCard] },
+        { status: "In Progress", tasks: [] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+    apiMocks.detail.mockResolvedValue({
+      task: discussionCard,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: "其他列不动",
+      derived: [],
+      artifacts: [],
+      discussionTurns: [],
+    });
+    apiMocks.setStatus.mockResolvedValue({
+      task: {
+        ...discussionCard,
+        kind: "task",
+        discussionHold: false,
+        status: "In Progress",
+      },
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: "其他列不动",
+      derived: [],
+      artifacts: [],
+      discussionTurns: [],
+    });
+    const user = userEvent.setup();
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    await user.click(
+      within(todo).getByRole("button", { name: discussionCard.title }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: zh.tasks.discussion.sendTask,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.setStatus).toHaveBeenCalledWith(
+        "/repo",
+        "TASK-1",
+        "In Progress",
+        "12:abcd",
+      ),
+    );
+  });
+
+  it("保存草稿退出：详情收起，卡片与讨论记录都留着", async () => {
+    const discussionCard = {
+      ...card,
+      kind: "discussion" as const,
+      discussionHold: true,
+    };
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        { status: "To Do", tasks: [discussionCard] },
+        { status: "In Progress", tasks: [] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+    apiMocks.detail.mockResolvedValue({
+      task: discussionCard,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      confirmed: null,
+      derived: [],
+      artifacts: [],
+      discussionTurns: [{ role: "user", text: "先定范围", createdAt: 1 }],
+    });
+    const user = userEvent.setup();
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    await user.click(
+      within(todo).getByRole("button", { name: discussionCard.title }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: zh.tasks.discussion.closeDraft,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: zh.tasks.discussion.sendTask }),
+      ).toBeNull(),
+    );
+    // 退出不等于丢弃：卡片文件与这一轮的记录都还在
+    expect(apiMocks.discardDiscussion).not.toHaveBeenCalled();
+  });
+
+  it("讨论卡在卡面标出轮次与来源", async () => {
+    const round2 = {
+      ...card,
+      kind: "discussion" as const,
+      round: 2,
+      sourceTask: "TASK-9",
+      discussionHold: true,
+    };
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        { status: "To Do", tasks: [round2] },
+        { status: "In Progress", tasks: [] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+    renderBoard();
+
+    const todo = await screen.findByRole("region", { name: "To Do" });
+    expect(within(todo).getByText("讨论 · 第 2 轮")).toBeInTheDocument();
+    expect(within(todo).getByText("来自 TASK-9")).toBeInTheDocument();
+  });
+});
+
+describe("TaskBoardPage — 智能体视图", () => {
+  const writer = {
+    id: "writer",
+    name: "文档写手",
+    description: "改文档",
+    appId: "claude",
+    prompt: "",
+    model: "",
+    arguments: [],
+    outcome: "",
+    boundary: "",
+    askUserWhen: [],
+    steps: [],
+    constraints: [],
+    completion: { result: "", evidence: [] },
+  };
+
+  beforeEach(() => {
+    apiMocks.workspaces.mockResolvedValue([workspace]);
+    apiMocks.board.mockResolvedValue(board);
+    server.use(
+      http.post(`${TAURI_ENDPOINT}/router_status`, () =>
+        HttpResponse.json({
+          settings: {
+            ...defaultRouterSettings,
+            agents: [writer],
+            workerApps: ["writer"],
+          },
+          runs: [],
+          traces: [],
+          today: { dispatches: 0, judgeCalls: 0 },
+        }),
+      ),
+    );
+  });
+
+  it("智能体与看板是同一排的两个视图，切过去先看到讨论行与未分配行", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await screen.findByRole("region", { name: "To Do" });
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.agentView.agents }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: zh.tasks.agentView.title }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: zh.tasks.agentView.discussionRow }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: zh.tasks.agentView.unassigned }),
+    ).toBeInTheDocument();
+    // 没指派的卡落在「未分配」，不会凭空消失
+    expect(screen.getAllByText(card.title).length).toBeGreaterThan(0);
+  });
+
+  it("行内 ▶ 走「指派并开工」，不是只改归属", async () => {
+    const user = userEvent.setup();
+    const calls: unknown[] = [];
+    server.use(
+      http.post(`${TAURI_ENDPOINT}/router_assign_task`, async ({ request }) => {
+        calls.push(await request.json());
+        return HttpResponse.json({
+          assignees: ["writer"],
+          started: true,
+          detail: null,
+        });
+      }),
+    );
+    apiMocks.board.mockResolvedValue({
+      ...board,
+      columns: [
+        {
+          status: "In Progress",
+          tasks: [{ ...card, status: "In Progress", assignees: ["writer"] }],
+        },
+        { status: "To Do", tasks: [] },
+        { status: "Done", tasks: [] },
+      ],
+    });
+    renderBoard();
+    await screen.findByRole("region", { name: "In Progress" });
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.agentView.agents }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: zh.tasks.agentView.start }),
+    );
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toMatchObject({
+      taskId: "TASK-1",
+      agentId: "writer",
+      start: true,
+    });
+  });
+
+  it("行里的 + 建出来的卡直接归这一行：建卡时就写 assignee", async () => {
+    const user = userEvent.setup();
+    apiMocks.create.mockResolvedValue({
+      task: card,
+      body: "",
+      sections: [],
+      acceptance: [],
+      links: [],
+      outcome: null,
+      artifacts: [],
+      discussionTurns: [],
+    });
+    renderBoard();
+    await screen.findByRole("region", { name: "To Do" });
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.agentView.agents }),
+    );
+
+    const heading = await screen.findByRole("heading", { name: "文档写手" });
+    const writerRow = heading.closest("section") as HTMLElement;
+    await user.click(
+      within(writerRow).getByRole("button", {
+        name: zh.tasks.agentView.addTask.replace("{{name}}", "文档写手"),
+      }),
+    );
+    await user.type(
+      within(writerRow).getByPlaceholderText(
+        zh.tasks.agentView.addTaskPlaceholder,
+      ),
+      "补一段迁移说明",
+    );
+    await user.click(
+      within(writerRow).getByRole("button", { name: zh.tasks.newTaskSend }),
+    );
+
+    // 一张卡一次请求：归属写在 assignee 里，不单开一次指派
+    await waitFor(() =>
+      expect(apiMocks.create).toHaveBeenCalledWith("/repo", {
+        title: "补一段迁移说明",
+        assignees: ["writer"],
+      }),
+    );
   });
 });

@@ -65,12 +65,13 @@ pub fn worker_flags(app: &str) -> Option<&'static [&'static str]> {
 ///
 /// 与 `prepare_with` 的 `arguments` 同一种格式，所以两条派发路径（zellij 与托管
 /// 终端）不需要各写一套：谁能把 CLI 非交互地跑起来，谁就拿到同一份参数。
-pub fn worker_arguments(app: &str, prompt: &str) -> String {
+pub fn worker_arguments(app: &str, extra: &[String], prompt: &str) -> String {
     let mut parts: Vec<String> = worker_flags(app)
         .unwrap_or(&[])
         .iter()
         .map(|part| quote(part))
         .collect();
+    parts.extend(extra.iter().map(|part| quote(part)));
     parts.push(quote(prompt));
     parts.join(" ")
 }
@@ -313,7 +314,7 @@ mod tests {
         // 记账判定「是不是停了」，所以后台 worker 必须走 CLI 自己的非交互模式。
         let prompt = "读 backlog/tasks/task-1 - 芳芳说的发生.md 这张任务卡";
         assert_eq!(
-            parse_arguments(&worker_arguments("codex", prompt)).unwrap(),
+            parse_arguments(&worker_arguments("codex", &[], prompt)).unwrap(),
             vec![
                 "exec",
                 "-s",
@@ -344,7 +345,7 @@ mod tests {
         // 也不能凭空塞一个它不认的参数。
         assert_eq!(worker_flags("pi"), None);
         assert_eq!(
-            parse_arguments(&worker_arguments("pi", prompt)).unwrap(),
+            parse_arguments(&worker_arguments("pi", &[], prompt)).unwrap(),
             vec![prompt]
         );
     }

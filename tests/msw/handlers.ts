@@ -51,6 +51,8 @@ export const defaultRouterSettings = {
   judgeCallsPerDay: 200,
   attentionThreshold: 8,
   workerApps: ["claude"],
+  agents: [],
+  routerAvatar: "",
   maxAttempts: 3,
   stallSeconds: 3600,
   monitorIntervalSeconds: 120,
@@ -109,6 +111,39 @@ export const handlers = [
     return success(body.settings ?? defaultRouterSettings);
   }),
   http.post(`${TAURI_ENDPOINT}/router_plan`, () => success([])),
+  // 指派默认成功；组件测试要验守卫时再按需覆盖。
+  http.post(`${TAURI_ENDPOINT}/router_assign_task`, async ({ request }) => {
+    const body = await withJson<{ agentId: string | null; start: boolean }>(
+      request,
+    );
+    return success({
+      assignees: body.agentId ? [body.agentId] : [],
+      started: body.start,
+      detail: null,
+    });
+  }),
+  http.post(`${TAURI_ENDPOINT}/router_agent_suggestions`, () => success([])),
+  // 工作室：默认给一段「说明 + 完整草稿」，组件测试想验坏 JSON 时再覆盖。
+  http.post(`${TAURI_ENDPOINT}/router_agent_draft`, () =>
+    success({
+      reply: "我先按文档岗收了一版，缺对外承诺的处理方式。",
+      draft: {
+        id: "",
+        name: "文档写手",
+        description: "改文档",
+        appId: "claude",
+        prompt: "",
+        model: "",
+        arguments: [],
+        outcome: "交付改动过的文档",
+        boundary: "不动代码",
+        askUserWhen: ["涉及对外承诺"],
+        steps: ["读卡", "改写"],
+        constraints: ["不删结论"],
+        completion: { result: "改完", evidence: ["列出章节"] },
+      },
+    }),
+  ),
   // 手动「开始会话」的指令由 Rust 侧生成；这里给一个已转义的样例。
   http.post(`${TAURI_ENDPOINT}/task_session_arguments`, () =>
     success("'读 backlog/tasks/TASK-1.md 这张任务卡，完成任务。'"),

@@ -6,6 +6,83 @@ import { invoke } from "@tauri-apps/api/core";
  * 前端不参与调度判断：这里只有开关、状态、暂停/恢复/开始四个动作。
  */
 
+/**
+ * 一个可被派发的智能体。判官只在它们之间按用途选人，应用、模型与
+ * 追加参数都跟着定义走，不在派发时临时猜。
+ *
+ * `id` 是稳定标识（允许列表与历史记录都用它），`name` 与 `description` 给人看。
+ */
+export interface AgentCompletion {
+  /** 交付时做到什么算完。 */
+  result: string;
+  /** 交付前逐条自查的证据。 */
+  evidence: string[];
+}
+
+export interface RouterAgent {
+  /** 稳定标识：改名不改 id，卡片上的 assignee 一直有效。 */
+  id: string;
+  name: string;
+  /**
+   * 选过的头像键（`avatar-NN`）。空或缺失表示按 id 派生——老设置里没有这一项，
+   * 后端存的时候也会按空串落盘。
+   */
+  avatar?: string;
+  /** 一句话说明什么任务适合派给它，判官据此选人。 */
+  description: string;
+  /** 执行用的应用 id（claude / codex / ...）。 */
+  appId: string;
+  /** 角色提示词，拼在任务说明之前。 */
+  prompt: string;
+  /** 会话级模型覆盖。空 = 跟随应用。 */
+  model: string;
+  /** 追加给 CLI 的参数；启动必需的参数由 phi 自动附加，不能在这里覆盖。 */
+  arguments: string[];
+  /** 它负责的结果：接这类活要交出什么。 */
+  outcome: string;
+  /** 负责边界：什么不接。 */
+  boundary: string;
+  /** 动手前必须先问用户的情况。 */
+  askUserWhen: string[];
+  /** 执行步骤，按顺序。 */
+  steps: string[];
+  /** 必须遵守的约束。 */
+  constraints: string[];
+  /** 怎样才算完成。 */
+  completion: AgentCompletion;
+}
+
+/** 「指派」/「指派并开工」的结果。 */
+export interface AgentAssignResult {
+  assignees: string[];
+  /** 是否真的起了进程；影子模式与只指派时为 false。 */
+  started: boolean;
+  /** 只落了指派时说明原因（如影子模式）。 */
+  detail: string | null;
+}
+
+/** 工作室的一轮发言。 */
+export interface AgentStudioTurn {
+  role: "user" | "router";
+  text: string;
+}
+
+export interface AgentStudioReply {
+  reply: string;
+  /** 这一轮产出的草稿；模型没给或给歪了时为 null。 */
+  draft: RouterAgent | null;
+}
+
+/** 调度器提议：近 14 天同类活反复派给同一应用，但还没有对应智能体。 */
+export interface AgentSuggestion {
+  name: string;
+  appId: string;
+  summary: string;
+  steps: string[];
+  evidence: string[];
+  completed: number;
+}
+
 /** 运行态。与看板列（markdown 里的 status）是两件事，不要互相推导。 */
 export type RouterRunState =
   | "idle"
@@ -29,8 +106,12 @@ export interface RouterSettings {
   dispatchesPerDay: number;
   judgeCallsPerDay: number;
   attentionThreshold: number;
-  /** 允许被派发的 worker（应用 id），第一个是默认值。 */
+  /** 允许被派发的智能体 id，顺序即优先级（第一个是默认）。 */
   workerApps: string[];
+  /** 可被派发的智能体定义。为空时旧配置里的 workerApps 按应用 id 解释。 */
+  agents: RouterAgent[];
+  /** Router 自己的头像键；空 = 按固定 id 派生一张。它只管显示，不参与派发。 */
+  routerAvatar: string;
   maxAttempts: number;
   /** 一次运行最多跑多久（秒），超过就当作卡死：停掉并按失败重派。0 表示不设上限。 */
   stallSeconds: number;
@@ -53,6 +134,10 @@ export interface RouterTaskRun {
   root: string;
   state: RouterRunState;
   workerApp: string | null;
+  /** 派发那一刻的智能体快照：改配置或删智能体都不改历史。 */
+  agentId: string | null;
+  agentName: string | null;
+  agentModel: string | null;
   sessionId: string | null;
   attempts: number;
   /** 最后一次的说明：问题、失败原因或收尾结论。 */
@@ -155,8 +240,22 @@ export interface WorkerSnapshot {
   exitCode: number | null;
 }
 
+/** 智能体编辑器里能选的执行模型。 */
+export interface AgentModelChoices {
+  /** 现在可以按会话指定的模型 id；带 Stack 前缀的 id 由网关落到具体那家。 */
+  models: string[];
+  /** 这个应用支不支持按会话指定模型（`--model` / `-m`）。 */
+  overridable: boolean;
+}
+
 export const superAgentApi = {
   settings: () => invoke<RouterSettings>("router_settings"),
+  /**
+   * 某个应用现在可以按会话指定的模型；不支持的应用 `overridable` 为 false，
+   * 前端把下拉置灰，不展示一个兼现不了的选项。
+   */
+  agentModels: (appId: string) =>
+    invoke<AgentModelChoices>("router_agent_models", { appId }),
   saveSettings: (settings: RouterSettings) =>
     invoke<RouterSettings>("router_save_settings", { settings }),
   status: () => invoke<RouterStatus>("router_status"),
@@ -191,6 +290,46 @@ export const superAgentApi = {
   /** 立刻开始：跳过冷却与配额，仍受 worker 白名单与租约约束。 */
   start: (root: string, taskId: string) =>
     invoke<void>("router_start_task", { root, taskId }),
+  /**
+   * 指派（可选立即开工）。
+   *
+   * `agentId` 为 null 是清掉指派。`start` 才是第二个动作「指派并开工」：
+   * 拖放只做指派，改归属与授权起跑是两件事。
+   */
+  assign: (
+    root: string,
+    taskId: string,
+    agentId: string | null,
+    start: boolean,
+    fingerprint: string,
+  ) =>
+    invoke<AgentAssignResult>("router_assign_task", {
+      root,
+      taskId,
+      agentId,
+      start,
+      fingerprint,
+    }),
+  /** 工作室一轮对话：只产出可编辑草稿，保存仍要人点。 */
+  /**
+   * 工作室的一轮对话。
+   *
+   * `current` 是右栏此刻那一版：模型据此接着改，而不是只凭对话记忆重写一遍。
+   */
+  agentDraft: (
+    appId: string,
+    history: AgentStudioTurn[],
+    message: string,
+    current: RouterAgent | null,
+  ) =>
+    invoke<AgentStudioReply>("router_agent_draft", {
+      appId,
+      history,
+      message,
+      current,
+    }),
+  /** 调度器提议：只提议，不落库。 */
+  agentSuggestions: () => invoke<AgentSuggestion[]>("router_agent_suggestions"),
   /**
    * 打开这次运行的 worker。
    *

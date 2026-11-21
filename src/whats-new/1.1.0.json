@@ -1,0 +1,33 @@
+{
+  "version": "1.1.0",
+  "items": [
+    {
+      "type": "new",
+      "zh": "任务看板新增智能体视图，一行一个智能体",
+      "zh-TW": "任務看板新增智能體檢視，一行一個智能體",
+      "en": "The task board gains an agent view, one row per agent",
+      "ja": "タスクボードにエージェントビューを追加、1 行 1 エージェント"
+    },
+    {
+      "type": "new",
+      "zh": "任务详情页可直接与 Router 讨论需求",
+      "zh-TW": "任務詳情頁可直接與 Router 討論需求",
+      "en": "Discuss requirements with Router right in the task details",
+      "ja": "タスク詳細で Router と要件を相談できるように"
+    },
+    {
+      "type": "new",
+      "zh": "和 Router 对话起草智能体，任意版本可切回",
+      "zh-TW": "和 Router 對話起草智能體，任意版本可切回",
+      "en": "Draft agents by talking to Router, and resume any version",
+      "ja": "Router と対話してエージェントを起草、任意の版から再開"
+    },
+    {
+      "type": "improve",
+      "zh": "卡片可指派智能体，指派与开工分开",
+      "zh-TW": "卡片可指派智能體，指派與開工分開",
+      "en": "Cards can be assigned to an agent, separately from starting",
+      "ja": "カードをエージェントに割り当て、着手とは別操作に"
+    }
+  ]
+}

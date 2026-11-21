@@ -12,6 +12,14 @@ vi.mock("@/lib/api/gateway", () => ({
   groupModelAlias: (group: { id: string }) => `group/${group.id}`,
 }));
 
+// 编辑器打开时会问这个应用可以按会话指定哪些模型；测试里给一份固定名单。
+vi.mock("@/lib/api/superAgent", () => ({
+  superAgentApi: {
+    agentModels: () =>
+      Promise.resolve({ models: ["claude-opus-x"], overridable: true }),
+  },
+}));
+
 beforeAll(() => {
   // jsdom 没有 scrollIntoView，下拉打开时会调它。
   Element.prototype.scrollIntoView = vi.fn();
@@ -28,6 +36,8 @@ const settings: RouterSettings = {
   judgeCallsPerDay: 200,
   attentionThreshold: 8,
   workerApps: ["claude"],
+  agents: [],
+  routerAvatar: "",
   maxAttempts: 3,
   stallSeconds: 3600,
   monitorIntervalSeconds: 120,
@@ -121,5 +131,269 @@ describe("AutoRouterPanel — 触发列", () => {
     expect(
       await screen.findByRole("option", { name: "Done" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("AutoRouterPanel — 智能体", () => {
+  const renderAgents = (next: RouterSettings) => {
+    const onSave = vi.fn<(next: RouterSettings) => Promise<void>>(
+      async () => {},
+    );
+    render(
+      <AutoRouterPanel
+        status={{ ...status, settings: next }}
+        statuses={["To Do", "In Progress"]}
+        terminalApps={["claude", "codex"]}
+        onSave={onSave}
+        onRunNow={async () => {
+          throw new Error("unused");
+        }}
+      />,
+    );
+    return onSave;
+  };
+
+  const openPanel = async () => {
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.button }),
+    );
+    return user;
+  };
+
+  it("旧配置只有应用 id 时，照旧当智能体列出来并保持参与派发", async () => {
+    renderAgents({ ...settings, agents: [], workerApps: ["claude"] });
+    const user = await openPanel();
+
+    expect(await screen.findByText("Claude Code")).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", {
+        name: zh.tasks.router.agentAllowed.replace("{{name}}", "Claude Code"),
+      }),
+    ).toBeChecked();
+    // 只剩一个允许项时不能取消：取消就看不懂「自动又开了却没派」了。
+    expect(
+      screen.getByRole("checkbox", {
+        name: zh.tasks.router.agentAllowed.replace("{{name}}", "Claude Code"),
+      }),
+    ).toBeDisabled();
+    expect(user).toBeTruthy();
+  });
+
+  it("添加智能体：一次保存名称与用途，id 与允许名单交给后端", async () => {
+    const onSave = renderAgents({ ...settings, agents: [], workerApps: [] });
+    const user = await openPanel();
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentAdd }),
+    );
+    await user.type(
+      screen.getByLabelText(zh.tasks.router.agentName),
+      "文档写手",
+    );
+    await user.type(
+      screen.getByLabelText(zh.tasks.router.agentPurpose),
+      "写文档、补说明",
+    );
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentSave }),
+    );
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const saved = onSave.mock.calls[0][0];
+    expect(saved.agents).toHaveLength(1);
+    expect(saved.agents[0]).toMatchObject({
+      // id 留空：保存时由后端按名称派生，前端不猜 uniqueness。
+      id: "",
+      name: "文档写手",
+      description: "写文档、补说明",
+      appId: "claude",
+      model: "",
+    });
+    // 新建的智能体由后端补进允许名单（那时才有 id），这里不改动原有名单。
+    expect(saved.workerApps).toEqual([]);
+  });
+
+  it("名称空着不能保存，避免建出一个认不出来的智能体", async () => {
+    renderAgents({ ...settings, agents: [], workerApps: [] });
+    const user = await openPanel();
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentAdd }),
+    );
+    expect(
+      screen.getByRole("button", { name: zh.tasks.router.agentSave }),
+    ).toBeDisabled();
+  });
+
+  it("执行模型常开：名单里的能选，名单外的能自己填", async () => {
+    const onSave = renderAgents({ ...settings, agents: [], workerApps: [] });
+    const user = await openPanel();
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentAdd }),
+    );
+    await user.type(
+      screen.getByLabelText(zh.tasks.router.agentName),
+      "省钱的那个",
+    );
+
+    const trigger = screen.getByRole("combobox", {
+      name: zh.tasks.router.agentModel,
+    });
+    // 先选名单里的，验证下拉不是置灰的。
+    await user.click(trigger);
+    await user.click(await screen.findByText("claude-opus-x"));
+    // 再切到自定义，填一个名单外的模型。
+    await user.click(trigger);
+    await user.click(await screen.findByText(zh.tasks.router.agentModelCustom));
+    const input = screen.getByPlaceholderText(
+      zh.tasks.router.agentModelCustomPlaceholder,
+    );
+    await user.clear(input);
+    await user.type(input, "glm-5.2");
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentSave }),
+    );
+
+    const saved = onSave.mock.calls[0][0];
+    expect(saved.agents[0].model).toBe("glm-5.2");
+  });
+
+  it("追加参数能连打两个 token：`--effort high` 不会被吞成 `--efforthigh`", async () => {
+    const onSave = renderAgents({ ...settings, agents: [], workerApps: [] });
+    const user = await openPanel();
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentAdd }),
+    );
+    await user.type(
+      screen.getByLabelText(zh.tasks.router.agentName),
+      "便宜的那个",
+    );
+    const args = screen.getByLabelText(zh.tasks.router.agentArguments);
+    await user.type(args, "--effort high");
+    expect((args as HTMLInputElement).value).toBe("--effort high");
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentSave }),
+    );
+    const saved = onSave.mock.calls[0][0];
+    expect(saved.agents[0].arguments).toEqual(["--effort", "high"]);
+  });
+
+  it("编辑智能体只改定义，派发允许列表不受影响", async () => {
+    const writer = {
+      id: "writer",
+      name: "文档写手",
+      description: "写文档",
+      appId: "claude",
+      prompt: "",
+      model: "",
+      arguments: [],
+      outcome: "",
+      boundary: "",
+      askUserWhen: [],
+      steps: [],
+      constraints: [],
+      completion: { result: "", evidence: [] },
+    };
+    const onSave = renderAgents({
+      ...settings,
+      agents: [writer],
+      workerApps: ["writer"],
+    });
+    const user = await openPanel();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: zh.tasks.router.agentEdit.replace("{{name}}", "文档写手"),
+      }),
+    );
+    const name = screen.getByLabelText(zh.tasks.router.agentName);
+    await user.clear(name);
+    await user.type(name, "资料写手");
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentSave }),
+    );
+
+    const saved = onSave.mock.calls[0][0];
+    expect(saved.agents[0].name).toBe("资料写手");
+    expect(saved.workerApps).toEqual(["writer"]);
+  });
+
+  it("删除智能体时一并取消允许，不留一个指向不存在定义的 id", async () => {
+    const writer = {
+      id: "writer",
+      name: "文档写手",
+      description: "写文档",
+      appId: "claude",
+      prompt: "",
+      model: "",
+      arguments: [],
+      outcome: "",
+      boundary: "",
+      askUserWhen: [],
+      steps: [],
+      constraints: [],
+      completion: { result: "", evidence: [] },
+    };
+    const codex = {
+      ...writer,
+      id: "codex-reviewer",
+      name: "代码审查",
+      appId: "codex",
+    };
+    const onSave = renderAgents({
+      ...settings,
+      agents: [writer, codex],
+      workerApps: ["writer", "codex-reviewer"],
+    });
+    const user = await openPanel();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: zh.tasks.router.agentDelete.replace("{{name}}", "文档写手"),
+      }),
+    );
+
+    const saved = onSave.mock.calls[0][0];
+    expect(saved.agents.map((agent) => agent.id)).toEqual(["codex-reviewer"]);
+    expect(saved.workerApps).toEqual(["codex-reviewer"]);
+  });
+
+  it("角色上下文超过 6000 字时直接拦住保存，不让人白点一次", async () => {
+    const verbose = {
+      id: "writer",
+      name: "文档写手",
+      description: "写文档",
+      appId: "claude",
+      prompt: "",
+      model: "",
+      arguments: [],
+      outcome: "",
+      boundary: "",
+      askUserWhen: [],
+      // 10 × 300 个「步骤」＝ 6000 字，加上标题必然超限。
+      steps: Array.from({ length: 10 }, () => "步骤".repeat(300)),
+      constraints: [],
+      completion: { result: "", evidence: [] },
+    };
+    renderAgents({
+      ...settings,
+      agents: [verbose],
+      workerApps: ["writer"],
+    });
+    const user = await openPanel();
+    await user.click(
+      screen.getByRole("button", {
+        name: zh.tasks.router.agentEdit.replace("{{name}}", "文档写手"),
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: zh.tasks.router.agentSave }),
+    ).toBeDisabled();
+    expect(screen.getByText(/角色上下文超过 6000 字/)).toBeInTheDocument();
   });
 });

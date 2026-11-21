@@ -1,7 +1,8 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { getVersion } from "@tauri-apps/api/app";
-import { Sparkles } from "lucide-react";
+import { RotateCcw, ShieldCheck } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,29 @@ import { Button } from "@/components/ui/button";
 import { useSettingsQuery } from "@/lib/query";
 import { settingsApi } from "@/lib/api";
 import { markSeen } from "@/lib/whatsNew";
+
+/** 一条「会发生什么」：图标 + 一句结论 + 一句解释 */
+function NoticePoint({
+  icon,
+  title,
+  body,
+}: {
+  icon: ReactNode;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-panel bg-subtle px-3.5 py-3">
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-control bg-surface text-fg-3">
+        {icon}
+      </span>
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-strong text-fg-1">{title}</p>
+        <p className="text-body leading-relaxed text-fg-2">{body}</p>
+      </div>
+    </div>
+  );
+}
 
 /** 首次运行欢迎提示：仅当后端启动阶段保留 firstRunNoticeConfirmed 为空时弹出。 */
 export function FirstRunNoticeDialog() {
@@ -51,18 +75,22 @@ export function FirstRunNoticeDialog() {
     >
       <DialogContent className="max-w-md" zIndex="top">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-fg-1" />
-            {t("firstRunNotice.title")}
-          </DialogTitle>
+          <DialogTitle>{t("firstRunNotice.title")}</DialogTitle>
+          <DialogDescription className="leading-relaxed">
+            {t("firstRunNotice.lead")}
+          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 px-6 py-5">
-          <DialogDescription className="whitespace-pre-line leading-relaxed">
-            {t("firstRunNotice.bodyDefault")}
-          </DialogDescription>
-          <DialogDescription className="whitespace-pre-line leading-relaxed">
-            {t("firstRunNotice.bodyOfficial")}
-          </DialogDescription>
+        <div className="space-y-2 px-6 pb-5 pt-1">
+          <NoticePoint
+            icon={<ShieldCheck className="h-4 w-4" />}
+            title={t("firstRunNotice.keepTitle")}
+            body={t("firstRunNotice.keepBody")}
+          />
+          <NoticePoint
+            icon={<RotateCcw className="h-4 w-4" />}
+            title={t("firstRunNotice.officialTitle")}
+            body={t("firstRunNotice.officialBody")}
+          />
         </div>
         <DialogFooter>
           <Button onClick={handleAcknowledge}>

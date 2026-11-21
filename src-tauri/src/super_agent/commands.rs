@@ -7,11 +7,37 @@ use tauri::State;
 
 use crate::store::AppState;
 use crate::super_agent::judge::SystemOneJudge;
-use crate::super_agent::model::{DispatchSpec, RouterSettings, RouterStatus, RunState, TickReport};
+use crate::super_agent::model::{
+    Candidate, DispatchSpec, RouterSettings, RouterStatus, RunState, TickReport,
+};
 use crate::super_agent::runtime;
 use crate::super_agent::store::{self, RunWrite};
 use crate::super_agent::tick::{self, TickContext};
 use crate::super_agent::worker::{WorkerRuntime, WorkerState};
+
+/// 智能体编辑器里能选的执行模型。
+///
+/// `overridable` 是「这个应用能不能按会话指定模型」，和 `models` 是不是空无关：
+/// 支持的应用即使暂时一个模型也没列出来，也应该让人自己填一个。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentModels {
+    pub models: Vec<String>,
+    pub overridable: bool,
+}
+
+#[tauri::command]
+pub fn router_agent_models(
+    state: State<'_, AppState>,
+    app_id: String,
+) -> Result<AgentModels, String> {
+    let app: crate::app_config::AppType = app_id.parse().map_err(|_| "invalid-agent-app")?;
+    let models = crate::mode::stack::worker_models(&state.db, &app).map_err(|e| e.to_string())?;
+    Ok(AgentModels {
+        models,
+        overridable: crate::mode::stack::supports_session_model(&app),
+    })
+}
 
 #[tauri::command]
 pub fn router_settings(state: State<'_, AppState>) -> Result<RouterSettings, String> {
@@ -24,6 +50,13 @@ pub fn router_save_settings(
     state: State<'_, AppState>,
     settings: RouterSettings,
 ) -> Result<RouterSettings, String> {
+    // 先归一再校验：新智能体没有 id 时由后端从名称派生，前端的表单不必自己
+    // 猜 uniqueness，也就不会出现「界面上的 id 与真正落盘的 id 不是同一个」。
+    let settings = settings.normalize_agents();
+    settings.validate_agents()?;
+    for agent in &settings.agents {
+        agent.ready(&state.db)?;
+    }
     state
         .db
         .save_router_settings(&settings)
@@ -90,11 +123,14 @@ pub fn task_session_arguments(
     // 人点的「开始」与自动派发要是同一份参数，包括非交互模式；否则同一个任务
     // 从机器派发会结束，从人手里派发会停在提示符，调度器还以为它在跑。
     let settings = state.db.router_settings().map_err(|e| e.to_string())?;
-    let app = settings.default_worker().unwrap_or("codex");
-    Ok(crate::terminal::worker_arguments(
-        app,
-        &crate::super_agent::model::task_prompt(&candidate.file),
-    ))
+    // 与「开始」同一套解析：卡片归属优先，其次这张卡上次派给谁，最后才是默认；
+    // 归属认不出来就报错，不换人——换个人干等于改了用户的指派。
+    let agent_id = preferred_agent(&candidate, &settings)?;
+    let agent = settings
+        .agent(&agent_id)
+        .ok_or_else(|| format!("unknown-router-agent:{agent_id}"))?;
+    agent.ready(&state.db)?;
+    Ok(agent.launch_arguments(&candidate.file))
 }
 
 /// 「打开 worker 的终端」的结果。
@@ -197,6 +233,42 @@ pub fn router_worker_state(
     })
 }
 
+/// 工作室一轮对话。
+///
+/// 模型只产出一份可编辑草稿：写入设置仍要人点保存，所以「模型自己造员工」
+/// 这条路在能力上不存在（它没有数据库，也没有命令权限）。
+/// `current` 是右栏此刻的那一版，多轮修改以它为准。
+#[tauri::command]
+pub async fn router_agent_draft(
+    app: tauri::AppHandle,
+    app_id: String,
+    history: Vec<crate::super_agent::studio::StudioTurn>,
+    message: String,
+    current: Option<crate::super_agent::model::RouterAgent>,
+) -> Result<crate::super_agent::studio::StudioReply, String> {
+    if message.trim().is_empty() {
+        return Err("empty-message".into());
+    }
+    let parsed: crate::app_config::AppType = app_id
+        .parse()
+        .map_err(|_| "invalid-agent-app".to_string())?;
+    if parsed.as_str() != app_id || app_id == "claude-desktop" {
+        return Err("invalid-agent-app".into());
+    }
+    crate::super_agent::studio::reply(&app, &app_id, &history, &message, current.as_ref()).await
+}
+
+/// 调度器提议：近 14 天同类已完成卡 ≥ 3 张、且还没有对应智能体时给一条预填建议。
+///
+/// 只提议、不落库：提议是「一条可以点开的草稿」，人改完点保存才算数。
+#[tauri::command]
+pub fn router_agent_suggestions(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::super_agent::proposals::AgentSuggestion>, String> {
+    let settings = state.db.router_settings().map_err(|e| e.to_string())?;
+    Ok(crate::super_agent::proposals::propose(&state.db, &settings))
+}
+
 /// 读一张卡的规划 DAG（`plan_task` 的产物）。规则版 episode 不拆任务，所以通常是空的；
 /// sidecar 版接上之后，这里就是详情页画图的数据源。
 #[tauri::command]
@@ -287,9 +359,22 @@ pub async fn router_start_task(
     task_id: String,
 ) -> Result<(), String> {
     let _guard = tick::TICK_LOCK.lock().await;
-    let settings = state.db.router_settings().map_err(|e| e.to_string())?;
-    let candidate = tick::resolve_task(&state.db, Some(&root), &task_id)
-        .ok_or_else(|| "task-not-found".to_string())?;
+    start_task_locked(&app, &state.db, &root, &task_id).await
+}
+
+/// 「开始」的实际动作。调用方必须已经持有 [`tick::TICK_LOCK`]。
+///
+/// 抽出来只为一件事：指派并开工要在同一把锁里「先写归属、再立刻派发」，
+/// 否则中间那一瞬间 tick 可能拿着旧归属再派一次。
+pub(crate) async fn start_task_locked(
+    app: &tauri::AppHandle,
+    db: &crate::Database,
+    root: &str,
+    task_id: &str,
+) -> Result<(), String> {
+    let settings = db.router_settings().map_err(|e| e.to_string())?;
+    let candidate =
+        tick::resolve_task(db, Some(root), task_id).ok_or_else(|| "task-not-found".to_string())?;
     if candidate
         .run
         .as_ref()
@@ -298,19 +383,20 @@ pub async fn router_start_task(
         log::warn!("router duplicate start rejected task={task_id}");
         return Err("task-already-running".into());
     }
-    let app_id = candidate
-        .run
-        .as_ref()
-        .and_then(|run| run.worker_app.clone())
-        .or_else(|| settings.default_worker().map(str::to_string))
-        .ok_or_else(|| "no-worker-configured".to_string())?;
+    let agent_id = preferred_agent(&candidate, &settings)?;
     if !settings
         .worker_apps
         .iter()
-        .any(|allowed| allowed == &app_id)
+        .any(|allowed| allowed == &agent_id)
     {
         return Err("worker-not-allowed".into());
     }
+
+    let agent = settings
+        .agent(&agent_id)
+        .ok_or_else(|| format!("unknown-router-agent:{agent_id}"))?;
+    agent.ready(db)?;
+    let app_id = agent.app_id.clone();
 
     // 人按「开始」时把卡片挪进触发列：之后 tick 才会把它当作自己的任务，
     // 否则它只是一次孤立派发，跑完也没人收尾。写之前比对指纹，卡片被外部改过
@@ -319,11 +405,11 @@ pub async fn router_start_task(
     // 挪列会改文件（status + updated_date），指纹随之变化，所以记进运行态的必须是
     // 挪完之后的指纹：拿旧指纹去对，「收尾」会把一次什么都没干的运行判成完成。
     let mut fingerprint = candidate.fingerprint.clone();
-    if candidate.status != settings.trigger_status {
-        let workspace = crate::tasks::commands::open(&state, &candidate.root)?;
+    if candidate.discussion_hold || candidate.status != settings.trigger_status {
+        let workspace = crate::tasks::commands::open_in(db, &candidate.root)?;
         let moved = crate::tasks::repository::set_status(
             &workspace,
-            &task_id,
+            task_id,
             &settings.trigger_status,
             &candidate.fingerprint,
         )
@@ -333,11 +419,10 @@ pub async fn router_start_task(
 
     let now = store::now_ms();
     let holder = format!("manual:{now}");
-    let acquired = state
-        .db
+    let acquired = db
         .acquire_router_lease(
             &candidate.root,
-            &task_id,
+            task_id,
             &holder,
             now + settings.lease_seconds.max(1) * 1000,
         )
@@ -346,9 +431,10 @@ pub async fn router_start_task(
         return Err("lease-busy".into());
     }
 
-    let workers = runtime::workers_for(&app);
+    let workers = runtime::workers_for(app);
     let spec = DispatchSpec {
-        task_id: task_id.clone(),
+        agent,
+        task_id: task_id.to_string(),
         root: candidate.root.clone(),
         app_id: app_id.clone(),
         file: candidate.file.clone(),
@@ -357,35 +443,33 @@ pub async fn router_start_task(
     let result = workers.dispatch(&spec);
     // 成功时保留租约直到 TTL：写入运行态之前有一个窗口，并发的 tick 会再派一次。
     if result.is_err() {
-        let _ = state.db.release_router_lease(&candidate.root, &task_id);
+        let _ = db.release_router_lease(&candidate.root, task_id);
     }
 
     match result {
         Ok(outcome) => {
-            state
-                .db
-                .put_router_run(
-                    &candidate.root,
-                    &task_id,
-                    RunWrite {
-                        state: RunState::Dispatched,
-                        worker_app: Some(&app_id),
-                        session_id: Some(&outcome.session_id),
-                        attempts: candidate.attempts() + 1,
-                        detail: None,
-                        card_fingerprint: Some(fingerprint.as_str()),
-                        // 人按下的「开始」不是影子：它确实派了进程。
-                        shadow: false,
-                    },
-                    now,
-                )
+            db.put_router_run(
+                &candidate.root,
+                task_id,
+                RunWrite {
+                    state: RunState::Dispatched,
+                    worker_app: Some(&app_id),
+                    session_id: Some(&outcome.session_id),
+                    attempts: candidate.attempts() + 1,
+                    detail: None,
+                    card_fingerprint: Some(fingerprint.as_str()),
+                    // 人按下的「开始」不是影子：它确实派了进程。
+                    shadow: false,
+                },
+                now,
+            )
+            .map_err(|e| e.to_string())?;
+            db.insert_router_dispatch(task_id, &candidate.root, &app_id, now)
                 .map_err(|e| e.to_string())?;
-            state
-                .db
-                .insert_router_dispatch(&task_id, &candidate.root, &app_id, now)
+            db.record_router_run_agent(&candidate.root, task_id, &spec.agent, now)
                 .map_err(|e| e.to_string())?;
             // 人按下的「开始」意味着这张卡现在就动：tick 之后不用再等节拍。
-            runtime::kick(&app);
+            runtime::kick(app);
             Ok(())
         }
         Err(error) => {
@@ -394,29 +478,144 @@ pub async fn router_start_task(
                 .run
                 .as_ref()
                 .map(|run| run.root.clone())
-                .unwrap_or(root);
+                .unwrap_or_else(|| root.to_string());
+            db.put_router_run(
+                &root,
+                task_id,
+                RunWrite {
+                    state: RunState::Failed,
+                    worker_app: Some(&app_id),
+                    session_id: None,
+                    attempts,
+                    detail: Some(&format!("dispatch-failed:{error}")),
+                    card_fingerprint: candidate
+                        .run
+                        .as_ref()
+                        .and_then(|run| run.card_fingerprint.as_deref()),
+                    shadow: false,
+                },
+                now,
+            )
+            .map_err(|e| e.to_string())?;
+            Err(error)
+        }
+    }
+}
+
+/// 「指派」与「指派并开工」的结果。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignOutcome {
+    /// 写回卡片后的归属人（空 = 未指派）。
+    pub assignees: Vec<String>,
+    /// 是否真的起了进程。只指派、影子模式或依赖未满足时都是 `false`。
+    pub started: bool,
+    pub detail: Option<String>,
+}
+
+/// 把一张卡指派给某个智能体，或清掉指派（`agent_id = None`）。
+///
+/// `start = true` 才是第二个动作「指派并开工」。拖放只做前半截：改归属与
+/// 授权现在起跑是两件事，绑在一起的话，自动调度开着时手一滑就起了一个进程。
+#[tauri::command]
+pub async fn router_assign_task(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    root: String,
+    task_id: String,
+    agent_id: Option<String>,
+    start: bool,
+    fingerprint: String,
+) -> Result<AssignOutcome, String> {
+    let _guard = tick::TICK_LOCK.lock().await;
+    let settings = state.db.router_settings().map_err(|e| e.to_string())?;
+    // 只接受允许名单里的智能体：指派一个不参与派发的人，看起来像派了活，
+    // 实际什么都不会发生，比直接报错更难查。
+    if let Some(id) = agent_id.as_deref() {
+        if !settings.worker_apps.iter().any(|allowed| allowed == id) {
+            return Err(format!("agent-not-allowed:{id}"));
+        }
+        let agent = settings
+            .agent(id)
+            .ok_or_else(|| format!("unknown-router-agent:{id}"))?;
+        agent.ready(&state.db)?;
+    }
+    let workspace = crate::tasks::commands::open(&state, &root)?;
+    // 依赖检查放在写入之前：一个起不来的动作不该顺手改掉卡片。
+    if start {
+        if agent_id.is_none() {
+            return Err("no-agent-to-start".into());
+        }
+        let tasks = crate::tasks::repository::list(&workspace).map_err(|e| e.to_string())?;
+        let current = crate::tasks::repository::read(&workspace, &task_id)?;
+        for dependency in &current.task.dependencies {
+            let done = tasks
+                .iter()
+                .find(|task| &task.id == dependency)
+                .is_some_and(|task| crate::tasks::repository::is_done_status(&task.status));
+            if !done {
+                return Err(format!("blocked-by:{dependency}"));
+            }
+        }
+    }
+
+    let assignees: Vec<String> = agent_id.iter().cloned().collect();
+    let detail =
+        crate::tasks::repository::set_assignees(&workspace, &task_id, &assignees, &fingerprint)?;
+
+    let mut started = false;
+    let mut note = None;
+    if start {
+        if settings.shadow {
+            // 影子模式只记账：人确实按了，但这套配置还在观察期，不该真起进程。
+            let now = store::now_ms();
             state
                 .db
                 .put_router_run(
                     &root,
                     &task_id,
                     RunWrite {
-                        state: RunState::Failed,
-                        worker_app: Some(&app_id),
+                        state: RunState::Queued,
+                        worker_app: agent_id.as_deref(),
                         session_id: None,
-                        attempts,
-                        detail: Some(&format!("dispatch-failed:{error}")),
-                        card_fingerprint: candidate
-                            .run
-                            .as_ref()
-                            .and_then(|run| run.card_fingerprint.as_deref()),
-                        shadow: false,
+                        attempts: 0,
+                        detail: Some("影子模式：指派后只排队，没有派发进程"),
+                        card_fingerprint: Some(&detail.task.fingerprint),
+                        shadow: true,
                     },
                     now,
                 )
                 .map_err(|e| e.to_string())?;
-            Err(error)
+            note = Some("shadow".to_string());
+        } else {
+            start_task_locked(&app, &state.db, &root, &task_id).await?;
+            started = true;
         }
+    }
+    Ok(AssignOutcome {
+        assignees: detail.task.assignees,
+        started,
+        detail: note,
+    })
+}
+
+/// 这张卡现在该派给谁：卡片归属 → 上次运行快照 → 默认智能体。
+///
+/// 归属认不出来时直接报错，不退到「上次用的那个」：卡片上写着一个人的名字，
+/// 机器不能自己换个人去干，也不能悄悄降级成「随便找个人跑」。
+pub(crate) fn preferred_agent(
+    candidate: &Candidate,
+    settings: &RouterSettings,
+) -> Result<String, String> {
+    match candidate.assignee_agent(settings) {
+        Some(Ok(id)) => Ok(id),
+        Some(Err(id)) => Err(format!("unknown-assignee:{id}")),
+        None => candidate
+            .run
+            .as_ref()
+            .and_then(|run| settings.agent_for_run(run))
+            .or_else(|| settings.default_worker().map(str::to_string))
+            .ok_or_else(|| "no-worker-configured".to_string()),
     }
 }
 
