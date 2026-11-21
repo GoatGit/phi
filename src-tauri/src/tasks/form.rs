@@ -65,10 +65,9 @@ pub(crate) fn take(reply: &str) -> (String, Option<DiscussionForm>) {
         };
         let consumed = OPEN.len() + line_end + 1 + end + 3;
         match parse(body[..end].trim()) {
+            // 只取第一块能解析的表单：后面重复给的块仍从文字里摘掉，但不覆盖已选中的那份。
             Some(found) => {
-                if form.is_none() {
-                    form = Some(found);
-                }
+                form.get_or_insert(found);
             }
             // 写歪的块不吞掉：用户至少还能看到 Router 原本写的那段。
             None if form.is_none() => text.push_str(&rest[start..start + consumed]),
