@@ -92,7 +92,8 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
     }
 
     // ---------------------------------------------------------------- 快照
-    let scan = snapshot::collect(ctx.db)?;
+    let mut scan = snapshot::collect(ctx.db)?;
+    scan.candidates.retain(|task| !task.discussion_hold);
     report.scanned = scan.scanned;
     report.degraded.extend(scan.notes.clone());
     if scan.candidates.is_empty() {
@@ -271,6 +272,11 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
                 },
                 ctx.now,
             );
+            // 应用已经置空，上一轮的智能体快照跟着一起清：留着它，界面会出现
+            // 「没有应用，却写着上一轮用的模型」这种自相矛盾的一行。
+            let _ = ctx
+                .db
+                .clear_router_run_agent(&candidate.root, &candidate.task_id);
             report
                 .degraded
                 .push(format!("undecided:{}", candidate.task_id));
@@ -452,6 +458,13 @@ pub(crate) fn advance_schedules(
                 .push(format!("schedule-requeue-failed:{}", candidate.task_id));
             continue;
         }
+        // 上一轮派给谁不再适用：这一轮要重新选人，快照跟着运行态一起清。
+        if let Err(error) = db.clear_router_run_agent(&candidate.root, &candidate.task_id) {
+            log::warn!(
+                "router schedule snapshot clear failed task={}: {error}",
+                candidate.task_id
+            );
+        }
         if let Err(error) = db.mark_router_schedule(&candidate.root, &candidate.task_id, now) {
             log::warn!(
                 "router schedule mark failed task={}: {error}",
@@ -466,6 +479,9 @@ pub(crate) fn advance_schedules(
             root: candidate.root.clone(),
             state: RunState::Queued,
             worker_app: None,
+            agent_id: None,
+            agent_name: None,
+            agent_model: None,
             session_id: None,
             attempts: 0,
             detail: Some(detail),
@@ -931,6 +947,10 @@ pub(crate) fn settle(
         .iter()
         .map(|candidate| candidate.task_id.as_str())
         .collect();
+    let by_id: HashMap<&str, &Candidate> = candidates
+        .iter()
+        .map(|candidate| (candidate.task_id.as_str(), candidate))
+        .collect();
     let mut settled = Settled {
         unfinished: outcome.decisions.unfinished,
         ..Default::default()
@@ -953,16 +973,36 @@ pub(crate) fn settle(
         }
         match decision.action {
             Action::Dispatch => {
-                let worker = decision
-                    .app_id
-                    .as_deref()
+                // 人工指派优先：卡片写着归属时，判官提名的人不算数。
+                // 这条放在结算层而不是提示词里——能被绕过的东西不能当闸门。
+                let forced = match by_id
+                    .get(decision.task_id.as_str())
+                    .and_then(|candidate| candidate.assignee_agent(settings))
+                {
+                    Some(Ok(id)) => Some(id),
+                    Some(Err(id)) => {
+                        settled
+                            .dropped
+                            .push(format!("unknown-assignee:{}", decision.task_id));
+                        settled.decisions.push(Decision::ask(
+                            decision.task_id.clone(),
+                            format!(
+                                "这张卡指派给 {id}，但本机没有这个智能体。请指派一个已存在的智能体，或改回未指派。"
+                            ),
+                        ));
+                        continue;
+                    }
+                    None => None,
+                };
+                let nominated = forced.as_deref().or(decision.app_id.as_deref());
+                let worker = nominated
                     .filter(|app| settings.worker_apps.iter().any(|allowed| allowed == app));
                 let Some(worker) = worker else {
                     // 派给一个没配置的 worker：不改写、不猜，转人工。
                     settled.decisions.push(Decision::ask(
                         decision.task_id.clone(),
                         format!(
-                            "提名了 {}，但它不在允许的 worker 列表里（{}），需要人确认派给谁。",
+                            "提名了 {}，但它不在允许的智能体列表里（{}），需要人确认派给谁。",
                             decision.app_id.as_deref().unwrap_or("（空）"),
                             settings.worker_apps.join(" / ")
                         ),
@@ -1031,9 +1071,30 @@ fn apply(
         };
         match decision.action {
             Action::Dispatch => {
-                let Some(app_id) = decision.app_id.clone() else {
+                let Some(agent) = decision.app_id.as_deref().and_then(|id| settings.agent(id))
+                else {
                     continue;
                 };
+                let app_id = agent.app_id.clone();
+                if let Err(detail) = agent.ready(db) {
+                    let _ = db.put_router_run(
+                        &candidate.root,
+                        &candidate.task_id,
+                        store::RunWrite {
+                            state: RunState::NeedsYou,
+                            worker_app: Some(&app_id),
+                            session_id: None,
+                            attempts: candidate.attempts(),
+                            detail: Some(&detail),
+                            card_fingerprint: Some(&candidate.fingerprint),
+                            shadow: settings.shadow,
+                        },
+                        now,
+                    );
+                    report.degraded.push(detail);
+                    report.needs_you.push(candidate.task_id.clone());
+                    continue;
+                }
                 if settings.shadow {
                     let detail = format!(
                         "shadow: would dispatch to {app_id}（{}）",
@@ -1072,6 +1133,7 @@ fn apply(
                 }
 
                 let spec = DispatchSpec {
+                    agent,
                     task_id: candidate.task_id.clone(),
                     root: candidate.root.clone(),
                     app_id: app_id.clone(),
@@ -1107,6 +1169,13 @@ fn apply(
                             &candidate.task_id,
                             &candidate.root,
                             &app_id,
+                            now,
+                        );
+                        // 快照和运行态分开记：智能体改名 / 改模型 / 删除都不改历史。
+                        let _ = db.record_router_run_agent(
+                            &candidate.root,
+                            &candidate.task_id,
+                            &spec.agent,
                             now,
                         );
                         report.dispatched.push(candidate.task_id.clone());

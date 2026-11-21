@@ -206,6 +206,7 @@ mod tests {
 
     fn candidate(id: &str, title: &str) -> Candidate {
         Candidate {
+            discussion_hold: false,
             task_id: id.into(),
             root: "/repo".into(),
             title: title.into(),
@@ -214,6 +215,8 @@ mod tests {
             fingerprint: "fp".into(),
             dependencies: Vec::new(),
             schedule: None,
+            assignees: Vec::new(),
+            labels: Vec::new(),
             run: None,
         }
     }
@@ -336,6 +339,9 @@ mod tests {
             root: "/repo".into(),
             state: RunState::Failed,
             worker_app: Some("claude".into()),
+            agent_id: None,
+            agent_name: None,
+            agent_model: None,
             session_id: None,
             attempts: 1,
             detail: Some("terminal-limit".into()),

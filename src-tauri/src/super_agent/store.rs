@@ -79,6 +79,18 @@ pub(crate) fn create_tables(conn: &rusqlite::Connection) -> Result<(), AppError>
         );
         CREATE INDEX IF NOT EXISTS idx_router_task_runs_root
             ON router_task_runs(root, state);
+        -- 派发那一刻的智能体快照。智能体是可以改名、改模型、删掉的，
+        -- 历史记录必须留下当时的那一份，否则上个月的运行记录会跟着配置变。
+        CREATE TABLE IF NOT EXISTS router_run_agents (
+            task_id TEXT NOT NULL,
+            root TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            agent_name TEXT NOT NULL,
+            app_id TEXT NOT NULL,
+            model TEXT,
+            at INTEGER NOT NULL,
+            PRIMARY KEY (root, task_id)
+        );
         CREATE TABLE IF NOT EXISTS router_leases (
             task_id TEXT NOT NULL,
             root TEXT NOT NULL,
@@ -190,9 +202,12 @@ impl Database {
         let conn = lock_conn!(self.conn);
         let mut statement = conn
             .prepare(
-                "SELECT task_id, root, state, worker_app, session_id, attempts, detail,
-                        card_fingerprint, shadow, updated_at
-                 FROM router_task_runs",
+                "SELECT r.task_id, r.root, r.state, r.worker_app, r.session_id, r.attempts,
+                        r.detail, r.card_fingerprint, r.shadow, r.updated_at,
+                        a.agent_id, a.agent_name, a.model
+                 FROM router_task_runs r
+                 LEFT JOIN router_run_agents a
+                        ON a.root = r.root AND a.task_id = r.task_id",
             )
             .map_err(error)?;
         let rows = statement
@@ -209,6 +224,9 @@ impl Database {
                     card_fingerprint: row.get(7)?,
                     shadow: row.get::<_, i64>(8)? != 0,
                     updated_at: row.get(9)?,
+                    agent_id: row.get(10)?,
+                    agent_name: row.get(11)?,
+                    agent_model: row.get(12)?,
                 })
             })
             .map_err(error)?;
@@ -263,6 +281,53 @@ impl Database {
                 run.shadow as i64,
                 at
             ],
+        )
+        .map_err(error)?;
+        Ok(())
+    }
+
+    /// 记下这次派发用的智能体快照（名称、应用、请求的模型）。
+    ///
+    /// 与运行态分开写：它是「历史上用过谁」的事实，不随智能体配置改动。
+    pub(crate) fn record_router_run_agent(
+        &self,
+        root: &str,
+        task_id: &str,
+        agent: &super::model::RouterAgent,
+        at: i64,
+    ) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "INSERT INTO router_run_agents
+                (task_id, root, agent_id, agent_name, app_id, model, at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(root, task_id) DO UPDATE SET
+                agent_id = excluded.agent_id,
+                agent_name = excluded.agent_name,
+                app_id = excluded.app_id,
+                model = excluded.model,
+                at = excluded.at",
+            params![
+                task_id,
+                root,
+                agent.id,
+                agent.name,
+                agent.app_id,
+                agent.model,
+                at
+            ],
+        )
+        .map_err(error)?;
+        Ok(())
+    }
+
+    /// 新的一轮开始前清掉上一轮的智能体快照：排期重置时运行态也是空的，
+    /// 两者得一起清，否则界面会出现「应用为空、却写着某个智能体」。
+    pub(crate) fn clear_router_run_agent(&self, root: &str, task_id: &str) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "DELETE FROM router_run_agents WHERE root = ?1 AND task_id = ?2",
+            params![root, task_id],
         )
         .map_err(error)?;
         Ok(())

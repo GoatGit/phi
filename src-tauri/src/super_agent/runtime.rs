@@ -92,7 +92,9 @@ pub(crate) fn episode_for(app: &tauri::AppHandle) -> Box<dyn Episode> {
 ///
 /// 两个来源，前一个只给开发用：环境变量 `PHI_ROUTER_MODEL`，以及设置里的
 /// `episodeModel`（界面写的是路由组别名 `group/<组名>`，网关自己展开成组内成员）。
-fn episode_model(app: &tauri::AppHandle) -> Option<String> {
+///
+/// 讨论也读这一份：讨论与派发用的是同一个 Router 模型，只是走另一条没有工具表的路径。
+pub(crate) fn episode_model(app: &tauri::AppHandle) -> Option<String> {
     if let Ok(model) = std::env::var("PHI_ROUTER_MODEL") {
         let model = model.trim();
         if !model.is_empty() {

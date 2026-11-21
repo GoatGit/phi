@@ -15,6 +15,9 @@ const run: RouterTaskRun = {
   root: "/repo",
   state: "working",
   workerApp: "claude",
+  agentId: null,
+  agentName: null,
+  agentModel: null,
   sessionId: "s1",
   attempts: 2,
   detail: null,
@@ -117,6 +120,137 @@ describe("AutoRouterSection", () => {
     renderSection({ run: { ...run, state: "done" } });
     expect(
       screen.queryByRole("button", { name: zh.tasks.router.start }),
+    ).toBeNull();
+  });
+
+  it("已完成任务不留一句没有按钮的派发提示", () => {
+    // 这句写的是「点开始之后会怎样」；没有开始按钮时它没有主语。
+    renderSection({ run: { ...run, state: "done" } });
+    expect(screen.queryByText(zh.tasks.router.startHint)).toBeNull();
+  });
+
+
+  it("指派只改归属：先「指派」，再「指派并开工」", async () => {
+    const user = userEvent.setup();
+    const onAssign = vi.fn();
+    const agent = {
+      id: "writer",
+      name: "文档写手",
+      description: "改文档",
+      appId: "claude",
+      prompt: "",
+      model: "",
+      arguments: [],
+      outcome: "",
+      boundary: "",
+      askUserWhen: [],
+      steps: [],
+      constraints: [],
+      completion: { result: "", evidence: [] },
+    };
+    renderSection({
+      run: { ...run, state: "idle" },
+      assignees: [],
+      agents: [agent],
+      allowedAgents: ["writer"],
+      onAssign,
+    });
+
+    await user.selectOptions(
+      screen.getByLabelText(zh.tasks.router.assignTitle),
+      "writer",
+    );
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.assign }),
+    );
+    expect(onAssign).toHaveBeenCalledWith("writer", false);
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.assignAndStart }),
+    );
+    expect(onAssign).toHaveBeenCalledWith("writer", true);
+  });
+
+  it("归属一个本机没有的智能体时照实标出来，不悄悄改成未指派", () => {
+    renderSection({
+      run: { ...run, state: "idle" },
+      assignees: ["ghost"],
+      agents: [],
+      allowedAgents: [],
+      onAssign: vi.fn(),
+    });
+    expect(
+      screen.getByText(
+        zh.tasks.router.unknownAssignee.replace("{{id}}", "ghost"),
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        zh.tasks.router.assignUnknownHint.replace("{{id}}", "ghost"),
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("已完成任务不给「指派并开工」：它已经结束了", () => {
+    renderSection({
+      run: { ...run, state: "done" },
+      assignees: ["writer"],
+      agents: [
+        {
+          id: "writer",
+          name: "文档写手",
+          description: "",
+          appId: "claude",
+          prompt: "",
+          model: "",
+          arguments: [],
+          outcome: "",
+          boundary: "",
+          askUserWhen: [],
+          steps: [],
+          constraints: [],
+          completion: { result: "", evidence: [] },
+        },
+      ],
+      allowedAgents: ["writer"],
+      onAssign: vi.fn(),
+    });
+    expect(
+      screen.queryByRole("button", { name: zh.tasks.router.assignAndStart }),
+    ).toBeNull();
+  });
+
+
+  it("卡片已在 Done 列时，即使没有运行记录也不给开工入口", () => {
+    renderSection({
+      run: undefined,
+      taskStatus: "Done",
+      assignees: ["writer"],
+      agents: [
+        {
+          id: "writer",
+          name: "文档写手",
+          description: "",
+          appId: "claude",
+          prompt: "",
+          model: "",
+          arguments: [],
+          outcome: "",
+          boundary: "",
+          askUserWhen: [],
+          steps: [],
+          constraints: [],
+          completion: { result: "", evidence: [] },
+        },
+      ],
+      allowedAgents: ["writer"],
+      onAssign: vi.fn(),
+    });
+    expect(
+      screen.queryByRole("button", { name: zh.tasks.router.start }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: zh.tasks.router.assignAndStart }),
     ).toBeNull();
   });
 

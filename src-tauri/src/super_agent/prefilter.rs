@@ -94,6 +94,14 @@ pub(crate) fn apply(
             continue;
         }
 
+        // 归属：卡片上写着派给谁，机器就得派给谁。认不出来的 id 不猜、不降级
+        // （那会让「这张卡归某人」变成一句只看不生效的标注），直接剔除，
+        // 卡面据此标「未注册的智能体」，等人把它拖到别的行。
+        if let Some(Err(id)) = candidate.assignee_agent(settings) {
+            reject(&mut outcome, &candidate, &format!("unknown-assignee:{id}"));
+            continue;
+        }
+
         let blocked_by = candidate.dependencies.iter().find(|dependency| {
             if dependency.as_str() == candidate.task_id {
                 return false;

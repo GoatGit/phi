@@ -7,7 +7,9 @@
 
 pub(crate) mod board;
 pub(crate) mod commands;
+pub(crate) mod discussion;
 pub(crate) mod document;
+pub(crate) mod form;
 pub(crate) mod frontmatter;
 mod links;
 pub(crate) mod model;
@@ -17,5 +19,6 @@ pub(crate) mod schedule;
 
 /// 建表入口：由 `database::schema` 在初始化与迁移时调用。
 pub(crate) fn create_tables(conn: &rusqlite::Connection) -> Result<(), crate::error::AppError> {
-    links::create_tables(conn)
+    links::create_tables(conn)?;
+    discussion::create_tables(conn)
 }

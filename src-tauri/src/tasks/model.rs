@@ -2,10 +2,25 @@
 
 use serde::{Deserialize, Serialize};
 
+/// 普通任务：要交给执行者做出一份交付物。
+pub const KIND_TASK: &str = "task";
+/// 讨论卡：只收敛结论，不占执行槽位、不派 worker、不产出交付物。
+pub const KIND_DISCUSSION: &str = "discussion";
+
 /// 看板上的一张卡片。
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
+    /// `task`（要执行）或 `discussion`（讨论卡）。
+    pub kind: String,
+    /// 讨论卡从哪张已完成的任务派生出来；普通任务为空。
+    pub source_task: Option<String>,
+    /// 同一张源任务派生出的第几轮讨论。
+    pub round: Option<u32>,
+    /// 这张卡正在讨论阶段：不参与自动派发，也不会被「新建即派发」带走。
+    pub discussion_hold: bool,
+    /// 卡面上那一句「待决定的问题」；讨论清楚之前它就是这张卡的全部内容。
+    pub discussion_question: Option<String>,
     pub id: String,
     pub title: String,
     pub status: String,
@@ -98,8 +113,66 @@ pub struct TaskDetail {
     pub links: Vec<TaskLink>,
     /// 结果摘要（卡片里的「结果 / Outcome」段落，老卡片退回 `Conclusion`）
     pub outcome: Option<String>,
+    /// 讨论后写回同一张卡、已由人确认的需求与约束。
+    pub confirmed: Option<String>,
+    /// 由这张任务派生出的讨论卡，按轮次升序。历史只做反向引用，不搬进本卡。
+    pub derived: Vec<DerivedDiscussion>,
     /// 用户要拿走的产物，按卡片里列的顺序
     pub artifacts: Vec<TaskArtifact>,
+    /// 这一轮讨论的对话记录，按时间先后。发言者只有用户与 Router。
+    pub discussion_turns: Vec<DiscussionTurn>,
+}
+
+/// 讨论的一轮发言。
+///
+/// 讨论记录存 sqlite 而不是任务文件：它是 phi 的运行事实（这一轮谁说了什么），
+/// 卡片里只留结论（`discussion_question` / `confirmed`），用户的任务资产不被
+/// 聊天记录撑大，也不会因为讨论而被改写。
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscussionTurn {
+    /// `user`（用户）或 `router`（Router）
+    pub role: String,
+    pub text: String,
+    /// 毫秒时间戳
+    pub created_at: i64,
+    /// Router 这一轮抛给用户填写的表单，从回复里的 `phi-form` 块解析。
+    /// `text` 已经去掉那段块，所以前端能把「话」和「可填的表单」分开渲染。
+    pub form: Option<DiscussionForm>,
+}
+
+/// 讨论里的一张表单：把「还需要你定什么」变成可以直接填的几项。
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscussionForm {
+    pub title: Option<String>,
+    pub fields: Vec<DiscussionFormField>,
+}
+
+/// 表单里的一项。`kind` 序列化成 `type`，取值只有 `text` 与 `choice`。
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscussionFormField {
+    pub id: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub placeholder: Option<String>,
+    pub options: Vec<String>,
+    pub required: bool,
+}
+
+/// 一张派生出去的讨论卡。原任务只读这份摘要，不读它的正文。
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DerivedDiscussion {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub round: Option<u32>,
+    pub created_date: Option<String>,
+    /// 这张讨论卡上还没定的问题
+    pub question: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -139,6 +212,8 @@ pub struct WorkspaceInfo {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NewTask {
+    #[serde(default)]
+    pub discussion_hold: bool,
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,

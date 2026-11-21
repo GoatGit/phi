@@ -17,15 +17,16 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   Check,
   ChevronDown,
+  Clock,
   FolderMinus,
   FolderPlus,
   GripVertical,
+  MessageSquare,
   Paperclip,
-  Plus,
   RefreshCw,
   Repeat,
-  Send,
   SquareKanban,
+  Trash2,
 } from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { HoverTip } from "@/components/ui/hover-tip";
-import { Input, fieldClass } from "@/components/ui/input";
+import { fieldClass } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PluginGuide } from "@/components/plugins/PluginGlyph";
@@ -46,18 +47,35 @@ import { settingsApi } from "@/lib/api/settings";
 import {
   taskErrorMessage,
   tasksApi,
+  type NewTaskInput,
   type TaskBoard,
   type TaskCard,
   type TaskDetail,
   type TaskWorkspace,
 } from "@/lib/api/tasks";
-import { superAgentApi, type RouterTaskRun } from "@/lib/api/superAgent";
+import {
+  superAgentApi,
+  type AgentSuggestion,
+  type RouterAgent,
+  type RouterRunState,
+  type RouterTaskRun,
+} from "@/lib/api/superAgent";
 import { useRouterStatus } from "@/hooks/useRouterStatus";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
-import { AutoRouterPanel } from "./AutoRouterPanel";
+import { AgentBoardView } from "./AgentBoardView";
+import { AutoRouterPanel, RouterAgentDialog } from "./AutoRouterPanel";
 import { RunStateBadge } from "./RunStateBadge";
-import { scheduleLabel } from "./schedule";
+import {
+  blankAgent,
+  resolveRouterAgents,
+  withAgentAvatar,
+  withAgentDeleted,
+  withAgentEnabled,
+  withAgentSaved,
+} from "./agentSettings";
+import { nextRunHint, scheduleLabel } from "./schedule";
+import { NewTaskComposer, type NewTaskTiming } from "./TaskComposer";
 import { TaskDetailSheet } from "./TaskDetailSheet";
 
 const ROOT_STORAGE_KEY = "phi.task.workspace";
@@ -70,7 +88,12 @@ const BOARD_REFRESH_MS = 20_000;
 interface TaskBoardPageProps {
   /** 能开本地终端会话的应用（为空表示当前平台不支持） */
   terminalApps: string[];
-  /** 在指定应用、指定目录开一个会话，返回会话 ID；`argumentsText` 是已转义的初始指令 */
+  /**
+   * 在指定应用、指定目录开一个会话，返回会话 ID。
+   *
+   * 看板自己不再用它：讨论由 Router 承接（不开终端），普通任务开工走后端
+   * `router_start_task`。宿主这份能力仍可能被其他页面用。
+   */
   onStartSession: (
     root: string,
     appId: string,
@@ -105,6 +128,8 @@ function readStoredRoot() {
  * 阶段一只做三件事——看板、把任务变成终端会话、把会话与用量回挂到任务。
  * 任务本身永远是用户仓库里的 markdown，phi 不替它建第二份数据。
  * 入口在插件中心（`plugin:task-board`），不再占用侧栏一级导航。
+ *
+ * 讨论不在这里开终端：它是跟 Router 的对话，在卡片详情页的输入框与 timeline 里。
  */
 export function TaskBoardPage({
   terminalApps,
@@ -125,11 +150,60 @@ export function TaskBoardPage({
   const [initTarget, setInitTarget] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<TaskCard | null>(null);
+  /** 待确认关掉的讨论卡：删文件不可撤销，先问一句 */
+  const [discardTarget, setDiscardTarget] = useState<TaskCard | null>(null);
   const [dragging, setDragging] = useState<TaskCard | null>(null);
+  /** 刚派生出的讨论卡：详情打开后自动聚焦输入框 */
+  const [focusDiscussion, setFocusDiscussion] = useState(false);
+  /** 从看板建完卡后，第一句已经替用户发出去了：还在等 Router 回那一句 */
+  const [replyingTask, setReplyingTask] = useState<{
+    taskId: string;
+    message: string;
+  } | null>(null);
   const router = useRouterStatus(activeRoot);
   const liveSessions = useMemo(() => new Set(liveSessionIds), [liveSessionIds]);
+  /**
+   * 看板视图：阶段（列）还是智能体（行）。
+   *
+   * 两个维度是正交的——列回答「现在该谁动」，行回答「谁在干什么、谁闲着」。
+   * 智能体是一级入口，所以切换放在页头操作行，和自动调度、仓库同一排。
+   */
+  const [viewMode, setViewMode] = useState<"board" | "agents">("board");
+  const [agentEditor, setAgentEditor] = useState<{
+    agent: RouterAgent;
+    isNew: boolean;
+  } | null>(null);
+  const [suggestions, setSuggestions] = useState<AgentSuggestion[]>([]);
+  const [dismissedSuggestion, setDismissedSuggestion] = useState<string | null>(
+    null,
+  );
+
+  const settings = router.status?.settings ?? null;
+  const routerAgents = useMemo(() => resolveRouterAgents(settings), [settings]);
+  const allowedAgents = useMemo(() => settings?.workerApps ?? [], [settings]);
+  const allTasks = useMemo(
+    () => board?.columns.flatMap((column) => column.tasks) ?? [],
+    [board],
+  );
 
   const active = workspaces.find((entry) => entry.root === activeRoot) ?? null;
+
+  // 提议只在智能体视图里算：它读运行快照与标签，切回阶段视图就不该继续花这次查询。
+  useEffect(() => {
+    if (viewMode !== "agents") return;
+    let alive = true;
+    void superAgentApi
+      .agentSuggestions()
+      .then((list) => {
+        if (alive) setSuggestions(list);
+      })
+      .catch(() => {
+        if (alive) setSuggestions([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [viewMode, board]);
 
   const loadWorkspaces = useCallback(async () => {
     const list = await tasksApi.workspaces();
@@ -268,17 +342,119 @@ export function TaskBoardPage({
     }
   };
 
-  /** 快速新建：只收一个标题，状态走默认列、优先级走「中」，其余字段到详情里补。 */
-  const createTask = async (title: string) => {
+  /** 快速新建：标题必填，任务类型（排期）可在建卡时一并选好。 */
+  const createTask = async (title: string, timing: NewTaskTiming) => {
     if (!activeRoot) return false;
+    const input: NewTaskInput = { title };
+    // 没选类型就不传这两个字段：新建出来的就是普通任务，卡片上也不留排期痕迹
+    if (timing.recurrence) input.recurrence = timing.recurrence;
+    if (timing.schedule) input.schedule = timing.schedule;
     try {
-      await tasksApi.create(activeRoot, { title });
+      await tasksApi.create(activeRoot, input);
       await loadBoard(activeRoot);
       return true;
     } catch (error) {
       toast.error(taskErrorMessage(error, t));
       return false;
     }
+  };
+
+  /**
+   * 智能体行里的 + ：建一张卡，建好就归到这一行。
+   *
+   * 归属落在卡片的 `assignee` 里，与把卡拖过去是同一种事实；开工仍是显式的那一下
+   * （卡片上的 ▶），所以刚记下的一件活不会因为手滑就立刻起一个进程。
+   */
+  const createTaskForAgent = async (
+    agentId: string,
+    title: string,
+    timing: NewTaskTiming,
+  ) => {
+    if (!activeRoot) return false;
+    const input: NewTaskInput = { title, assignees: [agentId] };
+    if (timing.recurrence) input.recurrence = timing.recurrence;
+    if (timing.schedule) input.schedule = timing.schedule;
+    try {
+      await tasksApi.create(activeRoot, input);
+      await loadBoard(activeRoot);
+      return true;
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      return false;
+    }
+  };
+
+  /**
+   * 把用户写的第一句话直接交给 Router。
+   *
+   * 「讨论一下」与「重新讨论」都是这个形状：卡片一建好，这句话就是这一轮的
+   * 第一句发言，不需要人再到详情页重打一遍。回答是异步等回来的（最多几十秒），
+   * 失败也只影响这一轮回复。
+   */
+  const speakFirstTurn = (
+    root: string,
+    taskId: string,
+    message: string,
+    fingerprint: string,
+  ) => {
+    setReplyingTask({ taskId, message });
+    void (async () => {
+      try {
+        const next = await tasksApi.discussionSay(
+          root,
+          taskId,
+          message,
+          fingerprint,
+        );
+        // 用户可能已经切到别的卡：只有还停在这张上才换成新内容
+        setDetail((current) =>
+          current?.task.id === next.task.id ? next : current,
+        );
+        await loadBoard(root);
+      } catch (error) {
+        toast.error(taskErrorMessage(error, t));
+        // 这句话已经写进 timeline 了（后端先记发言再等 Router），刷新一次让它可见：
+        // 否则用户看到的是一片空白，会以为那句话根本没发出去而重发一遍。
+        const fresh = await tasksApi.detail(root, taskId).catch(() => null);
+        if (fresh) {
+          setDetail((current) =>
+            current?.task.id === fresh.task.id ? fresh : current,
+          );
+        }
+      } finally {
+        setReplyingTask((current) =>
+          current?.taskId === taskId ? null : current,
+        );
+      }
+    })();
+  };
+
+  /**
+   * 建一张卡并立刻开讨论。
+   *
+   * 想法还没成形时，用户不该被迫先把它写成一条能派发的任务：这一句就是卡片的
+   * 标题，也是这一轮讨论的第一句发言。建卡成功就先把详情打开、输入框收起，
+   * 回复到了再铺进 timeline——失败不会让用户以为卡没建成而再建一张。
+   */
+  const discussNewTask = async (title: string): Promise<boolean> => {
+    if (!activeRoot) return false;
+    const root = activeRoot;
+    let created: TaskDetail;
+    try {
+      created = await tasksApi.create(root, {
+        title,
+        discussionHold: true,
+      });
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      return false;
+    }
+
+    await loadBoard(root);
+    setDetail(created);
+    setFocusDiscussion(true);
+    speakFirstTurn(root, created.task.id, title, created.task.fingerprint);
+    return true;
   };
 
   const handleArchive = (task: TaskCard) => setArchiveTarget(task);
@@ -430,6 +606,86 @@ export function TaskBoardPage({
         renderEmptyState()
       );
     }
+    // 智能体视图：一行一个智能体，第 0 行是讨论区，末尾「未分配」。
+    if (viewMode === "agents") {
+      const visibleSuggestion =
+        suggestions.find((item) => item.name !== dismissedSuggestion) ?? null;
+      return (
+        <AgentBoardView
+          tasks={allTasks}
+          agents={routerAgents}
+          allowed={allowedAgents}
+          runsByTask={router.runsByTask}
+          busy={busy}
+          onOpenTask={(task) => void openDetail(task)}
+          // 拖放只指派：改归属不等于授权起跑。
+          onAssign={(task, agentId) => assignTask(task, agentId, false)}
+          onAssignAndStart={(task, agentId) => assignTask(task, agentId, true)}
+          onEditAgent={(agent) => setAgentEditor({ agent, isNew: false })}
+          onAddAgent={() =>
+            setAgentEditor({
+              agent: blankAgent(terminalApps[0] ?? "claude"),
+              isNew: true,
+            })
+          }
+          onToggleAgent={(agent, enabled) => {
+            if (!settings) return;
+            void runRouterAction(async () => {
+              await router.saveSettings({
+                ...settings,
+                ...withAgentEnabled(settings, agent.id, enabled),
+              });
+            });
+          }}
+          // Router 也有一张脸：与智能体同一种存储、同一个选择器，只是不参与派发。
+          routerAvatar={settings?.routerAvatar ?? ""}
+          onSetRouterAvatar={(avatar) => {
+            if (!settings) return;
+            void runRouterAction(async () => {
+              await router.saveSettings({ ...settings, routerAvatar: avatar });
+            });
+          }}
+          // 行里的 + ：建卡即归属，开工仍由卡片上的 ▶ 决定。
+          onCreateForAgent={(agentId, title, timing) =>
+            createTaskForAgent(agentId, title, timing)
+          }
+          onCreateDraft={(title) => discussNewTask(title)}
+          // 点头像换一张：只改这一个字段，不动角色定义与允许名单。
+          onSetAgentAvatar={(agent, avatar) => {
+            if (!settings) return;
+            void runRouterAction(async () => {
+              await router.saveSettings({
+                ...settings,
+                ...withAgentAvatar(settings, agent.id, avatar),
+              });
+            });
+          }}
+          onDeleteAgent={(agent) => {
+            if (!settings) return;
+            void runRouterAction(async () => {
+              await router.saveSettings({
+                ...settings,
+                ...withAgentDeleted(settings, agent.id),
+              });
+            });
+          }}
+          suggestion={visibleSuggestion}
+          onUseSuggestion={(item) => {
+            const agent = {
+              ...blankAgent(item.appId),
+              name: item.name,
+              description: item.summary,
+              steps: item.steps,
+              completion: { result: "", evidence: item.evidence },
+            };
+            setAgentEditor({ agent, isNew: true });
+          }}
+          onDismissSuggestion={() =>
+            setDismissedSuggestion(visibleSuggestion?.name ?? null)
+          }
+        />
+      );
+    }
     // 快速新建落在默认列（To Do）；默认列不在看板上时退回第一列，入口不能消失
     const quickAddStatus =
       board.columns.find((column) => column.status === board.defaultStatus)
@@ -455,17 +711,21 @@ export function TaskBoardPage({
         >
           {board.columns.map((column) => (
             <BoardColumnView
-              key={column.status}
+              key={`${board.root}:${column.status}`}
               status={column.status}
               tasks={column.tasks}
               runs={router.runsByTask}
               draggingId={dragging?.id ?? null}
               onOpen={(task) => void openDetail(task)}
+              onDiscard={setDiscardTarget}
               // 快速新建固定在默认列的第一条
               onCreate={
                 column.status === quickAddStatus
-                  ? (title) => createTask(title)
+                  ? (title, timing) => createTask(title, timing)
                   : undefined
+              }
+              onDiscuss={
+                column.status === quickAddStatus ? discussNewTask : undefined
               }
             />
           ))}
@@ -480,6 +740,7 @@ export function TaskBoardPage({
   const openDetail = async (task: TaskCard) => {
     if (!activeRoot) return;
     try {
+      setFocusDiscussion(false);
       setDetail(await tasksApi.detail(activeRoot, task.id));
       // 运行态一起带出来：抽屉开着时不该等下一次轮询才看到状态。
       void router.refresh();
@@ -525,6 +786,158 @@ export function TaskBoardPage({
       () => false,
     );
     if (!opened) toast.info(t("tasks.sessionClosed"));
+  };
+
+  /**
+   * 发送任务：讨论到此结束，这张卡转成执行卡并进入执行列。
+   *
+   * 不再单独「写回」——结论每轮已经由 Router 写回卡片，这里只做那一步不可逆的
+   * 动作：把卡从待办挪到下一列（`set_status` 顺手摘掉讨论卡类型，输入框随之消失）。
+   */
+  const handleSendDiscussion = async (): Promise<boolean> => {
+    if (!activeRoot || !detail) return false;
+    const root = activeRoot;
+    const statuses = board?.statuses ?? [];
+    const index = statuses.indexOf(detail.task.status);
+    const next = index >= 0 ? statuses[index + 1] : undefined;
+    if (!next) {
+      // 只有一列或卡停在最后一列时没有「下一列」可去：这是看板配置问题，
+      // 直接报错比悄悄把卡停在原地好。
+      toast.error(t("tasks.discussion.noNextStatus"));
+      return false;
+    }
+    setBusy(true);
+    try {
+      const fresh = await tasksApi.setStatus(
+        root,
+        detail.task.id,
+        next,
+        detail.task.fingerprint,
+      );
+      setDetail(fresh);
+      setFocusDiscussion(false);
+      await loadBoard(root);
+      toast.success(t("tasks.discussion.sent"));
+      return true;
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      if (String(error) === "stale-fingerprint") await loadBoard(root);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * 跟 Router 说一句。
+   *
+   * 讨论的承载者是 Router，不是某个 worker 的终端：这里不开会话，只把这句话
+   * 交给后端，拿回 Router 的回复和更新后的 timeline。失败时输入框里的字不丢。
+   */
+  const handleSayDiscussion = async (message: string): Promise<boolean> => {
+    if (!activeRoot || !detail) return false;
+    const root = activeRoot;
+    const taskId = detail.task.id;
+    try {
+      // 刚写回结论时指纹已变：现读一次，再拿旧指纹发话只会得到 stale-fingerprint。
+      const fresh = await tasksApi.detail(root, taskId);
+      const next = await tasksApi.discussionSay(
+        root,
+        taskId,
+        message,
+        fresh.task.fingerprint,
+      );
+      setDetail(next);
+      await loadBoard(root);
+      return true;
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      // 卡片被外部改过：刷新一下，让下一次发话带上新指纹
+      if (String(error) === "stale-fingerprint") await loadBoard(root);
+      return false;
+    }
+  };
+
+  /**
+   * 从一张已完成的任务派生新一轮讨论。
+   *
+   * 已完成的任务不回退成讨论态：原卡的状态、结束时间与结论保持原样，
+   * 新卡带着背景（目标、验收、结果、上轮结论）指回去。
+   */
+  const handleDeriveDiscussion = async (note: string): Promise<boolean> => {
+    if (!activeRoot || !detail) return false;
+    const root = activeRoot;
+    try {
+      const created = await tasksApi.deriveDiscussion(
+        root,
+        detail.task.id,
+        note,
+      );
+      await loadBoard(root);
+      setDetail(created);
+      setFocusDiscussion(true);
+      // 派生时写的这句话同样不该白写：它就是这一轮的第一句发言
+      speakFirstTurn(root, created.task.id, note, created.task.fingerprint);
+      return true;
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      return false;
+    }
+  };
+
+  /**
+   * 把待办列上的一张卡就地转成讨论卡。
+   *
+   * 讨论只在讨论卡里发生，所以普通待办卡要先转类型；转换只改卡片类型，
+   * 标题与正文不动，刷新后同一张卡就带着输入框。
+   */
+  const handleConvertDiscussion = async (): Promise<boolean> => {
+    if (!activeRoot || !detail) return false;
+    const root = activeRoot;
+    try {
+      const next = await tasksApi.convertDiscussion(
+        root,
+        detail.task.id,
+        detail.task.fingerprint,
+      );
+      setDetail(next);
+      setFocusDiscussion(true);
+      await loadBoard(root);
+      return true;
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      if (String(error) === "stale-fingerprint") await loadBoard(root);
+      return false;
+    }
+  };
+
+  /** 删掉一张讨论卡：卡片、这一轮的记录与谈出的结论一起消失。 */
+  const handleDiscardDiscussion = async () => {
+    const target = discardTarget;
+    setDiscardTarget(null);
+    if (!activeRoot || !target) return;
+    const root = activeRoot;
+    try {
+      await tasksApi.discardDiscussion(root, target.id, target.fingerprint);
+      setDetail((current) => (current?.task.id === target.id ? null : current));
+      setFocusDiscussion(false);
+      await loadBoard(root);
+      toast.success(t("tasks.discussion.discarded"));
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+      if (String(error) === "stale-fingerprint") await loadBoard(root);
+    }
+  };
+
+  /** 从原任务跳到它派生出的某一轮讨论。 */
+  const openTaskById = async (taskId: string) => {
+    if (!activeRoot) return;
+    try {
+      setFocusDiscussion(false);
+      setDetail(await tasksApi.detail(activeRoot, taskId));
+    } catch (error) {
+      toast.error(taskErrorMessage(error, t));
+    }
   };
 
   const handleAutoStart = () => {
@@ -580,6 +993,39 @@ export function TaskBoardPage({
     });
   };
 
+  /**
+   * 指派（`start` = 指派并开工）。
+   *
+   * 拖放只调用前半截：改归属与授权起跑是两件事。改完立刻读一次看板，
+   * 让卡片当场出现在新的一行，而不是等 20 秒轮询。
+   */
+  const assignTask = (
+    task: TaskCard,
+    agentId: string | null,
+    start: boolean,
+  ) => {
+    if (!activeRoot) return;
+    void runRouterAction(async () => {
+      const result = await superAgentApi.assign(
+        activeRoot,
+        task.id,
+        agentId,
+        start,
+        task.fingerprint,
+      );
+      await loadBoard(activeRoot);
+      if (start) {
+        toast.success(
+          result.started
+            ? t("tasks.router.assignStarted")
+            : t("tasks.router.assignShadow"),
+        );
+      } else {
+        toast.success(t("tasks.router.assignDone"));
+      }
+    });
+  };
+
   /** 在文件管理器中显示产物。路径由后端校验必须在仓库内。 */
   const handleRevealArtifact = (path: string) => {
     if (!activeRoot) return;
@@ -593,6 +1039,31 @@ export function TaskBoardPage({
   const headerActions =
     workspaces.length > 0 ? (
       <>
+        {/* 智能体是一级入口：和自动调度、仓库同一排，而不是藏在调度弹窗里。 */}
+        <div
+          role="group"
+          aria-label={t("tasks.agentView.switchLabel")}
+          className="flex h-8 items-center rounded-control border border-border bg-surface p-0.5"
+        >
+          {(["board", "agents"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={viewMode === mode}
+              onClick={() => setViewMode(mode)}
+              className={cn(
+                "h-7 rounded-[6px] px-2.5 text-caption transition-colors",
+                viewMode === mode
+                  ? "bg-subtle font-medium text-fg-1"
+                  : "text-fg-2 hover:text-fg-1",
+              )}
+            >
+              {mode === "board"
+                ? t("tasks.agentView.board")
+                : t("tasks.agentView.agents")}
+            </button>
+          ))}
+        </div>
         <AutoRouterPanel
           status={router.status}
           statuses={board?.statuses ?? []}
@@ -683,7 +1154,9 @@ export function TaskBoardPage({
       className={cn(
         "flex min-h-0 flex-col",
         // 嵌进插件中心时用与其它插件页同一个版心：切页签时左右边缘不跳。
-        embedded ? cn(pluginCardPageClass, "gap-3") : "flex-1",
+        // 还要接住外层给的高度（flex-1）：列行靠它才能铺满窗口、滚动交给列内，
+        // 否则列高退化成最长列的内容高，窗口下方白白空出一条。
+        embedded ? cn(pluginCardPageClass, "flex-1 gap-3 pb-4") : "flex-1",
       )}
     >
       {embedded ? (
@@ -701,8 +1174,11 @@ export function TaskBoardPage({
       {renderBody()}
 
       <div className={embedded ? "shrink-0" : "shrink-0 px-4 pb-4"}>
+        {/* 说明块是给第一次用的人看的：看板本身要占满一屏，这里默认收成一行。 */}
         <PluginGuide
           pluginId="task-board"
+          collapsible
+          defaultCollapsed
           what={t("tasks.about.what")}
           steps={[1, 2, 3, 4, 5].map((step) => t(`tasks.about.step${step}`))}
           notes={t("tasks.about.note")}
@@ -713,6 +1189,8 @@ export function TaskBoardPage({
         key={detail?.task.id ?? "closed"}
         detail={detail}
         statuses={board?.statuses ?? []}
+        defaultStatus={board?.defaultStatus ?? null}
+        terminalApps={terminalApps}
         busy={busy}
         run={detail ? router.runsByTask.get(detail.task.id) : undefined}
         liveSessionIds={liveSessions}
@@ -723,6 +1201,11 @@ export function TaskBoardPage({
         onAutoStart={handleAutoStart}
         onAutoPause={handleAutoPause}
         onAutoResume={handleAutoResume}
+        agents={routerAgents}
+        allowedAgents={allowedAgents}
+        onAssign={(agentId, start) => {
+          if (detail) assignTask(detail.task, agentId, start);
+        }}
         onResolve={(decision) => {
           if (!activeRoot || !detail) return;
           const run = router.runsByTask.get(detail.task.id);
@@ -739,9 +1222,25 @@ export function TaskBoardPage({
           });
         }}
         onSetSchedule={handleSetSchedule}
+        onSendDiscussion={() => handleSendDiscussion()}
+        onSayDiscussion={(message) => handleSayDiscussion(message)}
+        onDeriveDiscussion={(note) => handleDeriveDiscussion(note)}
+        onConvertDiscussion={() => handleConvertDiscussion()}
+        onDiscardDiscussion={async () => {
+          if (detail) setDiscardTarget(detail.task);
+        }}
+        onOpenTask={(taskId) => void openTaskById(taskId)}
+        focusDiscussion={focusDiscussion}
+        discussionReplying={replyingTask?.taskId === detail?.task.id}
+        discussionFirstMessage={
+          replyingTask && replyingTask.taskId === detail?.task.id
+            ? replyingTask.message
+            : null
+        }
         onRevealArtifact={handleRevealArtifact}
         onClose={() => {
           setDetail(null);
+          setFocusDiscussion(false);
         }}
         onSetStatus={(status) => {
           if (detail) void handleSetStatus(detail.task, status);
@@ -751,6 +1250,26 @@ export function TaskBoardPage({
         }}
         onUnlink={(sessionId) => void handleUnlink(sessionId)}
       />
+
+      {agentEditor ? (
+        <RouterAgentDialog
+          draft={agentEditor.agent}
+          isNew={agentEditor.isNew}
+          terminalApps={terminalApps}
+          onCancel={() => setAgentEditor(null)}
+          onSave={(agent) => {
+            const isNew = agentEditor.isNew;
+            setAgentEditor(null);
+            if (!settings) return;
+            void runRouterAction(async () => {
+              await router.saveSettings({
+                ...settings,
+                ...withAgentSaved(settings, agent, isNew),
+              });
+            });
+          }}
+        />
+      ) : null}
 
       <ConfirmDialog
         isOpen={Boolean(initTarget)}
@@ -784,8 +1303,23 @@ export function TaskBoardPage({
         onConfirm={() => void confirmArchive()}
         onCancel={() => setArchiveTarget(null)}
       />
+      <ConfirmDialog
+        isOpen={Boolean(discardTarget)}
+        title={t("tasks.discussion.discardTitle")}
+        message={`${discardTarget?.title ?? ""}\n\n${t("tasks.discussion.discardMessage")}`}
+        confirmText={t("tasks.discussion.discard")}
+        pending={busy}
+        onConfirm={() => void handleDiscardDiscussion()}
+        onCancel={() => setDiscardTarget(null)}
+      />
     </div>
   );
+}
+
+const DONE_PREVIEW_COUNT = 5;
+
+function boardDate(task: TaskCard) {
+  return task.updatedDate || task.createdDate || "";
 }
 
 function BoardColumnView({
@@ -794,17 +1328,37 @@ function BoardColumnView({
   runs,
   draggingId,
   onOpen,
+  onDiscard,
   onCreate,
+  onDiscuss,
 }: {
   status: string;
   tasks: TaskCard[];
   runs: Map<string, RouterTaskRun>;
   draggingId: string | null;
   onOpen: (task: TaskCard) => void;
+  onDiscard: (task: TaskCard) => void;
   /** 只在默认列传：快速新建入口固定在该列第一条 */
-  onCreate?: (title: string) => Promise<boolean>;
+  onCreate?: (title: string, timing: NewTaskTiming) => Promise<boolean>;
+  /** 只在默认列传：一句话成卡并直接进入讨论 */
+  onDiscuss?: (title: string) => Promise<boolean>;
 }) {
   const { t } = useTranslation();
+  const done = status.toLowerCase() === "done";
+  const [expanded, setExpanded] = useState(false);
+  const ordered = useMemo(
+    () =>
+      done
+        ? [...tasks].sort(
+            (a, b) =>
+              boardDate(b).localeCompare(boardDate(a)) ||
+              b.id.localeCompare(a.id, undefined, { numeric: true }),
+          )
+        : tasks,
+    [done, tasks],
+  );
+  const visible =
+    done && !expanded ? ordered.slice(0, DONE_PREVIEW_COUNT) : ordered;
   const { setNodeRef, isOver } = useDroppable({ id: `column:${status}` });
 
   return (
@@ -827,46 +1381,79 @@ function BoardColumnView({
     >
       {/* 内边距与卡片列表一致（px-2.5），列名和卡片左边缘才对得齐；也让卡片投影有地方落 */}
       <header className="flex h-9 shrink-0 items-center gap-2 px-2.5">
-        <h2 className="m-0 truncate text-body font-medium text-fg-1">
-          {status}
-        </h2>
+        <h2 className="m-0 truncate text-section text-fg-1">{status}</h2>
         <span className="shrink-0 text-caption tabular-nums text-fg-3">
           {tasks.length}
         </span>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scroll-stable px-2.5 pb-2.5">
-        {onCreate ? <NewTaskComposer onCreate={onCreate} /> : null}
+        {onCreate ? (
+          <NewTaskComposer onCreate={onCreate} onDiscuss={onDiscuss} />
+        ) : null}
         {tasks.length === 0 ? (
           <p className="m-0 px-2 py-3 text-caption text-fg-3">
             {t("tasks.columnEmpty")}
           </p>
         ) : (
-          tasks.map((task) => (
+          visible.map((task) => (
             <TaskCardView
               key={task.id}
+              compact={done}
               task={task}
               run={runs.get(task.id)}
               dragging={draggingId === task.id}
               onOpen={onOpen}
+              onDiscard={onDiscard}
             />
           ))
+        )}
+        {done && tasks.length > DONE_PREVIEW_COUNT && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded(!expanded)}
+            className="rounded-control px-2 py-1 text-start text-caption text-fg-2 hover:bg-selected"
+          >
+            {expanded
+              ? t("tasks.collapseDone")
+              : t("tasks.expandDone", {
+                  count: tasks.length - DONE_PREVIEW_COUNT,
+                })}
+          </button>
         )}
       </div>
     </section>
   );
 }
 
+/**
+ * 这些状态下排期不会到点就跑：它在跑、排队、等人回话、被暂停，
+ * 后端 `advance_schedules` 会跳过它。此时卡片不承诺「下次什么时候」，
+ * 否则就成了一句看着确定、其实不会发生的时间。
+ */
+const SCHEDULE_HELD_STATES: ReadonlySet<RouterRunState> = new Set([
+  "queued",
+  "dispatched",
+  "working",
+  "needs-you",
+  "paused",
+]);
+
 function TaskCardView({
+  compact,
   task,
   run,
   dragging,
   onOpen,
+  onDiscard,
 }: {
   task: TaskCard;
+  compact: boolean;
   /** 这张卡的自动调度运行态；没有就是还没交给调度器 */
   run: RouterTaskRun | undefined;
   dragging: boolean;
   onOpen: (task: TaskCard) => void;
+  onDiscard: (task: TaskCard) => void;
 }) {
   const { t } = useTranslation();
   const {
@@ -877,6 +1464,11 @@ function TaskCardView({
     transform,
     isDragging,
   } = useDraggable({ id: task.id, data: { task } });
+  // 等待期的卡要靠这一行解释「在等下一轮」；看板 20 秒读一次，到点会自己变成「已到点」。
+  const hint =
+    task.schedule && !(run && SCHEDULE_HELD_STATES.has(run.state))
+      ? nextRunHint(t, task.schedule)
+      : null;
 
   return (
     <article
@@ -890,16 +1482,53 @@ function TaskCardView({
       <button
         type="button"
         onClick={() => onOpen(task)}
-        className="block w-full rounded-control p-2.5 pe-7 text-start"
+        title={compact ? task.title : undefined}
+        className={cn(
+          "block w-full rounded-control text-start",
+          compact ? "px-2 py-1 pe-7" : "p-2.5 pe-7",
+          task.kind === "discussion" && "pe-14",
+        )}
         aria-label={task.title}
       >
-        <span className="block text-caption font-medium leading-snug text-fg-1 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] overflow-hidden">
+        <span
+          className={cn(
+            "block font-medium leading-snug text-fg-1",
+            // 三档字号必须一眼分开：列头 15/600、卡标题 13/500、元信息 11。
+            // 紧凑的 Done 行是回顾，不需要和待办卡一样重。
+            compact
+              ? "truncate text-caption"
+              : "text-body [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] overflow-hidden",
+          )}
+        >
           {task.title}
         </span>
-        <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-fg-3">
-          <RunStateBadge run={run} />
+        {/* 待决定的问题就是这张卡现在唯一的内容：卡面不展示它，用户点开才知道要定什么。 */}
+        {task.discussionQuestion ? (
+          <span
+            className={cn(
+              "mt-1 flex items-start gap-1.5 text-[11px] leading-snug text-fg-2",
+              compact && "truncate",
+            )}
+          >
+            <MessageSquare
+              aria-hidden="true"
+              className="mt-[2px] h-3 w-3 shrink-0 text-fg-3"
+              strokeWidth={1.5}
+            />
+            <span className={compact ? "truncate" : "line-clamp-2"}>
+              {task.discussionQuestion}
+            </span>
+          </span>
+        ) : null}
+        <span
+          className={cn(
+            "flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-fg-3",
+            !compact && "mt-1.5",
+          )}
+        >
+          {(!compact || run?.state === "failed") && <RunStateBadge run={run} />}
           <span className="font-mono">{task.id}</span>
-          {task.schedule ? (
+          {task.schedule && !compact ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-subtle px-1.5 py-[1px] text-fg-2">
               <Repeat
                 aria-hidden="true"
@@ -909,9 +1538,20 @@ function TaskCardView({
               {scheduleLabel(t, task.schedule)}
             </span>
           ) : null}
-          {task.acceptanceTotal > 0 ? (
-            <span className="tabular-nums">
-              {task.acceptanceDone}/{task.acceptanceTotal}
+          {hint ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5 tabular-nums",
+                hint.due && "text-warning-text",
+              )}
+              title={hint.due ? t("tasks.schedule.due") : undefined}
+            >
+              <Clock
+                aria-hidden="true"
+                className="h-2.5 w-2.5"
+                strokeWidth={1.5}
+              />
+              {hint.text}
             </span>
           ) : null}
           {task.artifactCount > 0 ? (
@@ -924,13 +1564,63 @@ function TaskCardView({
               {task.artifactCount}
             </span>
           ) : null}
-          {task.assignees.map((assignee) => (
-            <span key={assignee} className="truncate">
-              {assignee}
+          {task.kind === "discussion" ? (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-subtle px-1.5 py-[1px] text-fg-2">
+              <MessageSquare
+                aria-hidden="true"
+                className="h-2.5 w-2.5"
+                strokeWidth={1.5}
+              />
+              {task.round
+                ? t("tasks.discussion.roundShort", { round: task.round })
+                : t("tasks.discussion.held")}
             </span>
-          ))}
+          ) : task.discussionHold ? (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-subtle px-1.5 py-[1px] text-fg-2">
+              <MessageSquare
+                aria-hidden="true"
+                className="h-2.5 w-2.5"
+                strokeWidth={1.5}
+              />
+              {t("tasks.discussion.held")}
+            </span>
+          ) : null}
+          {task.sourceTask ? (
+            <span className="font-mono text-fg-3">
+              {t("tasks.discussion.source", { id: task.sourceTask })}
+            </span>
+          ) : null}
+          {compact && boardDate(task) && (
+            <time className="ms-auto tabular-nums" title={boardDate(task)}>
+              {boardDate(task).slice(0, 10)}
+            </time>
+          )}
+          {/* 一行里不把每个指派人都铺开：卡面要读的是任务，不是名单。 */}
+          {!compact && task.assignees.length > 0 ? (
+            <span className="truncate">
+              {task.assignees[0]}
+              {task.assignees.length > 1
+                ? ` +${task.assignees.length - 1}`
+                : ""}
+            </span>
+          ) : null}
         </span>
       </button>
+      {task.kind === "discussion" ? (
+        <button
+          type="button"
+          onClick={() => onDiscard(task)}
+          aria-label={`${t("tasks.discussion.discard")}：${task.title}`}
+          title={t("tasks.discussion.discard")}
+          className="absolute end-7 top-1 flex size-6 items-center justify-center rounded-control text-fg-3 opacity-0 transition-opacity hover:bg-danger-soft hover:text-danger-text focus-visible:text-danger-text focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          <Trash2
+            aria-hidden="true"
+            className="h-3.5 w-3.5"
+            strokeWidth={1.5}
+          />
+        </button>
+      ) : null}
       <button
         ref={setActivatorNodeRef}
         type="button"
@@ -960,82 +1650,6 @@ function CardPreview({ task }: { task: TaskCard }) {
       <span className="mt-1.5 block font-mono text-[11px] text-fg-3">
         {task.id}
       </span>
-    </div>
-  );
-}
-
-/** 默认列顶部的快速新建：Ctrl+Enter 或点发送才提交，避免输入法误发。 */
-function NewTaskComposer({
-  onCreate,
-}: {
-  onCreate: (title: string) => Promise<boolean>;
-}) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [pending, setPending] = useState(false);
-
-  const submit = async () => {
-    const value = title.trim();
-    if (!value || pending) return;
-    setPending(true);
-    try {
-      if (await onCreate(value)) setTitle("");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-1.5 rounded-control border border-dashed border-border-strong px-2.5 py-2 text-caption text-fg-3 transition-[color,background-color,box-shadow] hover:bg-surface hover:text-fg-1 hover:shadow-v7-sm"
-      >
-        <Plus aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={1.5} />
-        {t("tasks.newTask")}
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <Input
-        autoFocus
-        value={title}
-        aria-label={t("tasks.newTask")}
-        placeholder={t("tasks.newTaskPlaceholder")}
-        onChange={(event) => setTitle(event.target.value)}
-        onKeyDown={(event) => {
-          if (
-            event.key === "Enter" &&
-            event.ctrlKey &&
-            !event.nativeEvent.isComposing
-          ) {
-            event.preventDefault();
-            void submit();
-          } else if (event.key === "Escape") {
-            setTitle("");
-            setOpen(false);
-          }
-        }}
-        onBlur={() => {
-          // 空输入失焦就收起；已经写了字就不丢内容
-          if (!title.trim()) setOpen(false);
-        }}
-      />
-      <HoverTip content={t("tasks.newTaskSend")}>
-        <Button
-          variant="solid"
-          size="icon-compact"
-          aria-label={t("tasks.newTaskSend")}
-          disabled={!title.trim() || pending}
-          onClick={() => void submit()}
-        >
-          <Send data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
-        </Button>
-      </HoverTip>
     </div>
   );
 }

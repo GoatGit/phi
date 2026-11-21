@@ -10,6 +10,37 @@ import type { TaskSchedule } from "@/lib/api/tasks";
 
 export type ScheduleKind = "none" | "interval" | "daily" | "once";
 
+/** 任务类型下拉的排列顺序：详情面板与新建入口共用。 */
+export const SCHEDULE_MODES: ScheduleKind[] = [
+  "none",
+  "interval",
+  "daily",
+  "once",
+];
+
+/** 持续任务的单位；换算是分钟，跟后端 `parse_interval` 的单位一致。 */
+export type IntervalUnit = "m" | "h" | "d";
+export const INTERVAL_UNITS: IntervalUnit[] = ["m", "h", "d"];
+export const UNIT_MINUTES: Record<IntervalUnit, number> = {
+  m: 1,
+  h: 60,
+  d: 1440,
+};
+/** 后端的上下界：1 分钟到 30 天之外一律拒绝。 */
+export const MIN_INTERVAL_MINUTES = 1;
+export const MAX_INTERVAL_MINUTES = 30 * 24 * 60;
+
+/** 分钟数 → 最贴近的「多少 + 单位」：120 → 2 小时，90 → 90 分钟。 */
+export function intervalParts(minutes: number | null): {
+  amount: number;
+  unit: IntervalUnit;
+} {
+  const value = minutes || 30;
+  if (value % 1440 === 0) return { amount: value / 1440, unit: "d" };
+  if (value % 60 === 0) return { amount: value / 60, unit: "h" };
+  return { amount: value, unit: "m" };
+}
+
 export function scheduleKind(schedule: TaskSchedule | null): ScheduleKind {
   return (schedule?.kind as ScheduleKind | undefined) ?? "none";
 }
@@ -122,6 +153,28 @@ export function nextRunLabel(
   if (!at) return null;
   if (at <= now) return t("tasks.schedule.due");
   return t("tasks.schedule.next", { time: formatStamp(at) });
+}
+
+/**
+ * 卡片上的「下次什么时候」：一行字说清这张卡在等下一轮，而不是卡住了。
+ *
+ * 与 `nextRunLabel` 读的是同一个 `nextRunAt`，只是换一句塞得进卡片的话：详情面板
+ * 能写「已到时间，下一轮巡检就会跑」，卡片上只留「已到点」。`due` 交给调用方上色。
+ */
+export function nextRunHint(
+  t: TFunction,
+  schedule: TaskSchedule | null,
+  now: number = Date.now(),
+): { text: string; due: boolean } | null {
+  const at = schedule?.nextRunAt;
+  if (!at) return null;
+  if (at <= now) return { text: t("tasks.schedule.dueShort"), due: true };
+  // 一次性任务的时刻已经写在排期标签里（「… 跑一次」），不要再重复一遍。
+  if (scheduleKind(schedule) === "once") return null;
+  return {
+    text: t("tasks.schedule.next", { time: formatStamp(at) }),
+    due: false,
+  };
 }
 
 export function formatStamp(at: number): string {

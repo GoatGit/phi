@@ -1,10 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pause, Play, RotateCcw, SquareTerminal } from "lucide-react";
+import {
+  Pause,
+  Play,
+  RotateCcw,
+  SquareTerminal,
+  UserCheck,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getAppDisplayName } from "@/components/shell/AppGlyph";
-import type { RouterHumanDecision, RouterTaskRun } from "@/lib/api/superAgent";
+import type {
+  RouterAgent,
+  RouterHumanDecision,
+  RouterTaskRun,
+} from "@/lib/api/superAgent";
 import { cn } from "@/lib/utils";
+import { resolveAssignee } from "./agentSettings";
 import { runStateKey } from "./RunStateBadge";
 
 interface AutoRouterSectionProps {
@@ -21,6 +32,15 @@ interface AutoRouterSectionProps {
    * 这里只负责把「想看它」这件事交出去。
    */
   onOpenWorker?: () => void;
+  /** 这张卡的归属人（frontmatter 的 assignee） */
+  assignees?: string[];
+  /** 设置里的全部智能体；下拉只列允许参与派发的那些 */
+  agents?: RouterAgent[];
+  allowedAgents?: string[];
+  /** 这张卡在看板上的列（`Done` 之后不再给开工入口） */
+  taskStatus?: string;
+  /** 指派（`start` 才是第二个动作「指派并开工」） */
+  onAssign?: (agentId: string | null, start: boolean) => void;
 }
 
 const STATE_DOT: Record<string, string> = {
@@ -50,12 +70,32 @@ export function AutoRouterSection({
   onResume,
   onResolve,
   onOpenWorker,
+  assignees = [],
+  agents = [],
+  allowedAgents = [],
+  taskStatus = "",
+  onAssign,
 }: AutoRouterSectionProps) {
   const { t } = useTranslation();
   const [decision, setDecision] = useState<RouterHumanDecision>("continue");
   const state = run?.state ?? "idle";
   const key = runStateKey(state);
   const running = state === "dispatched" || state === "working";
+  // 「完成」有两种写法：运行态说 done，或者卡片自己在 Done 列（可能从没跑过）。
+  // 只看运行态会让一张 Done 卡还挂着「开始 / 指派并开工」。
+  const finished =
+    state === "done" || taskStatus.trim().toLowerCase() === "done";
+
+  // 归属用原生 select：它是一项配置，不是一次「动作」，用不着一套弹层。
+  const assignment = resolveAssignee({ assignees }, agents, allowedAgents);
+  const [choice, setChoice] = useState(
+    assignment.agentId ?? assignment.unknown ?? "",
+  );
+  useEffect(() => {
+    setChoice(assignment.agentId ?? assignment.unknown ?? "");
+  }, [assignment.agentId, assignment.unknown]);
+  const chosen = choice === "" ? null : choice;
+  const choices = agents.filter((agent) => allowedAgents.includes(agent.id));
 
   return (
     <section className="space-y-2">
@@ -76,9 +116,20 @@ export function AutoRouterSection({
         <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-fg-3">
           {run.workerApp ? (
             <span>
-              {t("tasks.router.workerLine", {
-                app: getAppDisplayName(run.workerApp),
-              })}
+              {run.agentName
+                ? t("tasks.router.workerLineAgent", {
+                    agent: run.agentName,
+                    app: getAppDisplayName(run.workerApp),
+                  })
+                : t("tasks.router.workerLine", {
+                    app: getAppDisplayName(run.workerApp),
+                  })}
+            </span>
+          ) : null}
+          {/* 模型只是「这次派发给谁」的一部分：没有应用就没有主语。 */}
+          {run.workerApp && run.agentModel ? (
+            <span>
+              {t("tasks.router.workerLineModel", { model: run.agentModel })}
             </span>
           ) : null}
           {run.attempts > 0 ? (
@@ -95,6 +146,64 @@ export function AutoRouterSection({
         <p className="m-0 whitespace-pre-wrap rounded-control bg-subtle px-2.5 py-1.5 text-caption leading-relaxed text-fg-2">
           {run.detail}
         </p>
+      ) : null}
+
+      {/* 归属：拖到某一行与这里选一下是同一件事——只改「归谁」，不等于起跑。 */}
+      {onAssign ? (
+        <div className="space-y-1.5 rounded-control border border-border p-2.5">
+          <label className="block text-caption text-fg-2">
+            {t("tasks.router.assignTitle")}
+            <select
+              className="mt-1.5 block w-full rounded-control border border-border bg-surface p-1.5 text-caption"
+              value={choice}
+              disabled={busy}
+              onChange={(event) => setChoice(event.target.value)}
+            >
+              <option value="">{t("tasks.router.assignNone")}</option>
+              {assignment.unknown ? (
+                <option value={assignment.unknown}>
+                  {t("tasks.router.unknownAssignee", {
+                    id: assignment.unknown,
+                  })}
+                </option>
+              ) : null}
+              {choices.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="neutral"
+              size="compact"
+              disabled={busy || (assignees[0] ?? "") === (chosen ?? "")}
+              onClick={() => onAssign(chosen, false)}
+            >
+              <UserCheck data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+              {t("tasks.router.assign")}
+            </Button>
+            {!running && !finished && chosen ? (
+              <Button
+                variant="solid"
+                size="compact"
+                disabled={busy}
+                onClick={() => onAssign(chosen, true)}
+              >
+                <Play data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+                {t("tasks.router.assignAndStart")}
+              </Button>
+            ) : null}
+          </div>
+          <p className="m-0 text-[11px] leading-relaxed text-fg-3">
+            {assignment.unknown
+              ? t("tasks.router.assignUnknownHint", {
+                  id: assignment.unknown,
+                })
+              : t("tasks.router.assignHint")}
+          </p>
+        </div>
       ) : null}
 
       {/* worker 不在 phi 自己的终端表里（zellij 里跑着的），不切过去就完全
@@ -170,20 +279,23 @@ export function AutoRouterSection({
               <RotateCcw data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
               {t("tasks.router.resume")}
             </Button>
-          ) : state === "done" ? null : (
-            <Button
-              variant="neutral"
-              size="compact"
-              disabled={busy}
-              onClick={onStart}
-            >
-              <Play data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
-              {t("tasks.router.start")}
-            </Button>
+          ) : finished ? null : (
+            <>
+              <Button
+                variant="neutral"
+                size="compact"
+                disabled={busy}
+                onClick={onStart}
+              >
+                <Play data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+                {t("tasks.router.start")}
+              </Button>
+              {/* 这句描述的是「点开始」之后的行为；没按钮时它没有主语，不单独留着。 */}
+              <span className="text-caption text-fg-3">
+                {t("tasks.router.startHint")}
+              </span>
+            </>
           )}
-          <span className="text-caption text-fg-3">
-            {t("tasks.router.startHint")}
-          </span>
         </div>
       )}
     </section>

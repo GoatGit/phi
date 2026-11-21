@@ -30,7 +30,7 @@ impl WorkerRuntime for TerminalWorker {
             .ok_or_else(|| "no-window".to_string())?;
         // 指令按 shell 规则转义后作为单个 argv 传给 CLI：worker 一启动就知道
         // 该读哪张卡，不需要人再打一遍。非交互参数也走同一份，跑完才带退出码退出。
-        let arguments = crate::terminal::worker_arguments(&spec.app_id, &spec.prompt());
+        let arguments = spec.agent.launch_arguments(&spec.file);
         let snapshot = crate::terminal::terminal_create(
             window,
             spec.app_id.clone(),

@@ -1,8 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Zap } from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -23,12 +35,36 @@ import {
   type GatewayRouteGroup,
 } from "@/lib/api/gateway";
 import type {
+  AgentModelChoices,
+  RouterAgent,
   RouterSettings,
   RouterStatus,
   RouterTickReport,
 } from "@/lib/api/superAgent";
+import { superAgentApi } from "@/lib/api/superAgent";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import {
+  AGENT_HARNESS_LIMIT,
+  blankAgent,
+  harnessPreview,
+  linesOf,
+  resolveRouterAgents,
+  withAgentDeleted,
+  withAgentSaved,
+} from "./agentSettings";
+import { AgentStudioPanel } from "./AgentStudioPanel";
+import { AgentDraftRail } from "./AgentDraftRail";
+import {
+  personaFromDraft,
+  personaIntoForm,
+  personaOf,
+  personaOfAgent,
+  samePersona,
+  type AgentDraftVersion,
+  type AgentPersona,
+  type PersonaForm,
+} from "./agentPersona";
 
 interface AutoRouterPanelProps {
   status: RouterStatus | null;
@@ -139,6 +175,15 @@ export function AutoRouterPanel({
       ? t("tasks.router.modeShadow")
       : t("tasks.router.modeOn");
 
+  // 老设置里 workerApps 存的是应用 id：补成「跟随应用」的智能体再展示。
+  // 口径与智能体视图、详情页的指派行共用一份（`agentSettings.ts`）。
+  const agents = useMemo(() => resolveRouterAgents(settings), [settings]);
+
+  const [editing, setEditing] = useState<{
+    agent: RouterAgent;
+    isNew: boolean;
+  } | null>(null);
+
   const patch = async (change: Partial<RouterSettings>) => {
     if (!settings) return;
     setBusy(true);
@@ -147,7 +192,10 @@ export function AutoRouterPanel({
     } catch (error) {
       toast.error(
         t("tasks.router.saveFailed", {
-          error: error instanceof Error ? error.message : String(error),
+          error: agentErrorText(
+            t,
+            error instanceof Error ? error.message : String(error),
+          ),
         }),
       );
     } finally {
@@ -155,14 +203,28 @@ export function AutoRouterPanel({
     }
   };
 
-  const toggleWorker = (appId: string, checked: boolean) => {
+  const toggleAgent = (agentId: string, checked: boolean) => {
     if (!settings) return;
     const next = checked
-      ? [...settings.workerApps, appId]
-      : settings.workerApps.filter((entry) => entry !== appId);
-    // 保持与终端的应用顺序一致，第一个就是默认派发对象。
-    const ordered = terminalApps.filter((entry) => next.includes(entry));
+      ? [...settings.workerApps, agentId]
+      : settings.workerApps.filter((entry) => entry !== agentId);
+    // 顺序按智能体列表，第一个就是规则调度的默认派发对象。
+    const ordered = agents
+      .map((agent) => agent.id)
+      .filter((id) => next.includes(id));
     void patch({ workerApps: ordered });
+  };
+
+  const saveAgent = (agent: RouterAgent, isNew: boolean) => {
+    if (!settings) return;
+    // 新智能体的 id 由后端按名称派生，允许名单也在后端补：这里不猜 uniqueness。
+    void patch(withAgentSaved(settings, agent, isNew));
+    setEditing(null);
+  };
+
+  const deleteAgent = (agent: RouterAgent) => {
+    if (!settings) return;
+    void patch(withAgentDeleted(settings, agent.id));
   };
 
   const runOnce = async () => {
@@ -181,7 +243,14 @@ export function AutoRouterPanel({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      // 编辑器在弹层外的 portal 里：点它会被当成「点了面板外面」。
+      // 正在编辑时不跟着关，否则刚输入一个字整个表单就没了。
+      onOpenChange={(next) => {
+        if (!editing) setOpen(next);
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -382,38 +451,120 @@ export function AutoRouterPanel({
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-caption text-fg-2">
-                    {t("tasks.router.workers")}
-                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-caption text-fg-2">
+                      {t("tasks.router.agents")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="compact"
+                      className="h-6 px-1.5 text-caption text-action-text"
+                      disabled={busy || terminalApps.length === 0}
+                      onClick={() =>
+                        setEditing({
+                          agent: blankAgent(terminalApps[0] ?? "claude"),
+                          isNew: true,
+                        })
+                      }
+                    >
+                      <Plus data-icon className="h-3 w-3" strokeWidth={2} />
+                      {t("tasks.router.agentAdd")}
+                    </Button>
+                  </div>
                   {terminalApps.length === 0 ? (
                     <p className="m-0 text-caption leading-relaxed text-fg-3">
                       {t("tasks.router.noWorkers")}
                     </p>
+                  ) : agents.length === 0 ? (
+                    <p className="m-0 text-caption leading-relaxed text-fg-3">
+                      {t("tasks.router.noAgents")}
+                    </p>
                   ) : (
                     <div className="flex flex-col gap-1">
-                      {terminalApps.map((appId) => {
-                        const checked = settings.workerApps.includes(appId);
+                      {agents.map((agent) => {
+                        const allowed = settings.workerApps.includes(agent.id);
+                        const isDefault = settings.workerApps[0] === agent.id;
                         return (
-                          <label
-                            key={appId}
-                            className="flex cursor-pointer items-center gap-2 text-caption text-fg-1"
+                          <div
+                            key={agent.id}
+                            className="flex items-start gap-1.5 rounded-control px-1 py-0.5 hover:bg-subtle"
                           >
                             <Checkbox
-                              checked={checked}
+                              className="mt-0.5"
+                              checked={allowed}
                               disabled={
                                 busy ||
-                                (checked && settings.workerApps.length === 1)
+                                (allowed && settings.workerApps.length === 1)
                               }
+                              aria-label={t("tasks.router.agentAllowed", {
+                                name: agent.name,
+                              })}
                               onCheckedChange={(value) =>
-                                toggleWorker(appId, value === true)
+                                toggleAgent(agent.id, value === true)
                               }
                             />
-                            {getAppDisplayName(appId)}
-                          </label>
+                            <div className="min-w-0 flex-1">
+                              <span className="flex items-center gap-1 text-caption text-fg-1">
+                                <span className="truncate">{agent.name}</span>
+                                {isDefault ? (
+                                  <span className="shrink-0 rounded-control bg-subtle px-1 text-[10px] text-fg-3">
+                                    {t("tasks.router.agentDefault")}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span className="block truncate text-[11px] text-fg-3">
+                                {getAppDisplayName(agent.appId)}
+                                {" · "}
+                                {agent.model
+                                  ? agent.model
+                                  : t("tasks.router.agentFollowApp")}
+                              </span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon-compact"
+                              aria-label={t("tasks.router.agentEdit", {
+                                name: agent.name,
+                              })}
+                              disabled={busy}
+                              onClick={() =>
+                                setEditing({ agent, isNew: false })
+                              }
+                            >
+                              <Pencil
+                                aria-hidden="true"
+                                className="h-3.5 w-3.5"
+                                strokeWidth={1.5}
+                              />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-compact"
+                              aria-label={t("tasks.router.agentDelete", {
+                                name: agent.name,
+                              })}
+                              disabled={busy}
+                              onClick={() => deleteAgent(agent)}
+                            >
+                              <Trash2
+                                aria-hidden="true"
+                                className="h-3.5 w-3.5"
+                                strokeWidth={1.5}
+                              />
+                            </Button>
+                          </div>
                         );
                       })}
                     </div>
                   )}
+                  <p className="m-0 text-caption leading-relaxed text-fg-3">
+                    {t("tasks.router.agentsHint")}
+                  </p>
+                  {agents.length > 0 && settings.workerApps.length === 0 ? (
+                    <p className="m-0 text-caption leading-relaxed text-warning-text">
+                      {t("tasks.router.agentsNoneAllowed")}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="flex flex-col gap-1.5">
@@ -460,6 +611,16 @@ export function AutoRouterPanel({
           </div>
         )}
 
+        {editing ? (
+          <RouterAgentDialog
+            draft={editing.agent}
+            isNew={editing.isNew}
+            terminalApps={terminalApps}
+            onCancel={() => setEditing(null)}
+            onSave={(agent) => saveAgent(agent, editing.isNew)}
+          />
+        ) : null}
+
         <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2.5">
           <span className="min-w-0 truncate text-caption text-fg-3">
             {lastRun ? summarize(t, lastRun) : t("tasks.router.runNowHint")}
@@ -502,4 +663,675 @@ function summarize(
     return t("tasks.router.resultNeedsYou", { count: report.needsYou.length });
   }
   return t("tasks.router.resultNone");
+}
+
+/** 把后端的错误码翻成人能看懂的一句；认不出来的照原样给。 */
+function agentErrorText(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  message: string,
+): string {
+  if (message.startsWith("unsupported-agent-argument:")) {
+    return t("tasks.router.agentErrorArgument", {
+      argument: message.slice("unsupported-agent-argument:".length).trim(),
+    });
+  }
+  if (message.startsWith("agent-model-unpublished:")) {
+    return t("tasks.router.agentErrorModel", {
+      model: message.slice("agent-model-unpublished:".length).trim(),
+    });
+  }
+  switch (message) {
+    case "invalid-agent":
+    case "invalid-agent-app":
+    case "agent-model-override-unsupported":
+      return t("tasks.router.agentErrorInvalid");
+    case "invalid-agent-id":
+      return t("tasks.router.agentErrorDuplicate");
+    case "agent-harness-too-large":
+      return t("tasks.router.agentErrorHarness", {
+        count: AGENT_HARNESS_LIMIT,
+      });
+    case "unknown-router-agent":
+      return t("tasks.router.agentErrorUnknown");
+    default:
+      return message;
+  }
+}
+
+/** 「跟随应用」在下拉里的占位值。空字符串是 Radix Select 不接受的选项值。 */
+const FOLLOW_APP = "__follow_app__";
+
+/** 「自己填一个模型」在下拉里的占位值。 */
+const CUSTOM_MODEL = "__custom_model__";
+
+/**
+ * 表单里的一组字段。
+ *
+ * 分隔靠一道细线与一个 11px 的小标题，而不是靠留白：九个子段平铺时，
+ * 人只能从头读到尾，看不出「哪些是它是什么人、哪些是怎么启动它」。
+ */
+function AgentSection({
+  title,
+  first = false,
+  children,
+}: {
+  title: string;
+  first?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className={cn(
+        "flex flex-col gap-2.5",
+        !first && "border-t border-border pt-3",
+      )}
+    >
+      <h4 className="m-0 text-badge text-fg-3">{title}</h4>
+      {children}
+    </section>
+  );
+}
+
+interface RouterAgentDialogProps {
+  draft: RouterAgent;
+  isNew: boolean;
+  terminalApps: string[];
+  onCancel: () => void;
+  onSave: (agent: RouterAgent) => void;
+}
+
+/**
+ * 智能体编辑器。
+ *
+ * 表单按「它是谁 / 怎么启动 / 负责什么 / 怎么做 / 怎样算完成」分五组：
+ * 前两组是「判官怎么认人、怎么启动」，后三组是角色定义。五段全空时派发行为
+ * 与老智能体一字不差；填了就由 Rust 编译成 harness 拼在前面。
+ * 新建时右栏顶部多一条草稿版本条：每轮 Router 写的那一版都留着，可以任意切回去看。
+ * 非交互启动参数由 phi 自动附加，不在这里给覆盖入口。
+ */
+export function RouterAgentDialog({
+  draft,
+  isNew,
+  terminalApps,
+  onCancel,
+  onSave,
+}: RouterAgentDialogProps) {
+  const { t } = useTranslation();
+  const [agent, setAgent] = useState<RouterAgent>(draft);
+  // 参数留成一段原文，保存时才切分：直接绑 `arguments.join(" ")` 会让每次
+  // 按键后重新拼接，刚打下的空格当场被吃掉，`--effort high` 变成 `--efforthigh`。
+  const [argsText, setArgsText] = useState(draft.arguments.join(" "));
+  // `null` = 还没读到；名单为空不代表不能填，只表示没有可推荐的。
+  const [choices, setChoices] = useState<AgentModelChoices | null>(null);
+  const [custom, setCustom] = useState(false);
+  // 五段式按「一行一条」编辑：列表字段在界面上就是多行文本，保存时才切分成数组。
+  // 直接绑数组会让每次按键都重建元素身份，光标跟着跳。
+  const [askText, setAskText] = useState(draft.askUserWhen.join("\n"));
+  const [stepsText, setStepsText] = useState(draft.steps.join("\n"));
+  const [constraintsText, setConstraintsText] = useState(
+    draft.constraints.join("\n"),
+  );
+  const [evidenceText, setEvidenceText] = useState(
+    draft.completion.evidence.join("\n"),
+  );
+  /**
+   * 草稿版本：0 是「开始对话之前」，之后每落一版追加一条。
+   *
+   * 只存「它是谁」那半边，应用、模型、参数与提示词不进快照——切版本换的是
+   * Router 写的那几段，而不是把你刚调好的启动配置也一起翻回去。
+   */
+  const [versions, setVersions] = useState<AgentDraftVersion[]>([
+    { round: null, fields: [], persona: personaOfAgent(draft) },
+  ]);
+  /** 右栏正在编辑的那一版。 */
+  const [cursor, setCursor] = useState(0);
+  /** 正在看的历史版本；`null` = 在看右栏实时那一份。 */
+  const [preview, setPreview] = useState<number | null>(null);
+
+  const live: PersonaForm = {
+    agent,
+    askText,
+    stepsText,
+    constraintsText,
+    evidenceText,
+  };
+  const livePersona = personaOf(live);
+  // 预览时右栏只读：能看到、能比，但保存的还是实时那一份，不能两个版本一起改。
+  const locked = preview !== null;
+  // 手改不另起一版（每敲一个字都存一份没人看得懂），但要说清右栏已不是 Router 那份。
+  const edited = !samePersona(livePersona, versions[cursor].persona);
+  const shown = preview === null ? livePersona : versions[preview].persona;
+  /**
+   * 这一轮对话的起点：右栏实时那一份，或者正在看的那一版。
+   *
+   * 看着旧版开口时，模型和落盘都必须以那一版为基础；拿看不见的实时草稿当基础，
+   * 人看到的是第 1 版、改出来的却是第 3 版的衍生。
+   */
+  const basePersona =
+    preview === null ? livePersona : versions[preview].persona;
+  const studioAgent =
+    preview === null ? agent : personaIntoForm(basePersona, live).agent;
+  const versionLabel = (version: number) =>
+    version === 0
+      ? t("tasks.router.agentVersionInitial")
+      : t("tasks.router.agentVersionRound", { count: version });
+
+  const loadPersona = (persona: AgentPersona) => {
+    const form = personaIntoForm(persona, live);
+    setAgent(form.agent);
+    setAskText(form.askText);
+    setStepsText(form.stepsText);
+    setConstraintsText(form.constraintsText);
+    setEvidenceText(form.evidenceText);
+  };
+
+  /**
+   * 草稿落到右栏，并记成一版。
+   *
+   * 第一版落下来时顺手把「初始」改成此刻的样子：人可能先手填了名称与用途再开口，
+   * 那个才是他真正想退回去的起点。
+   */
+  const applyDraft = (next: RouterAgent, round: number) => {
+    const persona = personaFromDraft(next, basePersona);
+    const fields: string[] = [];
+    const note = (key: keyof AgentPersona, label: string) => {
+      if (persona[key] !== basePersona[key]) fields.push(label);
+    };
+    note("name", t("tasks.router.agentName"));
+    note("description", t("tasks.router.agentPurpose"));
+    note("outcome", t("tasks.router.agentOutcome"));
+    note("boundary", t("tasks.router.agentBoundary"));
+    note("askText", t("tasks.router.agentAskUser"));
+    note("stepsText", t("tasks.router.agentSteps"));
+    note("constraintsText", t("tasks.router.agentConstraints"));
+    note("completionResult", t("tasks.router.agentCompletion"));
+    note("evidenceText", t("tasks.router.agentEvidence"));
+
+    const version: AgentDraftVersion = { round, fields, persona };
+    const nextVersions =
+      versions.length === 1
+        ? [{ ...versions[0], persona: livePersona }, version]
+        : [...versions, version];
+    setVersions(nextVersions);
+    setCursor(nextVersions.length - 1);
+    setPreview(null);
+    loadPersona(persona);
+    return { version: nextVersions.length - 1, fields };
+  };
+
+  /**
+   * 点版本条：切成「看这一版」。
+   *
+   * 点的是当前这一版、而且没手改过时不算预览——否则白白把右栏锁上，还得多点一次
+   * 「以这一版继续」才能接着写。
+   */
+  const selectVersion = (version: number) => {
+    setPreview(version === cursor && !edited ? null : version);
+  };
+
+  /** 以某一版继续：右栏换成它，后面的版本仍留在版本条上备查。 */
+  const continueFrom = (version: number) => {
+    setCursor(version);
+    setPreview(null);
+    loadPersona(versions[version].persona);
+  };
+
+  useEffect(() => {
+    let alive = true;
+    setChoices(null);
+    void superAgentApi
+      .agentModels(agent.appId)
+      .then((result) => {
+        if (alive) setChoices(result);
+      })
+      .catch(() => {
+        if (alive) setChoices({ models: [], overridable: false });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [agent.appId]);
+
+  const listed = choices?.models ?? [];
+  const overridable = choices?.overridable ?? false;
+  // 已下架、或手填的模型照样显示出来：悄悄换成「跟随应用」等于改写了配置。
+  const missingModel = agent.model !== "" && !listed.includes(agent.model);
+  const customModel = custom || missingModel;
+  // 角色上下文由 Rust 编译；这里只把「会不会超限」提前告诉人，不自己改内容。
+  // 按码点数：Rust 侧算的是 `chars().count()`，用 UTF-16 长度会让带 emoji 的
+  // 配置在这里被误判超限，拦住一次其实存得进去的保存。
+  // 字数跟屏幕上这一份走：看历史版本时不该报一个属于别一版的数。
+  const harnessLength = [
+    ...harnessPreview({
+      ...agent,
+      name: shown.name,
+      description: shown.description,
+      outcome: shown.outcome,
+      boundary: shown.boundary,
+      askUserWhen: linesOf(shown.askText),
+      steps: linesOf(shown.stepsText),
+      constraints: linesOf(shown.constraintsText),
+      completion: {
+        result: shown.completionResult,
+        evidence: linesOf(shown.evidenceText),
+      },
+    }),
+  ].length;
+  const harnessTooLong = harnessLength > AGENT_HARNESS_LIMIT;
+  const valid =
+    agent.name.trim() !== "" &&
+    (!customModel || agent.model.trim() !== "") &&
+    !harnessTooLong;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent
+        zIndex="top"
+        // 新建时左边多一栅工作室，两栅并列才看得清「刚说的那句」变成了哪些字段。
+        className={isNew ? "h-[76vh] max-w-4xl" : "max-w-lg"}
+        aria-describedby={undefined}
+      >
+        <DialogHeader className="px-6 pt-5">
+          <DialogTitle>
+            {isNew
+              ? t("tasks.router.agentDialogTitle")
+              : t("tasks.router.agentEditTitle", { name: draft.name })}
+          </DialogTitle>
+          <DialogDescription>
+            {isNew
+              ? t("tasks.router.agentCreateHint")
+              : t("tasks.router.agentDialogHint")}
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogBody
+          className={cn(
+            "flex flex-col gap-3 py-3",
+            isNew && "md:flex-row md:gap-5 md:overflow-hidden",
+          )}
+        >
+          {isNew ? (
+            <AgentStudioPanel
+              appId={agent.appId}
+              current={studioAgent}
+              activeVersion={preview ?? cursor}
+              previewing={locked}
+              previewLabel={versionLabel(preview ?? cursor)}
+              onContinueFromView={() => continueFrom(preview ?? cursor)}
+              onDraft={applyDraft}
+              onSelectVersion={selectVersion}
+              // 一列会话一列表单：左边加宽到 336px，气泡才不至于刚写两句就折行。
+              className="md:min-h-0 md:w-[336px] md:shrink-0"
+            />
+          ) : null}
+
+          <div
+            className={cn(
+              "flex flex-col gap-3",
+              // 两栅时表单自己滚：工作室那份对话要一直看得见。
+              isNew && "md:min-h-0 md:flex-1 md:overflow-y-auto md:pe-1",
+            )}
+          >
+            {/* 还没落过一版时不摆版本条：一个只有「初始」的条只会多占一屏。 */}
+            {isNew && versions.length > 1 ? (
+              <AgentDraftRail
+                versions={versions}
+                cursor={cursor}
+                preview={preview}
+                edited={edited}
+                onSelect={selectVersion}
+                onContinue={() => continueFrom(preview ?? cursor)}
+                onBack={() => setPreview(null)}
+              />
+            ) : null}
+
+            <AgentSection title={t("tasks.router.agentSectionIdentity")} first>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-name">
+                  {t("tasks.router.agentName")}
+                </Label>
+                <Input
+                  id="router-agent-name"
+                  value={shown.name}
+                  maxLength={160}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentNamePlaceholder")}
+                  onChange={(event) =>
+                    setAgent({ ...agent, name: event.target.value })
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-description">
+                  {t("tasks.router.agentPurpose")}
+                </Label>
+                <Input
+                  id="router-agent-description"
+                  value={shown.description}
+                  maxLength={400}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentPurposePlaceholder")}
+                  onChange={(event) =>
+                    setAgent({ ...agent, description: event.target.value })
+                  }
+                />
+                <p className="m-0 text-[11px] leading-relaxed text-fg-3">
+                  {t("tasks.router.agentPurposeHint")}
+                </p>
+              </div>
+            </AgentSection>
+
+            <AgentSection title={t("tasks.router.agentSectionLaunch")}>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-caption text-fg-2">
+                    {t("tasks.router.agentApp")}
+                  </span>
+                  <Select
+                    value={agent.appId}
+                    disabled={locked}
+                    onValueChange={(value) => {
+                      // 换应用等于换一份模型名单，自定义那格也跟着退回去。
+                      setCustom(false);
+                      setAgent({ ...agent, appId: value, model: "" });
+                    }}
+                  >
+                    <SelectTrigger
+                      className="h-8 text-caption"
+                      aria-label={t("tasks.router.agentApp")}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="z-[120]">
+                      {terminalApps.map((appId) => (
+                        <SelectItem key={appId} value={appId}>
+                          {getAppDisplayName(appId)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-caption text-fg-2">
+                    {t("tasks.router.agentModel")}
+                  </span>
+                  <Select
+                    value={
+                      customModel ? CUSTOM_MODEL : agent.model || FOLLOW_APP
+                    }
+                    disabled={!overridable || locked}
+                    onValueChange={(value) => {
+                      if (value === CUSTOM_MODEL) {
+                        setCustom(true);
+                        return;
+                      }
+                      setCustom(false);
+                      setAgent({
+                        ...agent,
+                        model: value === FOLLOW_APP ? "" : value,
+                      });
+                    }}
+                  >
+                    <SelectTrigger
+                      className="h-8 text-caption"
+                      aria-label={t("tasks.router.agentModel")}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="z-[120]">
+                      <SelectItem value={FOLLOW_APP}>
+                        {t("tasks.router.agentFollowApp")}
+                      </SelectItem>
+                      {listed.map((model) => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value={CUSTOM_MODEL}>
+                        {t("tasks.router.agentModelCustom")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {customModel ? (
+                <div className="flex flex-col gap-1">
+                  <Input
+                    id="router-agent-model"
+                    value={agent.model}
+                    maxLength={128}
+                    disabled={locked}
+                    className="h-8 text-caption"
+                    aria-label={t("tasks.router.agentModelCustomLabel")}
+                    placeholder={t("tasks.router.agentModelCustomPlaceholder")}
+                    onChange={(event) =>
+                      setAgent({ ...agent, model: event.target.value })
+                    }
+                  />
+                  <p className="m-0 text-[11px] leading-relaxed text-fg-3">
+                    {missingModel
+                      ? t("tasks.router.agentModelMissing")
+                      : t("tasks.router.agentModelCustomHint")}
+                  </p>
+                </div>
+              ) : (
+                <p className="m-0 text-[11px] leading-relaxed text-fg-3">
+                  {choices === null
+                    ? t("tasks.router.agentModelLoading")
+                    : !overridable
+                      ? t("tasks.router.agentModelUnsupported")
+                      : t("tasks.router.agentModelHint")}
+                </p>
+              )}
+
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-arguments">
+                  {t("tasks.router.agentArguments")}
+                </Label>
+                <Input
+                  id="router-agent-arguments"
+                  value={argsText}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentArgumentsPlaceholder")}
+                  onChange={(event) => setArgsText(event.target.value)}
+                />
+                <p className="m-0 text-[11px] leading-relaxed text-fg-3">
+                  {t("tasks.router.agentArgumentsHint")}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-prompt">
+                  {t("tasks.router.agentPrompt")}
+                </Label>
+                <Textarea
+                  id="router-agent-prompt"
+                  value={agent.prompt}
+                  maxLength={2000}
+                  rows={4}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentPromptPlaceholder")}
+                  onChange={(event) =>
+                    setAgent({ ...agent, prompt: event.target.value })
+                  }
+                />
+                <p className="m-0 text-[11px] leading-relaxed text-fg-3">
+                  {t("tasks.router.agentPromptHint")}
+                </p>
+              </div>
+            </AgentSection>
+
+            {/* 五段式：它是谁、负责什么、能问谁、怎么做、怎样算完成。
+              全部留空时派发行为与老智能体一字不差，填了才进 harness。 */}
+            <AgentSection title={t("tasks.router.agentSectionResponsibility")}>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-outcome">
+                  {t("tasks.router.agentOutcome")}
+                </Label>
+                <Textarea
+                  id="router-agent-outcome"
+                  value={shown.outcome}
+                  rows={2}
+                  maxLength={2000}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentOutcomePlaceholder")}
+                  onChange={(event) =>
+                    setAgent({ ...agent, outcome: event.target.value })
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-boundary">
+                  {t("tasks.router.agentBoundary")}
+                </Label>
+                <Textarea
+                  id="router-agent-boundary"
+                  value={shown.boundary}
+                  rows={2}
+                  maxLength={2000}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentBoundaryPlaceholder")}
+                  onChange={(event) =>
+                    setAgent({ ...agent, boundary: event.target.value })
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-ask">
+                  {t("tasks.router.agentAskUser")}
+                </Label>
+                <Textarea
+                  id="router-agent-ask"
+                  value={shown.askText}
+                  rows={3}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentAskUserPlaceholder")}
+                  onChange={(event) => setAskText(event.target.value)}
+                />
+              </div>
+            </AgentSection>
+
+            <AgentSection title={t("tasks.router.agentSectionMethod")}>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-steps">
+                  {t("tasks.router.agentSteps")}
+                </Label>
+                <Textarea
+                  id="router-agent-steps"
+                  value={shown.stepsText}
+                  rows={4}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentStepsPlaceholder")}
+                  onChange={(event) => setStepsText(event.target.value)}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-constraints">
+                  {t("tasks.router.agentConstraints")}
+                </Label>
+                <Textarea
+                  id="router-agent-constraints"
+                  value={shown.constraintsText}
+                  rows={3}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentConstraintsPlaceholder")}
+                  onChange={(event) => setConstraintsText(event.target.value)}
+                />
+              </div>
+            </AgentSection>
+
+            <AgentSection title={t("tasks.router.agentSectionCompletion")}>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-completion">
+                  {t("tasks.router.agentCompletion")}
+                </Label>
+                <Textarea
+                  id="router-agent-completion"
+                  value={shown.completionResult}
+                  rows={2}
+                  maxLength={2000}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentCompletionPlaceholder")}
+                  onChange={(event) =>
+                    setAgent({
+                      ...agent,
+                      completion: {
+                        ...agent.completion,
+                        result: event.target.value,
+                      },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="router-agent-evidence">
+                  {t("tasks.router.agentEvidence")}
+                </Label>
+                <Textarea
+                  id="router-agent-evidence"
+                  value={shown.evidenceText}
+                  rows={3}
+                  disabled={locked}
+                  placeholder={t("tasks.router.agentEvidencePlaceholder")}
+                  onChange={(event) => setEvidenceText(event.target.value)}
+                />
+              </div>
+
+              <p
+                className={cn(
+                  "m-0 text-[11px] tabular-nums",
+                  harnessTooLong ? "text-danger-text" : "text-fg-3",
+                )}
+              >
+                {harnessTooLong
+                  ? t("tasks.router.agentErrorHarness", {
+                      count: harnessLength,
+                    })
+                  : t("tasks.router.agentHarness", { count: harnessLength })}
+              </p>
+              <p className="m-0 text-[11px] leading-relaxed text-fg-3">
+                {t("tasks.router.agentDefinitionHint")}
+              </p>
+            </AgentSection>
+          </div>
+        </DialogBody>
+
+        <DialogFooter className="px-6">
+          <Button variant="neutral" size="compact" onClick={onCancel}>
+            {t("tasks.router.agentCancel")}
+          </Button>
+          <Button
+            variant="solid"
+            size="compact"
+            // 预览历史版本时屏幕上那份不是要存的那份，不给保存。
+            disabled={!valid || locked}
+            onClick={() =>
+              onSave({
+                ...agent,
+                name: agent.name.trim(),
+                description: agent.description.trim(),
+                prompt: agent.prompt.trim(),
+                model: agent.model.trim(),
+                arguments: argsText.split(/\s+/).filter(Boolean),
+                askUserWhen: linesOf(askText),
+                steps: linesOf(stepsText),
+                constraints: linesOf(constraintsText),
+                completion: {
+                  ...agent.completion,
+                  evidence: linesOf(evidenceText),
+                },
+              })
+            }
+          >
+            {t("tasks.router.agentSave")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

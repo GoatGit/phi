@@ -12,15 +12,19 @@
 //!
 //! 设计依据见 `docs/design/super-agent-router.md`。
 
+mod agents;
 pub(crate) mod commands;
+pub(crate) mod discussion;
 pub(crate) mod episode;
 pub(crate) mod judge;
 pub(crate) mod model;
 pub(crate) mod prefilter;
+pub(crate) mod proposals;
 pub(crate) mod runtime;
 pub(crate) mod sidecar;
 pub(crate) mod snapshot;
 pub(crate) mod store;
+pub(crate) mod studio;
 pub(crate) mod tick;
 pub(crate) mod worker;
 

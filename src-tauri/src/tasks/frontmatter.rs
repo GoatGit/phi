@@ -25,6 +25,8 @@ pub struct Document {
 #[derive(Clone, Copy, Debug)]
 pub enum FieldValue<'a> {
     Scalar(&'a str),
+    /// 已经序列化好的 YAML 片段（内联列表等）。原样写回，不再加引号。
+    Raw(&'a str),
 }
 
 impl Document {
@@ -141,6 +143,7 @@ fn yaml_scalar(value: &Value) -> Option<String> {
 fn render_field(key: &str, value: FieldValue<'_>) -> String {
     match value {
         FieldValue::Scalar(text) => format!("{key}: {}", render_scalar(text)),
+        FieldValue::Raw(text) => format!("{key}: {text}"),
     }
 }
 
@@ -187,9 +190,9 @@ fn replace_lines(inner: &str, key: &str, fragment: &str) -> String {
         appended.push_str(eol);
     }
     appended.push_str(fragment);
-    if inner.ends_with('\n') || !inner.is_empty() {
-        appended.push_str(eol);
-    }
+    // 新写的行必须自己收尾：空的 frontmatter（`---\n---\n`）也是能解析的输入，
+    // 少了这个换行，结束行的 `---` 会贴在值后面，文件当场变成解析不了的任务。
+    appended.push_str(eol);
     appended
 }
 
@@ -393,6 +396,17 @@ mod tests {
             Some("2026-11-08 19:42")
         );
         assert_eq!(parsed.string("status").as_deref(), Some("To Do"));
+    }
+
+    #[test]
+    fn appends_into_an_empty_frontmatter_without_gluing_the_closing_fence() {
+        // 只有两道围栏、没有任何字段的任务文件也算合法（id 与标题退回文件名），
+        // 往里写字段时不能把结束行粘在值后面。
+        let doc = Document::parse("---\n---\n\nbody\n").expect("doc");
+        let next = doc.with_field("status", FieldValue::Scalar("Done"));
+        assert_eq!(next, "---\nstatus: Done\n---\n\nbody\n");
+        let parsed = Document::parse(&next).expect("写回后仍然是一份合法文件");
+        assert_eq!(parsed.string("status").as_deref(), Some("Done"));
     }
 
     #[test]

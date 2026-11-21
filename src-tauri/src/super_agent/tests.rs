@@ -15,7 +15,8 @@ use serde_json::Value;
 use crate::super_agent::episode::{Episode, EpisodeInput, RuleEpisode};
 use crate::super_agent::judge::{BoxFuture, Judge, JudgeError, JudgeReply, Question};
 use crate::super_agent::model::{
-    Candidate, Decision, DecisionSet, DispatchOutcome, DispatchSpec, RouterSettings, RunState,
+    Candidate, Decision, DecisionSet, DispatchOutcome, DispatchSpec, RouterAgent, RouterSettings,
+    RunState, TaskRun,
 };
 use crate::super_agent::store::RunWrite;
 use crate::super_agent::tick::{self, TickContext};
@@ -1365,6 +1366,7 @@ fn dependencies_are_resolved_inside_the_same_repository() {
     let mut statuses = std::collections::HashMap::new();
     statuses.insert(("B".to_string(), "TASK-2".to_string()), "Done".to_string());
     let candidate = Candidate {
+        discussion_hold: false,
         task_id: "TASK-1".into(),
         root: "A".into(),
         title: "任务 1".into(),
@@ -1373,6 +1375,8 @@ fn dependencies_are_resolved_inside_the_same_repository() {
         fingerprint: "fp".into(),
         dependencies: vec!["TASK-2".into()],
         schedule: None,
+        assignees: Vec::new(),
+        labels: Vec::new(),
         run: None,
     };
     let outcome = crate::super_agent::prefilter::apply(
@@ -1698,6 +1702,7 @@ fn blocked_dependencies_keep_the_card_queued() {
         .expect("run");
     // 直接测 prefilter：依赖 TASK-2 不存在 → blocked-by。
     let candidate = Candidate {
+        discussion_hold: false,
         task_id: "TASK-1".into(),
         root: workspace.root.clone(),
         title: "任务 1".into(),
@@ -1706,6 +1711,8 @@ fn blocked_dependencies_keep_the_card_queued() {
         fingerprint: "fp".into(),
         dependencies: vec!["TASK-2".into()],
         schedule: None,
+        assignees: Vec::new(),
+        labels: Vec::new(),
         run: None,
     };
     let outcome = crate::super_agent::prefilter::apply(
@@ -1823,6 +1830,7 @@ fn the_task_prompt_prioritizes_autonomous_completion() {
     assert!(prompt.contains(crate::super_agent::model::NEEDS_HUMAN_MARKER));
 
     let spec = DispatchSpec {
+        agent: Default::default(),
         task_id: "TASK-1".into(),
         root: "/repo".into(),
         app_id: "codex".into(),
@@ -2265,4 +2273,872 @@ async fn an_interrupted_worker_is_restarted_by_the_next_tick() {
         "被打断的 worker 应当在同一个 tick 里结算并重新派出去"
     );
     assert_eq!(dispatcher.count(), 1);
+}
+
+/// 运行记录里的 `worker_app` 是应用 id，`worker_apps` 列的是智能体 id：
+/// 自定义智能体下两者不同名，认不回来就会退回默认智能体，人点「开始」拿到的
+/// 参数与自动派发的不一致。
+#[test]
+fn worker_record_resolves_back_to_its_agent() {
+    let mut settings = RouterSettings {
+        worker_apps: vec!["claude-cheap".into()],
+        ..RouterSettings::default()
+    };
+    settings.agents = vec![RouterAgent {
+        id: "claude-cheap".into(),
+        name: "便宜的那个".into(),
+        app_id: "claude".into(),
+        ..Default::default()
+    }];
+
+    assert_eq!(
+        settings.agent_for_worker("claude").as_deref(),
+        Some("claude-cheap"),
+        "应用 id 应当认回该应用下被允许的智能体"
+    );
+    assert_eq!(
+        settings.agent_for_worker("claude-cheap").as_deref(),
+        Some("claude-cheap"),
+        "智能体 id 原样认回来"
+    );
+    assert_eq!(
+        settings.agent_for_worker("codex"),
+        None,
+        "不在允许列表里的应用不该被猜到某个智能体上"
+    );
+
+    // 同一个应用的两个智能体：靠快照认人，不靠「该应用下第一个」。
+    settings.agents.push(RouterAgent {
+        id: "claude-reviewer".into(),
+        name: "审查的".into(),
+        app_id: "claude".into(),
+        ..Default::default()
+    });
+    settings.worker_apps = vec!["claude-cheap".into(), "claude-reviewer".into()];
+    let mut run = TaskRun {
+        task_id: "TASK-1".into(),
+        root: "/repo".into(),
+        state: RunState::Dispatched,
+        worker_app: Some("claude".into()),
+        agent_id: Some("claude-reviewer".into()),
+        agent_name: Some("审查的".into()),
+        agent_model: None,
+        session_id: None,
+        attempts: 1,
+        detail: None,
+        card_fingerprint: None,
+        shadow: false,
+        updated_at: 0,
+    };
+    assert_eq!(
+        settings.agent_for_run(&run).as_deref(),
+        Some("claude-reviewer"),
+        "快照里的智能体必须优先于按应用猜出来的第一个"
+    );
+    // 老记录没有快照：退回按应用认人，至少不把卡片交给另一个应用。
+    run.agent_id = None;
+    assert_eq!(
+        settings.agent_for_run(&run).as_deref(),
+        Some("claude-cheap")
+    );
+}
+
+/// 追加参数只能加「不改变执行方式」的开关。把非交互参数（`exec` / `-p`）
+/// 换掉，worker 跑完就停在提示符，调度器永远以为它还在跑。
+#[test]
+fn an_agent_cannot_override_the_startup_flags() {
+    let mut settings = RouterSettings {
+        worker_apps: vec!["rogue".into()],
+        ..RouterSettings::default()
+    };
+    settings.agents = vec![RouterAgent {
+        id: "rogue".into(),
+        name: "越权的那个".into(),
+        app_id: "codex".into(),
+        arguments: vec!["--sandbox".into(), "danger-full-access".into()],
+        ..Default::default()
+    }];
+
+    assert_eq!(
+        settings.validate_agents(),
+        Err("unsupported-agent-argument: --sandbox".into())
+    );
+
+    // 模型只对支持会话级覆盖的应用开放。
+    settings.agents[0].arguments.clear();
+    settings.agents[0].model = "some-model".into();
+    settings.agents[0].app_id = "gemini".into();
+    assert_eq!(
+        settings.validate_agents(),
+        Err("agent-model-override-unsupported".into())
+    );
+}
+
+/// 模型名会原样拼在 `--model` 后面：带空格的名字会被 CLI 拆成两段，后面那段就
+/// 成了指令的一部分。名单以外的模型名本身允许——直连那家自己认它。
+#[test]
+fn an_agent_model_must_be_one_token() {
+    let mut settings = RouterSettings {
+        worker_apps: vec!["writer".into()],
+        ..RouterSettings::default()
+    };
+    settings.agents = vec![RouterAgent {
+        id: "writer".into(),
+        name: "写手".into(),
+        app_id: "claude".into(),
+        model: "claude sonnet".into(),
+        ..Default::default()
+    }];
+
+    assert_eq!(
+        settings.validate_agents(),
+        Err("invalid-agent-model".into())
+    );
+
+    settings.agents[0].model = "glm-5.2".into();
+    assert!(settings.validate_agents().is_ok());
+
+    settings.agents[0].model = "x".repeat(129);
+    assert_eq!(
+        settings.validate_agents(),
+        Err("invalid-agent-model".into())
+    );
+}
+
+/// 带 Stack 保留前缀的 id 必须还在发布名单里；普通模型名交给应用自己认。
+#[test]
+fn a_stack_model_must_still_be_published() {
+    use crate::app_config::AppType;
+
+    let app = AppType::Claude;
+    let available = vec!["ccs-claude-kimi--kimi-k3".to_string()];
+    assert!(crate::super_agent::agents::model_ready(&app, "kimi-k3", &available).is_ok());
+    assert!(
+        crate::super_agent::agents::model_ready(&app, "ccs-claude-kimi--kimi-k3", &available)
+            .is_ok()
+    );
+    assert_eq!(
+        crate::super_agent::agents::model_ready(&app, "ccs-claude-gone--kimi-k3", &available),
+        Err("agent-model-unpublished: ccs-claude-gone--kimi-k3".into())
+    );
+    assert_eq!(
+        crate::super_agent::agents::model_ready(&app, "ccs-claude-kimi", &available),
+        Err("invalid-agent-model".into())
+    );
+}
+
+/// 头像键决定显示哪张图：认不出来的值存进去，前端会静默退回哈希，人只会觉得
+/// 「设了跟没设一样」。所以键名必须在保存时校验。
+#[test]
+fn an_agent_avatar_must_be_one_of_the_shipped_keys() {
+    let mut settings = RouterSettings {
+        worker_apps: vec!["writer".into()],
+        ..RouterSettings::default()
+    };
+    settings.agents = vec![RouterAgent {
+        id: "writer".into(),
+        name: "写手".into(),
+        app_id: "claude".into(),
+        ..Default::default()
+    }];
+
+    // 没选过：空串合法，前端按 id 派生一张。
+    assert!(settings.validate_agents().is_ok());
+
+    settings.agents[0].avatar = "avatar-16".into();
+    assert!(settings.validate_agents().is_ok());
+
+    for bad in [
+        "avatar-00",
+        "avatar-17",
+        // 非规范写法：界面上只有 `avatar-07` 这一个键。
+        "avatar-7",
+        "avatar16",
+        "../avatar-16",
+        "avatar-1x",
+    ] {
+        settings.agents[0].avatar = bad.into();
+        assert_eq!(
+            settings.validate_agents(),
+            Err("invalid-agent".into()),
+            "{bad} 应被拒绝"
+        );
+    }
+}
+
+/// 老设置里没有 `avatar` 这一项：得能原样读进来，而不是一条老指令就报错。
+#[test]
+fn an_old_agent_blob_without_avatar_still_loads() {
+    let agent: RouterAgent = serde_json::from_value(serde_json::json!({
+        "id": "writer",
+        "name": "写手",
+        "appId": "claude"
+    }))
+    .expect("缺字段的旧设置应当能读");
+    assert_eq!(agent.avatar, "");
+}
+
+/// Router 的头像与智能体的头像同一组键：存进一个认不出来的值，界面会静默退回
+/// 按 id 派生，人只会觉得「设了跟没设一样」。
+#[test]
+fn a_router_avatar_must_be_one_of_the_shipped_keys() {
+    let mut settings = RouterSettings::default();
+    assert!(settings.validate_agents().is_ok(), "没选过（空串）是合法的");
+
+    settings.router_avatar = "avatar-09".into();
+    assert!(settings.validate_agents().is_ok());
+
+    for bad in ["avatar-00", "avatar-17", "avatar-9", "avatar16", "router"] {
+        settings.router_avatar = bad.into();
+        assert_eq!(
+            settings.validate_agents(),
+            Err("invalid-router-avatar".into()),
+            "{bad} 应被拒绝"
+        );
+    }
+}
+
+/// 老设置的 JSON 里没有 `routerAvatar`：得能原样读进来。
+#[test]
+fn an_old_settings_blob_without_router_avatar_still_loads() {
+    let settings: RouterSettings = serde_json::from_value(serde_json::json!({
+        "enabled": true
+    }))
+    .expect("缺字段的旧设置应当能读");
+    assert_eq!(settings.router_avatar, "");
+}
+
+/// 老设置里 `worker_apps` 存的是应用 id。升级后不该因为智能体列表为空就停派。
+#[test]
+fn legacy_app_entries_still_resolve_to_follow_the_app_agents() {
+    let settings = RouterSettings {
+        worker_apps: vec!["claude".into(), "codex".into()],
+        ..RouterSettings::default()
+    };
+
+    let agents = settings.allowed_agents();
+    assert_eq!(agents.len(), 2);
+    assert_eq!(agents[0].id, "claude");
+    assert_eq!(agents[0].app_id, "claude");
+    assert_eq!(agents[1].id, "codex");
+    // 落盘的还是旧格式，校验必须放行，否则升级后第一次保存就失败。
+    assert!(settings.validate_agents().is_ok());
+}
+
+/// 启动参数顺序：内置非交互参数 → 追加参数 → 会话模型 → 角色提示词与任务说明。
+/// 模型在 prompt 之前，否则 CLI 会把它当成指令的一部分。
+#[test]
+fn the_agent_model_lands_before_the_prompt() {
+    let agent = RouterAgent {
+        id: "codex-cheap".into(),
+        name: "便宜的那个".into(),
+        app_id: "codex".into(),
+        prompt: "先跑测试再改代码".into(),
+        model: "cheap-model".into(),
+        arguments: vec!["--ephemeral".into()],
+        ..Default::default()
+    };
+    let file = "backlog/tasks/TASK-1.md";
+    let args = crate::terminal::parse_arguments(&agent.launch_arguments(file)).expect("args");
+
+    assert_eq!(args[0], "exec");
+    assert!(args
+        .windows(2)
+        .any(|pair| pair[0] == "--model" && pair[1] == "cheap-model"));
+    assert_eq!(args.last().expect("prompt"), &agent.task_prompt(file));
+    assert!(args.last().expect("prompt").starts_with("先跑测试再改代码"));
+}
+
+/// 派发时把智能体快照写进运行记录：之后改名、改模型都不该改历史。
+#[tokio::test]
+async fn dispatch_freezes_the_agent_it_used() {
+    let workspace = workspace(1, "In Progress");
+    let dispatcher = RecordingDispatcher::default();
+    let mut config = settings(false);
+    config.agents = vec![RouterAgent {
+        id: "claude-writer".into(),
+        name: "文档写手".into(),
+        description: "写文档、改错字".into(),
+        app_id: "claude".into(),
+        ..Default::default()
+    }];
+    config.worker_apps = vec!["claude-writer".into()];
+    let episode = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: vec![Decision::dispatch(
+                "TASK-1",
+                "claude-writer",
+                "只有一处错字",
+            )],
+            unfinished: false,
+        },
+    };
+
+    let report = run_tick(
+        &workspace.db,
+        config.clone(),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &episode,
+    )
+    .await;
+    assert_eq!(report.dispatched, vec!["TASK-1".to_string()]);
+    let spec = dispatcher.dispatched.lock().unwrap()[0].clone();
+    assert_eq!(spec.app_id, "claude");
+    assert_eq!(spec.agent.id, "claude-writer");
+
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.worker_app.as_deref(), Some("claude"));
+    assert_eq!(run.agent_id.as_deref(), Some("claude-writer"));
+    assert_eq!(run.agent_name.as_deref(), Some("文档写手"));
+
+    // 改完名字再看历史：记录的是派发那一刻的那一份。
+    let mut renamed = config;
+    renamed.agents[0].name = "改名之后".into();
+    renamed.agents[0].app_id = "codex".into();
+    workspace.db.save_router_settings(&renamed).expect("save");
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.agent_name.as_deref(), Some("文档写手"));
+    assert_eq!(run.worker_app.as_deref(), Some("claude"));
+}
+
+/// 名称与用途按字符数限长，与界面的 maxLength 同量纲：用字节数会让
+/// 界面允许输入的中文名在保存时被判无效。
+#[test]
+fn agent_name_limit_counts_characters_not_bytes() {
+    let mut settings = RouterSettings {
+        worker_apps: Vec::new(),
+        ..RouterSettings::default()
+    };
+    settings.agents = vec![RouterAgent {
+        id: "agent-x".into(),
+        name: "巡".repeat(60),
+        app_id: "claude".into(),
+        ..Default::default()
+    }];
+    // 60 个汉字 = 180 字节：界面上合法，后端也不该判它过长。
+    assert!(settings.validate_agents().is_ok());
+
+    settings.agents[0].name = "巡".repeat(161);
+    assert_eq!(
+        settings.validate_agents(),
+        Err("invalid-agent".to_string()),
+        "超过 160 个字符才该拒绝"
+    );
+}
+
+/// 判官这一轮没给结论时，运行态回到「排队中、应用为空」，上一轮的智能体快照
+/// 必须跟着清：否则界面会出现「没有应用，却写着上一轮用的模型」。
+#[tokio::test]
+async fn an_undecided_round_clears_the_previous_agent_snapshot() {
+    let workspace = workspace(1, "In Progress");
+    let mut config = settings(false);
+    config.agents = vec![RouterAgent {
+        id: "claude-writer".into(),
+        name: "文档写手".into(),
+        model: String::new(),
+        app_id: "claude".into(),
+        ..Default::default()
+    }];
+    config.worker_apps = vec!["claude-writer".into()];
+
+    // 第一轮真的派出去，快照落库。
+    let first = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: vec![Decision::dispatch("TASK-1", "claude-writer", "写点东西")],
+            unfinished: false,
+        },
+    };
+    let dispatcher = RecordingDispatcher::default();
+    run_tick(
+        &workspace.db,
+        config.clone(),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &first,
+    )
+    .await;
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.agent_id.as_deref(), Some("claude-writer"));
+
+    // 回到排队中（应用还在），再让判官这一轮不给结论。
+    workspace
+        .db
+        .set_router_state(&workspace.root, "TASK-1", RunState::Queued, None, 1)
+        .expect("queued");
+    workspace
+        .db
+        .release_router_lease(&workspace.root, "TASK-1")
+        .expect("lease");
+    let second = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: Vec::new(),
+            unfinished: true,
+        },
+    };
+    run_tick(
+        &workspace.db,
+        config,
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &second,
+    )
+    .await;
+
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::Queued);
+    assert_eq!(run.worker_app, None);
+    assert_eq!(run.agent_id, None, "应用为空时不该还留着上一轮的智能体");
+    assert_eq!(run.agent_model, None);
+}
+
+/// 归属写给一个本机不存在的智能体：不派发，也不悄悄降级成「随便找个人」。
+#[test]
+fn an_unknown_assignee_blocks_automatic_dispatch() {
+    let workspace = workspace(1, "In Progress");
+    assign_on(&workspace, &["没这个人"]);
+    let outcome = crate::super_agent::prefilter::apply(
+        candidates_of(&workspace),
+        &settings(false),
+        &std::collections::HashMap::new(),
+        0,
+    );
+    assert!(outcome.survivors.is_empty());
+    assert_eq!(
+        outcome.filtered.first().map(|item| item.reason.as_str()),
+        Some("unknown-assignee:没这个人")
+    );
+}
+
+/// 归属认出来的卡照常进入候选：拦住的是「不认识」，不是「有归属」。
+#[test]
+fn a_known_assignee_is_still_a_candidate() {
+    let workspace = workspace(1, "In Progress");
+    let mut config = settings(false);
+    config.worker_apps = vec!["writer".into()];
+    config.agents = vec![agent("writer", "claude")];
+    assign_on(&workspace, &["writer"]);
+    let outcome = crate::super_agent::prefilter::apply(
+        candidates_of(&workspace),
+        &config,
+        &std::collections::HashMap::new(),
+        0,
+    );
+    assert_eq!(outcome.survivors.len(), 1);
+}
+
+/// 老卡片写的是应用名（`@codex`）：认回该应用下第一个被允许的智能体。
+#[test]
+fn an_app_assignee_resolves_to_the_first_allowed_agent_of_that_app() {
+    let workspace = workspace(1, "In Progress");
+    let mut config = settings(false);
+    config.worker_apps = vec!["codex-cheap".into()];
+    config.agents = vec![agent("codex-cheap", "codex")];
+    assign_on(&workspace, &["@codex"]);
+    let outcome = crate::super_agent::prefilter::apply(
+        candidates_of(&workspace),
+        &config,
+        &std::collections::HashMap::new(),
+        0,
+    );
+    assert_eq!(outcome.survivors.len(), 1);
+    assert_eq!(
+        outcome.survivors[0]
+            .assignee_agent(&config)
+            .transpose()
+            .expect("认得出归属"),
+        Some("codex-cheap".to_string())
+    );
+}
+
+/// 结算层覆盖判官的提名：卡片写着归属，就不能被派给别人。
+#[test]
+fn the_assignee_overrides_the_judges_nomination() {
+    let mut config = settings(false);
+    config.worker_apps = vec!["writer".into(), "reviewer".into()];
+    config.agents = vec![agent("writer", "claude"), agent("reviewer", "codex")];
+    let candidate = Candidate {
+        task_id: "TASK-1".into(),
+        status: "In Progress".into(),
+        assignees: vec!["writer".into()],
+        ..Default::default()
+    };
+    let outcome = crate::super_agent::episode::EpisodeOutcome {
+        decisions: DecisionSet {
+            decisions: vec![Decision::dispatch("TASK-1", "reviewer", "判官挑了别人")],
+            unfinished: false,
+        },
+        steps: Vec::new(),
+        judge_calls: 1,
+    };
+    let settled = tick::settle(outcome, &[candidate], &config, 2);
+    assert_eq!(settled.decisions.len(), 1);
+    assert_eq!(
+        settled.decisions[0].app_id.as_deref(),
+        Some("writer"),
+        "归属优先于判官的提名"
+    );
+}
+
+/// 万一判官提名了一个未注册的归属（预过滤之外的路径），结算是「问你」，
+/// 不是换个人去干。
+#[test]
+fn an_unknown_assignee_turns_a_nomination_into_a_question() {
+    let mut config = settings(false);
+    config.worker_apps = vec!["reviewer".into()];
+    config.agents = vec![agent("reviewer", "codex")];
+    let candidate = Candidate {
+        task_id: "TASK-1".into(),
+        status: "In Progress".into(),
+        assignees: vec!["没这个人".into()],
+        ..Default::default()
+    };
+    let outcome = crate::super_agent::episode::EpisodeOutcome {
+        decisions: DecisionSet {
+            decisions: vec![Decision::dispatch("TASK-1", "reviewer", "判官")],
+            unfinished: false,
+        },
+        steps: Vec::new(),
+        judge_calls: 1,
+    };
+    let settled = tick::settle(outcome, &[candidate], &config, 2);
+    assert_eq!(
+        settled.decisions[0].action,
+        crate::super_agent::model::Action::Ask
+    );
+    assert!(settled.decisions[0]
+        .question
+        .as_deref()
+        .unwrap_or_default()
+        .contains("没有这个智能体"));
+}
+
+/// 新智能体没有 id：保存前从名称派生一个可读 id，并默认进入允许名单。
+#[test]
+fn a_new_agent_gets_a_readable_id_from_its_name() {
+    let config = RouterSettings {
+        worker_apps: Vec::new(),
+        agents: vec![RouterAgent {
+            name: "Doc Editor".into(),
+            app_id: "claude".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let normalized = config.normalize_agents();
+    assert_eq!(normalized.agents[0].id, "doc-editor");
+    assert_eq!(normalized.worker_apps, vec!["doc-editor".to_string()]);
+    assert!(normalized.validate_agents().is_ok());
+
+    // 中文名不会被折成空串：卡片上 `assignee: [文档写手]` 也得是人能读的。
+    let chinese = RouterSettings {
+        agents: vec![RouterAgent {
+            name: "文档写手".into(),
+            app_id: "claude".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert_eq!(chinese.normalize_agents().agents[0].id, "文档写手");
+
+    // 撞名退让，同一份设置里 id 不能重复。
+    let duplicated = RouterSettings {
+        agents: vec![
+            RouterAgent {
+                id: "doc-editor".into(),
+                name: "Doc Editor".into(),
+                app_id: "claude".into(),
+                ..Default::default()
+            },
+            RouterAgent {
+                name: "Doc Editor".into(),
+                app_id: "claude".into(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let normalized = duplicated.normalize_agents();
+    assert_eq!(normalized.agents[1].id, "doc-editor-2");
+}
+
+/// harness 的顺序是固定的：先说它是谁，再说做到什么算完。
+#[test]
+fn the_harness_follows_the_fixed_section_order() {
+    let agent = RouterAgent {
+        id: "writer".into(),
+        name: "文档写手".into(),
+        description: "改文档".into(),
+        app_id: "claude".into(),
+        outcome: "交付文档".into(),
+        boundary: "不动代码".into(),
+        ask_user_when: vec!["涉及对外承诺".into()],
+        steps: vec!["读卡".into(), "改写".into()],
+        constraints: vec!["不删结论".into()],
+        completion: crate::super_agent::model::AgentCompletion {
+            result: "改完".into(),
+            evidence: vec!["列出章节".into()],
+        },
+        ..Default::default()
+    };
+    let harness = agent.harness();
+    let mut last = 0;
+    for needle in [
+        "你是「文档写手」",
+        "你负责的结果",
+        "负责边界",
+        "需要先问用户",
+        "执行步骤",
+        "必须遵守",
+        "完成时",
+        "完工自查",
+    ] {
+        let at = harness
+            .find(needle)
+            .unwrap_or_else(|| panic!("harness 缺少 {needle}：{harness}"));
+        assert!(at >= last, "{needle} 的顺序错了");
+        last = at;
+    }
+    assert!(harness.contains("1. 读卡"), "步骤按顺序编号");
+    assert!(harness.contains("2. 改写"));
+}
+
+/// 老智能体（只有 prompt）派发时的话一字不变。
+#[test]
+fn an_agent_without_a_definition_keeps_the_old_prompt() {
+    let agent = RouterAgent {
+        id: "old".into(),
+        name: "老智能体".into(),
+        app_id: "claude".into(),
+        prompt: "你是一个老智能体".into(),
+        ..Default::default()
+    };
+    assert_eq!(agent.harness(), "你是一个老智能体");
+    assert!(agent
+        .task_prompt("backlog/tasks/TASK-1.md")
+        .starts_with("你是一个老智能体"));
+}
+
+/// harness 超长在保存时就报错，而不是派发时变成 CLI 的 invalid-arguments。
+#[test]
+fn an_oversized_harness_is_rejected_at_save_time() {
+    let mut config = settings(false);
+    config.worker_apps = vec!["writer".into()];
+    config.agents = vec![RouterAgent {
+        id: "writer".into(),
+        name: "写手".into(),
+        app_id: "claude".into(),
+        steps: (0..10).map(|_| "步骤".repeat(300)).collect(),
+        ..Default::default()
+    }];
+    assert_eq!(
+        config.validate_agents(),
+        Err("agent-harness-too-large".into())
+    );
+}
+
+/// 端到端：卡片写着归属，即使 episode 提名了别人，派发也必须落在归属上。
+#[tokio::test]
+async fn an_assigned_card_is_dispatched_to_its_own_agent() {
+    let workspace = workspace(1, "In Progress");
+    let mut config = settings(false);
+    config.trigger_status = "In Progress".into();
+    config.worker_apps = vec!["writer".into(), "reviewer".into()];
+    config.agents = vec![agent("writer", "claude"), agent("reviewer", "codex")];
+    assign_on(&workspace, &["writer"]);
+
+    let dispatcher = RecordingDispatcher::default();
+    let episode = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: vec![Decision::dispatch("TASK-1", "reviewer", "判官挑了别人")],
+            unfinished: false,
+        },
+    };
+    let report = run_tick(
+        &workspace.db,
+        config,
+        &FixedJudge::noul(0.1),
+        &dispatcher,
+        &episode,
+    )
+    .await;
+
+    assert_eq!(report.dispatched, vec!["TASK-1".to_string()]);
+    let specs = dispatcher.dispatched.lock().expect("specs");
+    assert_eq!(specs.len(), 1);
+    assert_eq!(specs[0].agent.id, "writer", "归属优先于判官的提名");
+    assert_eq!(specs[0].app_id, "claude");
+}
+
+/// 归属一个本机不存在的智能体：自动派发整轮不动它，也不换人。
+#[tokio::test]
+async fn an_unregistered_assignee_never_reaches_the_dispatcher() {
+    let workspace = workspace(1, "In Progress");
+    let mut config = settings(false);
+    config.trigger_status = "In Progress".into();
+    assign_on(&workspace, &["ghost"]);
+
+    let dispatcher = RecordingDispatcher::default();
+    let episode = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: vec![Decision::dispatch("TASK-1", "claude", "判官")],
+            unfinished: false,
+        },
+    };
+    let report = run_tick(
+        &workspace.db,
+        config,
+        &FixedJudge::noul(0.1),
+        &dispatcher,
+        &episode,
+    )
+    .await;
+
+    assert!(report.dispatched.is_empty());
+    assert_eq!(dispatcher.count(), 0);
+    assert!(
+        report
+            .filtered
+            .iter()
+            .any(|item| item.reason == "unknown-assignee:ghost"),
+        "被拦的原因要写进 trace：{report:?}"
+    );
+}
+
+/// 近 14 天同一标签完成 ≥ 3 张、且还没有对应智能体时，给一条预填建议。
+#[test]
+fn repeated_completed_cards_propose_a_new_agent() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let opened = initialize(temp.path(), "phi").expect("init");
+    for title in ["补说明 A", "补说明 B", "补说明 C"] {
+        repository::create(
+            &opened,
+            &NewTask {
+                title: title.into(),
+                status: Some("Done".into()),
+                labels: Some(vec!["文档".into()]),
+                ..Default::default()
+            },
+        )
+        .expect("create");
+    }
+    let root = opened.root.to_string_lossy().into_owned();
+    let db = Database::memory().expect("db");
+    db.add_task_workspace(&root).expect("register");
+    let now = crate::super_agent::store::now_ms();
+    for id in ["TASK-1", "TASK-2", "TASK-3"] {
+        db.put_router_run(
+            &root,
+            id,
+            RunWrite {
+                state: RunState::Done,
+                worker_app: Some("claude"),
+                session_id: None,
+                attempts: 1,
+                detail: None,
+                card_fingerprint: None,
+                shadow: false,
+            },
+            now,
+        )
+        .expect("run");
+    }
+
+    let config = RouterSettings {
+        agents: Vec::new(),
+        ..Default::default()
+    };
+    let suggestions = crate::super_agent::proposals::propose(&db, &config);
+    assert_eq!(suggestions.len(), 1, "{suggestions:?}");
+    assert_eq!(suggestions[0].name, "文档");
+    assert_eq!(suggestions[0].app_id, "claude");
+    assert_eq!(suggestions[0].completed, 3);
+    assert_eq!(suggestions[0].evidence.len(), 3);
+
+    // 已经有覆盖这一类的智能体：不再重复提示。
+    let config = RouterSettings {
+        agents: vec![RouterAgent {
+            id: "writer".into(),
+            name: "文档写手".into(),
+            app_id: "claude".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert!(crate::super_agent::proposals::propose(&db, &config).is_empty());
+}
+
+/// 只有两张同类卡片时是巧合，不是「一类活」。
+#[test]
+fn two_completed_cards_are_not_a_suggestion() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let opened = initialize(temp.path(), "phi").expect("init");
+    for title in ["补说明 A", "补说明 B"] {
+        repository::create(
+            &opened,
+            &NewTask {
+                title: title.into(),
+                status: Some("Done".into()),
+                labels: Some(vec!["文档".into()]),
+                ..Default::default()
+            },
+        )
+        .expect("create");
+    }
+    let root = opened.root.to_string_lossy().into_owned();
+    let db = Database::memory().expect("db");
+    db.add_task_workspace(&root).expect("register");
+    let now = crate::super_agent::store::now_ms();
+    for id in ["TASK-1", "TASK-2"] {
+        db.put_router_run(
+            &root,
+            id,
+            RunWrite {
+                state: RunState::Done,
+                worker_app: Some("claude"),
+                session_id: None,
+                attempts: 1,
+                detail: None,
+                card_fingerprint: None,
+                shadow: false,
+            },
+            now,
+        )
+        .expect("run");
+    }
+    assert!(crate::super_agent::proposals::propose(&db, &RouterSettings::default()).is_empty());
+}
+
+fn agent(id: &str, app: &str) -> RouterAgent {
+    RouterAgent {
+        id: id.into(),
+        name: id.into(),
+        app_id: app.into(),
+        ..Default::default()
+    }
+}
+
+fn assign_on(workspace: &Workspace, ids: &[&str]) {
+    let opened =
+        crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("workspace");
+    let detail = repository::read(&opened, "TASK-1").expect("read");
+    let values: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+    repository::set_assignees(&opened, "TASK-1", &values, &detail.task.fingerprint)
+        .expect("assign");
 }
