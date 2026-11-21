@@ -81,6 +81,27 @@ describe("SessionMarkdown", () => {
     expect(container).not.toHaveTextContent("**safe mode**");
   });
 
+  it("decodes HTML entities without handing them to an HTML parser", () => {
+    const { container } = renderMarkdown(
+      "a &amp; b &lt;tag&gt; &#39;q&#39; &bogus;",
+    );
+
+    // 认识的命名实体与数字实体解码成字符；不认识的保持原样，不被吞掉。
+    // 解码不走 DOM：不然「解析出来的文本」又会被当成 HTML。
+    expect(container.textContent).toContain("a & b <tag> 'q' &bogus;");
+    expect(container.querySelector("tag")).toBeNull();
+  });
+
+  it("does not turn a dangerous link or image target into a link", () => {
+    const { container } = renderMarkdown(
+      "[click](javascript:alert(1))\n\n![x](javascript:alert(1))",
+    );
+
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container).toHaveTextContent("click");
+  });
+
   it("uses v7 design tokens for text, code, links and headings", () => {
     const { container } = renderMarkdown(
       [
@@ -261,9 +282,7 @@ describe("SessionMarkdown", () => {
 
   it("renders table rows using only semantic cell elements", () => {
     const { container } = renderMarkdown(
-      ["| Name | Status |", "| --- | --- |", "| PHI | Ready |"].join(
-        "\n",
-      ),
+      ["| Name | Status |", "| --- | --- |", "| PHI | Ready |"].join("\n"),
     );
     const rows = Array.from(container.querySelectorAll("tr"));
 

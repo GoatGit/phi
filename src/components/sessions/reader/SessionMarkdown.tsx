@@ -338,11 +338,72 @@ const HIDDEN_TEXT_NODES = new Set([
   "TableDelimiter",
 ]);
 
-const decodeEntityText = (raw: string) => {
-  const element = document.createElement("textarea");
-  element.innerHTML = raw;
-  return element.value;
+/**
+ * HTML 实体解码。
+ *
+ * 不走 `textarea.innerHTML`：那把「DOM 解析出来的文本」再当成文本用，
+ * 是扫描器（CodeQL `js/xss-through-dom`）认定的污点源，也是「把一段字符串
+ * 交给 HTML 解析器」的同一类写法。这里只做确定性的字符串替换：认识的命名
+ * 实体与数字实体解码，不认识的原样保留。
+ */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: "\u00a0",
+  copy: "\u00a9",
+  reg: "\u00ae",
+  trade: "\u2122",
+  hellip: "\u2026",
+  mdash: "\u2014",
+  ndash: "\u2013",
+  lsquo: "\u2018",
+  rsquo: "\u2019",
+  ldquo: "\u201c",
+  rdquo: "\u201d",
+  middot: "\u00b7",
+  times: "\u00d7",
 };
+
+const isValidCodePoint = (code: number) =>
+  Number.isInteger(code) &&
+  code > 0 &&
+  code <= 0x10ffff &&
+  !(code >= 0xd800 && code <= 0xdfff);
+
+const decodeEntityText = (raw: string) =>
+  raw.replace(
+    /&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]*);/g,
+    (match, body: string) => {
+      if (body.startsWith("#x") || body.startsWith("#X")) {
+        const code = Number.parseInt(body.slice(2), 16);
+        return isValidCodePoint(code) ? String.fromCodePoint(code) : match;
+      }
+      if (body.startsWith("#")) {
+        const code = Number.parseInt(body.slice(1), 10);
+        return isValidCodePoint(code) ? String.fromCodePoint(code) : match;
+      }
+      return NAMED_ENTITIES[body.toLowerCase()] ?? match;
+    },
+  );
+
+/**
+ * 写进 `href` 之前再过一道协议白名单。
+ *
+ * `safeExternalUrl` 已经过滤过一次，但那是离这里好几层的地方：在真正出口
+ * 再断言一次，「不可信的值不会直接变成可导航 URL」这件事才是可核对的。
+ */
+const hrefForBrowser = (url: string) =>
+  /^(https?:|mailto:)/i.test(url) ? url : undefined;
+
+/**
+ * 写进 `src` 之前同理：只允许 http/https 图片地址。
+ * 其它协议（`javascript:`、`data:`、`file:`）不作为可加载资源暴露。
+ */
+const imageSrcForBrowser = (src: string) =>
+  /^https?:\/\//i.test(src) ? src : undefined;
 
 // 行内代码渲染前的规范化：换行折成空格，成对的首尾空格去掉。
 const getInlineCodeText = (node: MarkdownNode, source: string) => {
@@ -628,7 +689,7 @@ const ExternalLink = ({ url, children }: ExternalLinkProps) => {
 
   return (
     <a
-      href={url}
+      href={hrefForBrowser(url)}
       title={url}
       rel="noopener noreferrer"
       onClick={handleClick}
@@ -692,8 +753,11 @@ const RemoteImage = ({ src, alt, searchQuery }: RemoteImageProps) => {
       defaultValue: "远程图片",
     });
 
+  // 非 http(s) 的图片地址不交给 `<img>`：换成一条链接，让用户看得见它去哪。
+  const browserSrc = imageSrcForBrowser(src);
+
   // 加载失败退化为链接
-  if (failedSrc === src) {
+  if (!browserSrc || failedSrc === src) {
     return (
       <ExternalLink url={src}>{renderText(label, searchQuery)}</ExternalLink>
     );
@@ -702,7 +766,7 @@ const RemoteImage = ({ src, alt, searchQuery }: RemoteImageProps) => {
   if (autoLoadRemoteImages || loadedSrc === src) {
     return (
       <img
-        src={src}
+        src={browserSrc}
         alt={alt}
         title={src}
         loading="lazy"
