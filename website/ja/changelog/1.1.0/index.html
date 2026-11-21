@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#fffdfa">
+  <title>1.1.0 — 変更履歴 — PHI</title>
+  <meta name="description" content="PHI の各リリースでの変更点：新機能、改善、修正。">
+  <link rel="canonical" href="https://phi.semibot.ai/ja/changelog/1.1.0/">
+  <link rel="alternate" hreflang="zh-CN" href="https://phi.semibot.ai/changelog/1.1.0/">
+  <link rel="alternate" hreflang="en" href="https://phi.semibot.ai/en/changelog/1.1.0/">
+  <link rel="alternate" hreflang="ja" href="https://phi.semibot.ai/ja/changelog/1.1.0/">
+  <link rel="alternate" hreflang="x-default" href="https://phi.semibot.ai/changelog/1.1.0/">
+  <meta property="og:title" content="1.1.0 — 変更履歴 — PHI">
+  <meta property="og:description" content="PHI の各リリースでの変更点：新機能、改善、修正。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://phi.semibot.ai/ja/changelog/1.1.0/">
+  <meta property="og:locale" content="ja_JP">
+  <link rel="icon" type="image/svg+xml" href="/assets/phi-app.svg">
+  <link rel="stylesheet" href="/css/style.css?v=flow-5">
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へスキップ</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="/ja/" aria-label="PHI ホーム"><img src="/assets/phi-app.svg" width="34" height="34" alt=""><span>PHI</span></a>
+      <nav class="language-switch" aria-label="言語を選択">
+        <select aria-label="言語を選択" onchange="switch (this.value) { case &quot;https://phi.semibot.ai/changelog/1.1.0/&quot;: window.location.assign(&quot;https://phi.semibot.ai/changelog/1.1.0/&quot;); break; case &quot;https://phi.semibot.ai/en/changelog/1.1.0/&quot;: window.location.assign(&quot;https://phi.semibot.ai/en/changelog/1.1.0/&quot;); break; case &quot;https://phi.semibot.ai/ja/changelog/1.1.0/&quot;: window.location.assign(&quot;https://phi.semibot.ai/ja/changelog/1.1.0/&quot;); break; }">
+          <option value="https://phi.semibot.ai/changelog/1.1.0/" lang="zh-CN">中文</option>
+          <option value="https://phi.semibot.ai/en/changelog/1.1.0/" lang="en">English</option>
+          <option value="https://phi.semibot.ai/ja/changelog/1.1.0/" lang="ja" selected>日本語</option>
+        </select>
+        <noscript>
+          <a href="https://phi.semibot.ai/changelog/1.1.0/" lang="zh-CN" hreflang="zh-CN">中文</a>
+          <a href="https://phi.semibot.ai/en/changelog/1.1.0/" lang="en" hreflang="en">English</a>
+          <a href="https://phi.semibot.ai/ja/changelog/1.1.0/" lang="ja" hreflang="ja" aria-current="page">日本語</a>
+        </noscript>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="changelog">
+    <section class="chapter wrap" aria-labelledby="version-title">
+      <div class="chapter-intro">
+        <p class="changelog-kicker">変更履歴</p>
+        <h1 id="version-title">1.1.0</h1>
+        <time class="changelog-date" datetime="2026-11-22">2026-11-22</time>
+      </div>
+      <ul class="changelog-items">
+
+          <li>タスクボードにエージェントビューを追加：1 行 1 エージェント、先頭は Router との相談行です。</li>
+          <li>エージェント定義を「誰か・何を担うか・何を使えるか・完了条件」に拡張し、起動時の指示に組み込みます。</li>
+          <li>Router と対話してエージェントを起草：左に対話、右に定義、任意の版から続けられます。</li>
+          <li>エージェントと Router にアバターを追加し、クリックで変更できます。</li>
+          <li>タスク詳細で Router と要件を相談でき、結論はカードに書き戻され、フォームはその場で入力できます。</li>
+          <li>相談と実行は排他：相談カードは自動派遣されず、完了カードから新しい相談を派生できます。</li>
+          <li>カードをエージェントに割り当てられ、割り当てと着手は別操作。派遣時のスナップショットを記録します。</li>
+          <li>透明度指定が効かずドラッグ先と提案カードの背景が欠けていた問題を修正しました。</li>
+      </ul>
+      <p class="changelog-back"><a href="../">← すべてのバージョン</a> · <a href="../1.0.5/">1.0.5 →</a></p>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <div class="footer-main">
+      <a class="brand" href="/ja/" aria-label="PHI ホーム"><img src="/assets/phi-app.svg" width="26" height="26" alt=""><span>PHI</span></a>
+      <div class="footer-links"><a href="https://github.com/GoatGit/phi">ソースの変更履歴を読む</a><a href="https://github.com/GoatGit/phi/releases/latest">Releases</a></div>
+    </div>
+    <p class="credits">項目ごとの履歴はリポジトリの CHANGELOG にもあります。</p>
+  </footer>
+</body>
+</html>
