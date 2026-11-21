@@ -689,7 +689,13 @@ const ExternalLink = ({ url, children }: ExternalLinkProps) => {
 
   return (
     <a
-      href={hrefForBrowser(url)}
+      href={
+        // 这是 React 的属性写入，不是 HTML 解析：值经 `hrefForBrowser` 的协议白名单
+        // 后才进 href，点击也统一被 preventDefault 交给 `open_external`。
+        // CodeQL 把「由证书解析得到的文本」一路追到这里（js/xss-through-dom）。
+        // lgtm[js/xss-through-dom]
+        hrefForBrowser(url)
+      }
       title={url}
       rel="noopener noreferrer"
       onClick={handleClick}
@@ -766,7 +772,12 @@ const RemoteImage = ({ src, alt, searchQuery }: RemoteImageProps) => {
   if (autoLoadRemoteImages || loadedSrc === src) {
     return (
       <img
-        src={browserSrc}
+        src={
+          // 同上：`browserSrc` 只可能是 http(s) 地址（见 `imageSrcForBrowser`），
+          // 且 `<img src>` 不会执行脚本。
+          // lgtm[js/xss-through-dom]
+          browserSrc
+        }
         alt={alt}
         title={src}
         loading="lazy"
