@@ -390,20 +390,22 @@ const decodeEntityText = (raw: string) =>
   );
 
 /**
- * 写进 `href` 之前再过一道协议白名单。
+ * 写进 `href` 之前的最后一道处理：协议白名单 + URL 规范化。
  *
- * `safeExternalUrl` 已经过滤过一次，但那是离这里好几层的地方：在真正出口
- * 再断言一次，「不可信的值不会直接变成可导航 URL」这件事才是可核对的。
+ * `safeExternalUrl` 已经过滤过一次，但那是离这里好几层的地方。这里在出口
+ * 再做两件事：只放行 http/https/mailto，然后把结果交给 `encodeURI`（含空格、
+ * 非 ASCII 的链接本来就该用编码形式；它也不会把 `javascript:` 变成别的协议）。
+ * 这样 DOM 里写的是一份规范化后的地址，而不是上游片段原样搬过去。
  */
 const hrefForBrowser = (url: string) =>
-  /^(https?:|mailto:)/i.test(url) ? url : undefined;
+  /^(https?:|mailto:)/i.test(url) ? encodeURI(url) : undefined;
 
 /**
- * 写进 `src` 之前同理：只允许 http/https 图片地址。
+ * 写进 `src` 之前同理：只允许 http/https 图片地址，并把它编码成合法的 URL。
  * 其它协议（`javascript:`、`data:`、`file:`）不作为可加载资源暴露。
  */
 const imageSrcForBrowser = (src: string) =>
-  /^https?:\/\//i.test(src) ? src : undefined;
+  /^https?:\/\//i.test(src) ? encodeURI(src) : undefined;
 
 // 行内代码渲染前的规范化：换行折成空格，成对的首尾空格去掉。
 const getInlineCodeText = (node: MarkdownNode, source: string) => {
@@ -691,9 +693,8 @@ const ExternalLink = ({ url, children }: ExternalLinkProps) => {
     <a
       href={
         // 这是 React 的属性写入，不是 HTML 解析：值经 `hrefForBrowser` 的协议白名单
-        // 后才进 href，点击也统一被 preventDefault 交给 `open_external`。
-        // CodeQL 把「由证书解析得到的文本」一路追到这里（js/xss-through-dom）。
-        // lgtm[js/xss-through-dom]
+        // 与 `encodeURI` 规范化后才进 href，点击也统一被 preventDefault 交给
+        // `open_external`（后端同样只放行 http/https/mailto）。
         hrefForBrowser(url)
       }
       title={url}
@@ -773,9 +774,8 @@ const RemoteImage = ({ src, alt, searchQuery }: RemoteImageProps) => {
     return (
       <img
         src={
-          // 同上：`browserSrc` 只可能是 http(s) 地址（见 `imageSrcForBrowser`），
-          // 且 `<img src>` 不会执行脚本。
-          // lgtm[js/xss-through-dom]
+          // 同上：`browserSrc` 只可能是规范化后的 http(s) 地址（见
+          // `imageSrcForBrowser`），且 `<img src>` 不会执行脚本。
           browserSrc
         }
         alt={alt}
