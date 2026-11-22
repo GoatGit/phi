@@ -54,6 +54,7 @@ import {
   withAgentSaved,
 } from "./agentSettings";
 import { AgentStudioPanel } from "./AgentStudioPanel";
+import { AgentArgumentsField } from "./AgentArgumentsField";
 import { AgentDraftRail } from "./AgentDraftRail";
 import {
   personaFromDraft,
@@ -616,6 +617,7 @@ export function AutoRouterPanel({
             draft={editing.agent}
             isNew={editing.isNew}
             terminalApps={terminalApps}
+            routerAvatar={settings?.routerAvatar ?? ""}
             onCancel={() => setEditing(null)}
             onSave={(agent) => saveAgent(agent, editing.isNew)}
           />
@@ -707,28 +709,53 @@ const CUSTOM_MODEL = "__custom_model__";
 /**
  * 表单里的一组字段。
  *
- * 分隔靠一道细线与一个 11px 的小标题，而不是靠留白：九个子段平铺时，
- * 人只能从头读到尾，看不出「哪些是它是什么人、哪些是怎么启动它」。
+ * 分隔靠「标题 + 一道细线」这一行，而不是另起一条横贯整栏的分割线与标题各占一行：
+ * 标题本来就要占一行，把线并进去就少一层留白，也少一个纯装饰的元素。
  */
 function AgentSection({
   title,
-  first = false,
   children,
 }: {
-  title: string;
-  first?: boolean;
+  /** 不传就不画分组标题：首组（名称、用途）本身就是表单的开头，再加一行
+   * 「它是谁」只是把「下面是这个人的定义」说两遍。 */
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section
-      className={cn(
-        "flex flex-col gap-2.5",
-        !first && "border-t border-border pt-3",
-      )}
-    >
-      <h4 className="m-0 text-badge text-fg-3">{title}</h4>
+    <section className="flex flex-col gap-2.5">
+      {title ? (
+        <div className="flex items-center gap-2">
+          <h4 className="m-0 shrink-0 text-badge text-fg-3">{title}</h4>
+          <span aria-hidden="true" className="h-px flex-1 bg-border" />
+        </div>
+      ) : null}
       {children}
     </section>
+  );
+}
+
+/**
+ * 字段下的一句说明：11px、弱一档，与标签之间只隔 4px。
+ *
+ * 以前每处手写一遍，字号与行高有一处不同整列就像在抖；带 id 的那几条同时
+ * 作为输入的 `aria-describedby`，读屏能把「这个框要填什么」连在一起读。
+ */
+function FieldHint({
+  id,
+  className,
+  children,
+}: {
+  id?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <p
+      id={id}
+      className={cn("m-0 text-[11px] leading-relaxed text-fg-3", className)}
+    >
+      {children}
+    </p>
   );
 }
 
@@ -736,6 +763,8 @@ interface RouterAgentDialogProps {
   draft: RouterAgent;
   isNew: boolean;
   terminalApps: string[];
+  /** Router 自己的头像键；空 = 按固定 id 派生。工作室的表头与每轮发言都用它。 */
+  routerAvatar?: string;
   onCancel: () => void;
   onSave: (agent: RouterAgent) => void;
 }
@@ -753,6 +782,7 @@ export function RouterAgentDialog({
   draft,
   isNew,
   terminalApps,
+  routerAvatar = "",
   onCancel,
   onSave,
 }: RouterAgentDialogProps) {
@@ -953,6 +983,7 @@ export function RouterAgentDialog({
           {isNew ? (
             <AgentStudioPanel
               appId={agent.appId}
+              routerAvatar={routerAvatar}
               current={studioAgent}
               activeVersion={preview ?? cursor}
               previewing={locked}
@@ -969,7 +1000,10 @@ export function RouterAgentDialog({
             className={cn(
               "flex flex-col gap-3",
               // 两栅时表单自己滚：工作室那份对话要一直看得见。
-              isNew && "md:min-h-0 md:flex-1 md:overflow-y-auto md:pe-1",
+              // 右侧是一份长表单：滚动条只在指针进来时浮出来，
+              // 常显的滑块会让这一列看着总像「下面还有一大段」。
+              isNew &&
+                "scroll-implicit md:min-h-0 md:flex-1 md:overflow-y-auto md:pe-1",
             )}
           >
             {/* 还没落过一版时不摆版本条：一个只有「初始」的条只会多占一屏。 */}
@@ -985,7 +1019,7 @@ export function RouterAgentDialog({
               />
             ) : null}
 
-            <AgentSection title={t("tasks.router.agentSectionIdentity")} first>
+            <AgentSection>
               <div className="flex flex-col gap-1">
                 <Label htmlFor="router-agent-name">
                   {t("tasks.router.agentName")}
@@ -1006,6 +1040,8 @@ export function RouterAgentDialog({
                 <Label htmlFor="router-agent-description">
                   {t("tasks.router.agentPurpose")}
                 </Label>
+                {/* 判官按这句选人，那就把这条规则写在打字的地方，
+                    而不是打完再看下面一行灰字。 */}
                 <Input
                   id="router-agent-description"
                   value={shown.description}
@@ -1016,9 +1052,6 @@ export function RouterAgentDialog({
                     setAgent({ ...agent, description: event.target.value })
                   }
                 />
-                <p className="m-0 text-[11px] leading-relaxed text-fg-3">
-                  {t("tasks.router.agentPurposeHint")}
-                </p>
               </div>
             </AgentSection>
 
@@ -1038,7 +1071,7 @@ export function RouterAgentDialog({
                     }}
                   >
                     <SelectTrigger
-                      className="h-8 text-caption"
+                      className="h-8"
                       aria-label={t("tasks.router.agentApp")}
                     >
                       <SelectValue />
@@ -1074,7 +1107,7 @@ export function RouterAgentDialog({
                     }}
                   >
                     <SelectTrigger
-                      className="h-8 text-caption"
+                      className="h-8"
                       aria-label={t("tasks.router.agentModel")}
                     >
                       <SelectValue />
@@ -1102,44 +1135,36 @@ export function RouterAgentDialog({
                     value={agent.model}
                     maxLength={128}
                     disabled={locked}
-                    className="h-8 text-caption"
+                    className="h-8"
                     aria-label={t("tasks.router.agentModelCustomLabel")}
+                    aria-describedby={
+                      missingModel ? "router-agent-model-hint" : undefined
+                    }
                     placeholder={t("tasks.router.agentModelCustomPlaceholder")}
                     onChange={(event) =>
                       setAgent({ ...agent, model: event.target.value })
                     }
                   />
-                  <p className="m-0 text-[11px] leading-relaxed text-fg-3">
-                    {missingModel
-                      ? t("tasks.router.agentModelMissing")
-                      : t("tasks.router.agentModelCustomHint")}
-                  </p>
+                  {/* 只有「已经不在名单里」这一种要说：能填、不选就跟随时怎么走，
+                      框里的说明已经交代完了，再多一行只是噪声。 */}
+                  {missingModel ? (
+                    <FieldHint id="router-agent-model-hint">
+                      {t("tasks.router.agentModelMissing")}
+                    </FieldHint>
+                  ) : null}
                 </div>
-              ) : (
-                <p className="m-0 text-[11px] leading-relaxed text-fg-3">
-                  {choices === null
-                    ? t("tasks.router.agentModelLoading")
-                    : !overridable
-                      ? t("tasks.router.agentModelUnsupported")
-                      : t("tasks.router.agentModelHint")}
-                </p>
-              )}
+              ) : choices !== null && !overridable ? (
+                // 「跟随应用」「自定义模型…」这两个选项本身就说清了怎么用；
+                // 只有真的不能按会话指定模型时才需要一句解释。
+                <FieldHint>{t("tasks.router.agentModelUnsupported")}</FieldHint>
+              ) : null}
 
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="router-agent-arguments">
-                  {t("tasks.router.agentArguments")}
-                </Label>
-                <Input
-                  id="router-agent-arguments"
-                  value={argsText}
-                  disabled={locked}
-                  placeholder={t("tasks.router.agentArgumentsPlaceholder")}
-                  onChange={(event) => setArgsText(event.target.value)}
-                />
-                <p className="m-0 text-[11px] leading-relaxed text-fg-3">
-                  {t("tasks.router.agentArgumentsHint")}
-                </p>
-              </div>
+              <AgentArgumentsField
+                appId={agent.appId}
+                value={argsText}
+                disabled={locked}
+                onChange={setArgsText}
+              />
 
               <div className="flex flex-col gap-1">
                 <Label htmlFor="router-agent-prompt">
@@ -1149,16 +1174,14 @@ export function RouterAgentDialog({
                   id="router-agent-prompt"
                   value={agent.prompt}
                   maxLength={2000}
-                  rows={4}
+                  rows={3}
+                  className="field-multiline"
                   disabled={locked}
                   placeholder={t("tasks.router.agentPromptPlaceholder")}
                   onChange={(event) =>
                     setAgent({ ...agent, prompt: event.target.value })
                   }
                 />
-                <p className="m-0 text-[11px] leading-relaxed text-fg-3">
-                  {t("tasks.router.agentPromptHint")}
-                </p>
               </div>
             </AgentSection>
 
@@ -1173,6 +1196,7 @@ export function RouterAgentDialog({
                   id="router-agent-outcome"
                   value={shown.outcome}
                   rows={2}
+                  className="field-multiline"
                   maxLength={2000}
                   disabled={locked}
                   placeholder={t("tasks.router.agentOutcomePlaceholder")}
@@ -1190,6 +1214,7 @@ export function RouterAgentDialog({
                   id="router-agent-boundary"
                   value={shown.boundary}
                   rows={2}
+                  className="field-multiline"
                   maxLength={2000}
                   disabled={locked}
                   placeholder={t("tasks.router.agentBoundaryPlaceholder")}
@@ -1206,7 +1231,8 @@ export function RouterAgentDialog({
                 <Textarea
                   id="router-agent-ask"
                   value={shown.askText}
-                  rows={3}
+                  rows={2}
+                  className="field-multiline"
                   disabled={locked}
                   placeholder={t("tasks.router.agentAskUserPlaceholder")}
                   onChange={(event) => setAskText(event.target.value)}
@@ -1222,7 +1248,8 @@ export function RouterAgentDialog({
                 <Textarea
                   id="router-agent-steps"
                   value={shown.stepsText}
-                  rows={4}
+                  rows={3}
+                  className="field-multiline"
                   disabled={locked}
                   placeholder={t("tasks.router.agentStepsPlaceholder")}
                   onChange={(event) => setStepsText(event.target.value)}
@@ -1236,7 +1263,8 @@ export function RouterAgentDialog({
                 <Textarea
                   id="router-agent-constraints"
                   value={shown.constraintsText}
-                  rows={3}
+                  rows={2}
+                  className="field-multiline"
                   disabled={locked}
                   placeholder={t("tasks.router.agentConstraintsPlaceholder")}
                   onChange={(event) => setConstraintsText(event.target.value)}
@@ -1253,6 +1281,7 @@ export function RouterAgentDialog({
                   id="router-agent-completion"
                   value={shown.completionResult}
                   rows={2}
+                  className="field-multiline"
                   maxLength={2000}
                   disabled={locked}
                   placeholder={t("tasks.router.agentCompletionPlaceholder")}
@@ -1275,7 +1304,8 @@ export function RouterAgentDialog({
                 <Textarea
                   id="router-agent-evidence"
                   value={shown.evidenceText}
-                  rows={3}
+                  rows={2}
+                  className="field-multiline"
                   disabled={locked}
                   placeholder={t("tasks.router.agentEvidencePlaceholder")}
                   onChange={(event) => setEvidenceText(event.target.value)}
@@ -1294,9 +1324,7 @@ export function RouterAgentDialog({
                     })
                   : t("tasks.router.agentHarness", { count: harnessLength })}
               </p>
-              <p className="m-0 text-[11px] leading-relaxed text-fg-3">
-                {t("tasks.router.agentDefinitionHint")}
-              </p>
+              <FieldHint>{t("tasks.router.agentDefinitionHint")}</FieldHint>
             </AgentSection>
           </div>
         </DialogBody>

@@ -180,7 +180,9 @@ impl Database {
                     Ok(RouterSettings::default())
                 }
             },
-            None => Ok(RouterSettings::default()),
+            // 库里还没有这一行 = 从没配过：第一次读就给三人的默认编制。
+            // 存过设置的一律原样返回，哪怕智能体列表是空的。
+            None => Ok(RouterSettings::starter()),
         }
     }
 

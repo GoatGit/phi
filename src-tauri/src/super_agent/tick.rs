@@ -266,7 +266,7 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
                     worker_app: None,
                     session_id: None,
                     attempts: candidate.attempts(),
-                    detail: Some("调度器这一轮没有给出结论，下一轮重试"),
+                    detail: Some("Lead 这一轮没有给出结论，下一轮重试"),
                     card_fingerprint: Some(&candidate.fingerprint),
                     shadow: settings.shadow,
                 },

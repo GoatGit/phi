@@ -55,7 +55,6 @@ import {
 } from "@/lib/api/tasks";
 import {
   superAgentApi,
-  type AgentSuggestion,
   type RouterAgent,
   type RouterRunState,
   type RouterTaskRun,
@@ -63,7 +62,7 @@ import {
 import { useRouterStatus } from "@/hooks/useRouterStatus";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
-import { AgentBoardView } from "./AgentBoardView";
+import { AgentFlowView } from "./AgentFlowView";
 import { AutoRouterPanel, RouterAgentDialog } from "./AutoRouterPanel";
 import { RunStateBadge } from "./RunStateBadge";
 import {
@@ -163,20 +162,15 @@ export function TaskBoardPage({
   const router = useRouterStatus(activeRoot);
   const liveSessions = useMemo(() => new Set(liveSessionIds), [liveSessionIds]);
   /**
-   * 看板视图：阶段（列）还是智能体（行）。
+   * 默认落在「智能体」视图：智能体是这套看板的一级单元，看板（阶段列）是另一种读法。
    *
-   * 两个维度是正交的——列回答「现在该谁动」，行回答「谁在干什么、谁闲着」。
-   * 智能体是一级入口，所以切换放在页头操作行，和自动调度、仓库同一排。
+   * 这个状态不落盘，也不跨会话记忆：每次进来先看到的是「这队人现在手上有什么」。
    */
-  const [viewMode, setViewMode] = useState<"board" | "agents">("board");
+  const [viewMode, setViewMode] = useState<"board" | "agents">("agents");
   const [agentEditor, setAgentEditor] = useState<{
     agent: RouterAgent;
     isNew: boolean;
   } | null>(null);
-  const [suggestions, setSuggestions] = useState<AgentSuggestion[]>([]);
-  const [dismissedSuggestion, setDismissedSuggestion] = useState<string | null>(
-    null,
-  );
 
   const settings = router.status?.settings ?? null;
   const routerAgents = useMemo(() => resolveRouterAgents(settings), [settings]);
@@ -187,23 +181,6 @@ export function TaskBoardPage({
   );
 
   const active = workspaces.find((entry) => entry.root === activeRoot) ?? null;
-
-  // 提议只在智能体视图里算：它读运行快照与标签，切回阶段视图就不该继续花这次查询。
-  useEffect(() => {
-    if (viewMode !== "agents") return;
-    let alive = true;
-    void superAgentApi
-      .agentSuggestions()
-      .then((list) => {
-        if (alive) setSuggestions(list);
-      })
-      .catch(() => {
-        if (alive) setSuggestions([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [viewMode, board]);
 
   const loadWorkspaces = useCallback(async () => {
     const list = await tasksApi.workspaces();
@@ -606,12 +583,10 @@ export function TaskBoardPage({
         renderEmptyState()
       );
     }
-    // 智能体视图：一行一个智能体，第 0 行是讨论区，末尾「未分配」。
+    // 智能体视图：一张编制图，输入 → Lead → 智能体 → 聚焦那一栏的卡。
     if (viewMode === "agents") {
-      const visibleSuggestion =
-        suggestions.find((item) => item.name !== dismissedSuggestion) ?? null;
       return (
-        <AgentBoardView
+        <AgentFlowView
           tasks={allTasks}
           agents={routerAgents}
           allowed={allowedAgents}
@@ -645,11 +620,15 @@ export function TaskBoardPage({
               await router.saveSettings({ ...settings, routerAvatar: avatar });
             });
           }}
-          // 行里的 + ：建卡即归属，开工仍由卡片上的 ▶ 决定。
+          // 一栏里的 + ：建卡即归属，开工仍由卡片上的 ▶ 决定。
           onCreateForAgent={(agentId, title, timing) =>
             createTaskForAgent(agentId, title, timing)
           }
+          // 讨论栏的「新建任务卡片」：不写归属，建好交给 Lead 照常挑人。
+          onCreateTask={(title, timing) => createTask(title, timing)}
           onCreateDraft={(title) => discussNewTask(title)}
+          // Lead 自己的模型：空表示只按规则判断，这一栏也要如实写。
+          leadModel={settings?.episodeModel || null}
           // 点头像换一张：只改这一个字段，不动角色定义与允许名单。
           onSetAgentAvatar={(agent, avatar) => {
             if (!settings) return;
@@ -669,20 +648,6 @@ export function TaskBoardPage({
               });
             });
           }}
-          suggestion={visibleSuggestion}
-          onUseSuggestion={(item) => {
-            const agent = {
-              ...blankAgent(item.appId),
-              name: item.name,
-              description: item.summary,
-              steps: item.steps,
-              completion: { result: "", evidence: item.evidence },
-            };
-            setAgentEditor({ agent, isNew: true });
-          }}
-          onDismissSuggestion={() =>
-            setDismissedSuggestion(visibleSuggestion?.name ?? null)
-          }
         />
       );
     }
@@ -1045,7 +1010,7 @@ export function TaskBoardPage({
           aria-label={t("tasks.agentView.switchLabel")}
           className="flex h-8 items-center rounded-control border border-border bg-surface p-0.5"
         >
-          {(["board", "agents"] as const).map((mode) => (
+          {(["agents", "board"] as const).map((mode) => (
             <button
               key={mode}
               type="button"
@@ -1256,6 +1221,7 @@ export function TaskBoardPage({
           draft={agentEditor.agent}
           isNew={agentEditor.isNew}
           terminalApps={terminalApps}
+          routerAvatar={settings?.routerAvatar ?? ""}
           onCancel={() => setAgentEditor(null)}
           onSave={(agent) => {
             const isNew = agentEditor.isNew;

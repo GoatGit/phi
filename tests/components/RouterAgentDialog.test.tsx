@@ -165,13 +165,48 @@ describe("RouterAgentDialog", () => {
 
     // timeline 里两句都在，各带说话人；每轮都标了落到右边的第几版。
     expect(screen.getAllByText(zh.tasks.router.agentStudioYou)).toHaveLength(2);
-    expect(screen.getAllByText("Router")).toHaveLength(2);
+    expect(screen.getAllByText(zh.tasks.agentView.routerName)).toHaveLength(2);
     const first = screen.getByText(/^第 1 版 · /);
     expect(first.textContent).toContain(zh.tasks.router.agentSteps);
     const second = screen.getByText(/^第 2 版 · /);
     expect(second.textContent).toContain(zh.tasks.router.agentConstraints);
     // 第二轮没动步骤，就不该说它改了步骤。
     expect(second.textContent).not.toContain(zh.tasks.router.agentSteps);
+  });
+
+  it("发送键在输入框里、框本身够写一段：按钮与文本框同属一个定位容器", async () => {
+    renderDialog(true);
+
+    const input = screen.getByPlaceholderText(
+      zh.tasks.router.agentStudioPlaceholder,
+    );
+    const send = screen.getByRole("button", {
+      name: zh.tasks.router.agentStudioSend,
+    });
+    // 按钮在框内右下角，而不是吊在框外另占一行：同一个定位容器才算在里面。
+    expect(send.parentElement).toBe(input.parentElement);
+    expect(send.parentElement).toHaveClass("relative");
+    // 文本框必须是块级：行内块底下会多出一条基线间隙，容器比框高几像素，
+    // 右下角的按钮就会压在下边框上，看着像挂到了框外面。
+    expect(input).toHaveClass("block");
+    // 四行起步：一句话常要分几段说清一个岗位。
+    expect(input).toHaveAttribute("rows", "4");
+  });
+
+  it("首组不再写「它是谁」：表单直接从名称与用途开始", () => {
+    renderDialog(true);
+
+    // 「所以下面这些是在定义这个人」本身不用说：整张表就是这件事。
+    expect(screen.queryByRole("heading", { name: "它是谁" })).toBeNull();
+    expect(
+      screen.getByLabelText(zh.tasks.router.agentName),
+    ).toBeInTheDocument();
+    // 后面几组的分组标题与那条细线都还在。
+    expect(
+      screen.getByRole("heading", {
+        name: zh.tasks.router.agentSectionLaunch,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("回车只是换行，Ctrl+回车才发送", async () => {
@@ -189,6 +224,29 @@ describe("RouterAgentDialog", () => {
     await user.keyboard("{Control>}{Enter}{/Control}");
     await waitFor(() => expect(agentDraft).toHaveBeenCalledTimes(1));
     expect(agentDraft.mock.calls[0][2]).toBe("我要一个改文档的人\n不碰代码");
+  });
+
+  it("工作室用 Router 自己的头像：表头一张，每轮回复也顶着它", async () => {
+    const user = userEvent.setup();
+    render(
+      <RouterAgentDialog
+        draft={blankAgent("claude")}
+        isNew
+        terminalApps={["claude"]}
+        routerAvatar="avatar-03"
+        onCancel={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+    const panel = screen.getByRole("log").closest("section");
+    const faces = () =>
+      panel?.querySelectorAll("[data-avatar-key='avatar-03']");
+    // 表头不再是一个通用的星形图标：谁在跟你说话，用的是看板那一行同一张脸。
+    expect(faces()).toHaveLength(1);
+
+    await say(user, "我要一个专门改文档的人");
+    // 每轮回复前也带同一个头像，长对话里不用回头确认这一句是谁说的。
+    await waitFor(() => expect(faces()).toHaveLength(2));
   });
 
   it("任意一版都能切回去看：切到初始版只读，回到当前草稿不丢东西", async () => {
@@ -354,6 +412,46 @@ describe("RouterAgentDialog", () => {
     expect(
       screen.getByText(zh.tasks.router.agentVersionPreviewEdited),
     ).toBeInTheDocument();
+  });
+
+  it("字段说明就写在框里：下面不再多一行灰字", () => {
+    renderDialog(true);
+
+    // 判官按「用途」这句选人，那它就该在人打字的地方。
+    const purposeHint = "一句话说明什么任务适合派给它。判官按这句选人。";
+    expect(screen.getByPlaceholderText(purposeHint)).toBe(
+      screen.getByLabelText(zh.tasks.router.agentPurpose),
+    );
+    expect(screen.queryAllByText(purposeHint)).toHaveLength(0);
+
+    // 提示词同理：字数与拼接位置一并写进占位文字里。
+    const prompt = screen.getByLabelText(zh.tasks.router.agentPrompt);
+    expect(prompt.getAttribute("placeholder")).toContain("最多 2000 字");
+    expect(screen.queryByText("拼在任务说明之前，最多 2000 字。")).toBeNull();
+  });
+
+  it("分组标题与分割线是同一行：不再先摆一条通栏的线再多占一行", () => {
+    renderDialog(true);
+
+    const heading = screen.getByRole("heading", {
+      name: zh.tasks.router.agentSectionResponsibility,
+    });
+    // 线就长在标题这一行里（标题后面的那半段），不再是 section 上的 border-t。
+    expect(heading.parentElement?.querySelector(".bg-border")).not.toBeNull();
+    expect(heading.closest("section")?.className).not.toContain("border-t");
+  });
+
+  it("两段说明合成一句：用法只写在弹窗标题下", () => {
+    renderDialog(true);
+
+    const description = screen.getByText(/说一句它在哪不对/);
+    expect(description.textContent).toContain("应用、模型与参数照旧只由你定");
+    expect(description.textContent).toContain("定稿还是你点保存");
+    // 左栏表头只剩「谁在跟你说话」，不再把同一件事再讲一遍。
+    const header = screen.getByRole("heading", {
+      name: zh.tasks.router.agentStudioTitle,
+    }).parentElement;
+    expect(header?.querySelectorAll("p")).toHaveLength(0);
   });
 
   it("编辑已有智能体没有工作室：改配置不该被一段话覆盖", () => {

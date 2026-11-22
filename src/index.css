@@ -578,9 +578,236 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .phi-flow-wires path,
+    .agent-flow-wires path,
     .phi-flow-line-active {
       animation: none !important;
     }
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────
+     编制图：任务看板的智能体视图。
+
+     与流转图共用节点与连线语言，画的是「谁把活交给谁」：
+     输入（与 Lead 讨论）→ Lead →（分派）智能体 →（聚焦）它手上的卡片。
+     两种边两种意思，靠颜色与线型分开，不靠位置猜：
+       · 分派边：实线；有活在跑时用主题色走马灯
+       · 旁路边：紫色——面向你的对话，直接连到 Lead
+     ───────────────────────────────────────────────────────────────────── */
+  /* 四列的分工不同，宽度就不再均分：输入只放一个节点，任务列要放卡。
+     讨论展开时它要同时装下节点与卡，所以第一列跟着变宽，
+     其余三列相应让一点——不是整张图重新排一次。 */
+  .phi-flow-stage[data-layout="agents"] {
+    grid-template-columns:
+      minmax(148px, 0.6fr) minmax(150px, 0.7fr) minmax(176px, 0.9fr)
+      minmax(268px, 1.6fr);
+    column-gap: 34px;
+    align-items: start;
+    min-width: 860px;
+    padding-block: 10px;
+  }
+  .phi-flow-stage[data-layout="agents"][data-talk="open"] {
+    grid-template-columns:
+      minmax(216px, 1.12fr) minmax(150px, 0.7fr) minmax(170px, 0.82fr)
+      minmax(264px, 1.4fr);
+  }
+  @media (max-width: 1180px) {
+    .phi-flow-stage[data-layout="agents"] {
+      grid-template-columns:
+        minmax(126px, 0.58fr) minmax(132px, 0.72fr) minmax(154px, 0.92fr)
+        minmax(220px, 1.6fr);
+      column-gap: 24px;
+      min-width: 740px;
+    }
+    .phi-flow-stage[data-layout="agents"][data-talk="open"] {
+      grid-template-columns:
+        minmax(180px, 1.05fr) minmax(124px, 0.68fr) minmax(140px, 0.84fr)
+        minmax(196px, 1.4fr);
+      min-width: 800px;
+    }
+  }
+  /* 四列都从列名下面往下排：行星（Lead）不能垂直居中，否则它的连线会
+     横穿整列去找每个智能体。 */
+  .phi-flow-stage[data-layout="agents"] > .phi-flow-col {
+    justify-content: flex-start;
+    gap: 10px;
+  }
+  .phi-flow-stage[data-layout="agents"] .phi-flow-hit {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  /* 能点的节点：头像在左、名字与状态在右，与卡片上的行头同一个顺序。 */
+  .phi-flow-node[data-kind="agent"],
+  .phi-flow-node[data-kind="unassigned"],
+  .phi-flow-node[data-kind="discussion"] {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    text-align: start;
+  }
+  .phi-flow-node[data-kind="agent"]:hover,
+  .phi-flow-node[data-kind="unassigned"]:hover,
+  .phi-flow-node[data-kind="discussion"]:hover {
+    border-color: var(--border-strong);
+  }
+  /* 拖着卡片经过：整块提示「松手就归它」。 */
+  .phi-flow-node[data-drop="true"] {
+    border-color: var(--action-text);
+    border-style: solid;
+    background: var(--action-soft);
+  }
+  /* 焦点那一支：它是右栏那几张卡的主人。品牌色在这里是「当前选中」。 */
+  .phi-flow-node[data-focus="true"] {
+    border-color: var(--action-text);
+    box-shadow: 0 0 0 3px var(--action-soft);
+  }
+  /* 聚焦时其余节点只降一点：降太狠就看不出这一队人还有谁。 */
+  .phi-flow-node[data-muted="true"] {
+    opacity: 0.66;
+  }
+  .agent-node-face {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    color: var(--text-3);
+  }
+  .agent-node-name {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-1);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agent-node-meta {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 11px;
+    color: var(--text-3);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agent-node-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-block-start: 2px;
+  }
+  /* Lead：整张图的根。它比智能体节点重一档，但不是按钮（不聚焦、不拖放）。 */
+  .agent-flow-hub {
+    gap: 3px;
+    padding: 10px 9px;
+  }
+  .agent-flow-hub .agent-node-name {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  /* 讨论展开时它就在讨论节点下面：卡与两个新建入口都归在这里，
+     不再占右栏。左侧一道细线与紫色旁路线同色，看得出它是从那一路长出来的。 */
+  .agent-talk-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-block-start: 2px;
+    padding-inline-start: 10px;
+    border-inline-start: 1px solid var(--human-fill);
+  }
+  .agent-talk-hint {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-3);
+  }
+  /* 任务列：操作一行，下面直接是卡。 */
+  .agent-lane-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 28px;
+  }
+  /* 讨论节点开着的时候与聚焦节点同一个写法：现在这一块是展开的。 */
+  .phi-flow-node[data-kind="discussion"][data-open="true"] {
+    border-color: var(--human-fill);
+    box-shadow: 0 0 0 3px var(--human-soft);
+  }
+  /* 操作一行靠右：它回答「能对它做什么」，不参与读图，所以贴右缘、不挡卡与线。
+     四个控件同一档尺寸、同一种无框样式：能点的就是图标，名字在提示与读屏里。 */
+  .agent-lane-tools {
+    display: flex;
+    min-height: 28px;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px 4px;
+  }
+  /* 开关与图标按钮同高：18px 的轨道居中，点区仍是 38×28。
+     ＋ 外面那层只管「禁用时也能出提示」，所以也按同一格对齐。 */
+  .agent-tool-switch,
+  .agent-tool-slot {
+    display: inline-flex;
+    min-width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+  }
+  .agent-lane-cards {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 8px;
+  }
+  /* 卡多时这一栏自己滚：图的整体高度要有上限，否则一个人手上的活会把
+     另外三列拉成一条长空白。 */
+  .agent-lane-cards[data-scroll="true"] {
+    max-height: 520px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-inline-end: 2px;
+  }
+  .agent-flow-wires {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .agent-flow-wires path {
+    fill: none;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    transition: opacity 0.2s ease;
+  }
+  .agent-flow-wires path[data-state="busy"] {
+    stroke: var(--action-bg);
+    stroke-width: 2.5;
+    stroke-dasharray: 6 6;
+    animation: phi-flow-dash 0.8s linear infinite;
+  }
+  .agent-flow-wires path[data-state="idle"] {
+    stroke: var(--border-strong);
+  }
+  /* 归属边：智能体 → 它手上的卡。不是一次派发，是与聚焦同一个颜色，
+     实线、不加流动，避免与派发边抢「这轮真的在跑」。 */
+  .agent-flow-wires path[data-state="own"] {
+    stroke: var(--action-bg);
+    stroke-width: 1.5;
+    opacity: 0.55;
+  }
+  /* 未参与派发、还没指派：都属于「这条边现在不走活」，所以长得一样。 */
+  .agent-flow-wires path[data-state="off"] {
+    stroke: var(--text-3);
+    stroke-dasharray: 4 5;
+    opacity: 0.35;
+  }
+  /* 旁路：面向你的对话。紫色只属于这一种边。 */
+  .agent-flow-wires path[data-state="human"] {
+    stroke: var(--human-fill);
+    stroke-width: 2;
+    stroke-dasharray: 5 4;
   }
 }
 
@@ -693,6 +920,12 @@
     --stack-on: #ffffff;
     --stack-border: var(--stack-fill);
 
+    /* 面向人的那一条边（编制图里 Lead↔讨论）：紫色。它既不是分派，也不是
+       输入，所以两种既有色系都不能借用。 */
+    --human-fill: #8b5cf6;
+    --human-text: #6d28d9;
+    --human-soft: #f3eeff;
+
     --success: #16a34a;
     --success-text: #007634;
     --success-soft: #e8f7ee;
@@ -783,6 +1016,11 @@
     --stack-solid: #6a52bf;
     --stack-on: #ffffff;
     --stack-border: color-mix(in srgb, var(--stack-fill) 50%, transparent);
+
+    /* 深色下旁路压暗一档：亮紫在深底上比橙还抢眼，会盖过分派主链。 */
+    --human-fill: #a78bfa;
+    --human-text: #c4b5fd;
+    --human-soft: rgba(167, 139, 250, 0.14);
 
     --success: #4ade80;
     --success-text: #4ade80;
@@ -1116,6 +1354,14 @@ html:not([data-keyboard]) [tabindex]:focus {
   --tw-ring-offset-shadow: 0 0 #0000 !important;
 }
 
+/* 弹层表单里的多行字段：Textarea 自带的 80px 下限让「两行」字段空出小半格，
+   右下角那道拖拽斜纹在定高弹层里也只会被误拖。高度交给行数，下限收到两行（40 + 上下 8）。
+   这条不进 @layer：要盖住 Textarea 自带的 min-h-[80px]。 */
+.field-multiline {
+  min-height: 56px;
+  resize: none;
+}
+
 @layer utilities {
   .no-scrollbar {
     scrollbar-width: none;
@@ -1132,6 +1378,21 @@ html:not([data-keyboard]) [tabindex]:focus {
      这条排在 overflow-*-auto 之后，同权重时它生效。 */
   .scroll-stable {
     overflow-y: scroll;
+  }
+
+  /* 隐式滚动条：不碰它时看不见滑块，指针进到滚动区才浮现。
+     位置照常占着那 8px，所以浮现时不会把内容挤动一下。
+     常显的滑块会把一列表单读成「下面还有一大段没填」。 */
+  .scroll-implicit::-webkit-scrollbar-thumb {
+    background-color: transparent;
+  }
+
+  .scroll-implicit:hover::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+  }
+
+  .scroll-implicit::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-3);
   }
 
   .border-default {

@@ -260,7 +260,7 @@ describe("AutoRouterPanel — 智能体", () => {
     expect(saved.agents[0].model).toBe("glm-5.2");
   });
 
-  it("追加参数能连打两个 token：`--effort high` 不会被吞成 `--efforthigh`", async () => {
+  it("追加参数从下拉里挑：点一项就落成命令行 token，可再点 × 去掉", async () => {
     const onSave = renderAgents({ ...settings, agents: [], workerApps: [] });
     const user = await openPanel();
 
@@ -271,15 +271,69 @@ describe("AutoRouterPanel — 智能体", () => {
       screen.getByLabelText(zh.tasks.router.agentName),
       "便宜的那个",
     );
-    const args = screen.getByLabelText(zh.tasks.router.agentArguments);
-    await user.type(args, "--effort high");
-    expect((args as HTMLInputElement).value).toBe("--effort high");
+    // 还没选任何一项时不摆原文输入框：默认只有「添加参数」这一个入口。
+    expect(
+      screen.queryByPlaceholderText(zh.tasks.router.agentArgumentsPlaceholder),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentArgumentsAdd }),
+    );
+    // 下拉里摆的就是命令行的样子：不用先记住参数名再回来手打。
+    await user.click(screen.getByRole("button", { name: "--effort high" }));
+    expect(screen.getByText("--effort high")).toBeInTheDocument();
+
+    // 加错了就地撤掉，不必清空整段原文。
+    await user.click(
+      screen.getByRole("button", {
+        name: zh.tasks.router.agentArgumentsRemove.replace(
+          "{{argument}}",
+          "--effort high",
+        ),
+      }),
+    );
+    expect(screen.queryByText("--effort high")).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentArgumentsAdd }),
+    );
+    await user.click(screen.getByRole("button", { name: "--verbose" }));
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentSave }),
+    );
+    const saved = onSave.mock.calls[0][0];
+    expect(saved.agents[0].arguments).toEqual(["--verbose"]);
+  });
+
+  it("列表之外的写法走自定义输入：原文照存，两个 token 不会被吞", async () => {
+    const onSave = renderAgents({ ...settings, agents: [], workerApps: [] });
+    const user = await openPanel();
+
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentAdd }),
+    );
+    await user.type(
+      screen.getByLabelText(zh.tasks.router.agentName),
+      "便宜的那个",
+    );
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentArgumentsAdd }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: zh.tasks.router.agentArgumentsCustom,
+      }),
+    );
+    const args = screen.getByPlaceholderText(
+      zh.tasks.router.agentArgumentsPlaceholder,
+    );
+    await user.type(args, "--model glm-5");
+    expect((args as HTMLInputElement).value).toBe("--model glm-5");
 
     await user.click(
       screen.getByRole("button", { name: zh.tasks.router.agentSave }),
     );
     const saved = onSave.mock.calls[0][0];
-    expect(saved.agents[0].arguments).toEqual(["--effort", "high"]);
+    expect(saved.agents[0].arguments).toEqual(["--model", "glm-5"]);
   });
 
   it("编辑智能体只改定义，派发允许列表不受影响", async () => {

@@ -42,6 +42,14 @@ const AVATAR_SOURCES = [
   avatar16,
 ];
 
+/**
+ * Router 在头像体系里的固定身份。
+ *
+ * 它不是 `agents` 里的某一项，没有智能体 id，所以给一个不变的键：
+ * 改名、重启之后还是同一张脸，看板那一行与工作室表头认的也是同一张。
+ */
+export const ROUTER_AVATAR_ID = "router";
+
 /** 全部可选头像的键，顺序即下标。选择器与校验都以它为准。 */
 export const AGENT_AVATAR_KEYS: readonly string[] = AVATAR_SOURCES.map(
   (_, index) => `avatar-${String(index + 1).padStart(2, "0")}`,

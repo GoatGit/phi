@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Send, Sparkles } from "lucide-react";
+import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fieldClass } from "@/components/ui/input";
 import {
@@ -10,8 +10,16 @@ import {
 } from "@/lib/api/superAgent";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { AgentAvatar, ROUTER_AVATAR_ID } from "./AgentAvatar";
 
 interface AgentStudioPanelProps {
+  /**
+   * Router 自己的头像键；空 = 按固定 id 派生。
+   *
+   * 与看板讨论区那一行取同一份设置：同一个 Router 在两处是同一张脸，
+   * 而不是一边是头像、一边换成一个通用的星形图标。
+   */
+  routerAvatar?: string;
   /**
    * 草稿将来用哪个应用执行。
    *
@@ -76,6 +84,7 @@ interface StudioTurnView {
  */
 export function AgentStudioPanel({
   appId,
+  routerAvatar = "",
   current,
   activeVersion,
   previewing,
@@ -91,6 +100,7 @@ export function AgentStudioPanel({
   const [busy, setBusy] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 新的一轮进来就把视角带到最新：聊到第三四句时，人不该自己再去滚。
   useEffect(() => {
@@ -103,6 +113,19 @@ export function AgentStudioPanel({
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest" });
   }, [activeVersion]);
+
+  /**
+   * 输入框跟着内容长高，最多到 160px（约六行）。
+   *
+   * 写清一个岗位常要两三段话，固定两行的高度会让人在一条缝里翻自己的稿子；
+   * 到顶之后仍由它自己滚，不会把下面的 timeline 挤没。
+   */
+  const grow = (element: HTMLTextAreaElement) => {
+    element.style.height = "auto";
+    const next = Math.min(element.scrollHeight, 160);
+    // 读不到高度（无排版环境）就退回 CSS 的起始高度，不要把框压成 0。
+    if (next > 0) element.style.height = `${next}px`;
+  };
 
   const send = async () => {
     const message = input.trim();
@@ -118,6 +141,7 @@ export function AgentStudioPanel({
     const round = turns.filter((turn) => turn.role === "user").length + 1;
     setTurns([...turns, { role: "user", text: message }]);
     setInput("");
+    if (inputRef.current) inputRef.current.style.height = "";
     setBusy(true);
     try {
       const reply = await superAgentApi.agentDraft(
@@ -153,25 +177,25 @@ export function AgentStudioPanel({
         className,
       )}
     >
-      <header className="flex flex-col gap-0.5">
-        <h3 className="m-0 flex items-center gap-1.5 text-caption font-medium text-fg-1">
-          <Sparkles
-            aria-hidden="true"
-            className="h-3.5 w-3.5 text-action-text"
-            strokeWidth={1.5}
-          />
+      {/* 头像 ｜ 名称：与看板那一行同一套行头，同一个 Router 在两处是同一张脸。
+          怎么用它已经写在弹窗标题下那一句里，这里不再重说一遍。 */}
+      <header className="flex items-center gap-2">
+        <AgentAvatar
+          agentId={ROUTER_AVATAR_ID}
+          avatar={routerAvatar}
+          size={30}
+        />
+        <h3 className="m-0 min-w-0 text-body font-medium text-fg-1">
           {t("tasks.router.agentStudioTitle")}
         </h3>
-        <p className="m-0 text-[11px] leading-relaxed text-fg-3">
-          {t("tasks.router.agentStudioHint")}
-        </p>
       </header>
 
       <div
         ref={listRef}
         role="log"
         aria-label={t("tasks.router.agentStudioTitle")}
-        className="flex max-h-[26vh] flex-col gap-2 overflow-y-auto md:max-h-none md:min-h-0 md:flex-1"
+        // 与右栏同一套隐式滚动条：同一个弹层里两栏不该有两种滚动条的脾气。
+        className="scroll-implicit flex max-h-[26vh] flex-col gap-2 overflow-y-auto md:max-h-none md:min-h-0 md:flex-1"
       >
         {turns.length === 0 ? (
           // 空对话里这块是「从这里开始」，不是一条落单的提示：靠自身的留白把开头推到中间。
@@ -193,8 +217,19 @@ export function AgentStudioPanel({
                   on ? "border-action-text" : "border-transparent",
                 )}
               >
-                <span className="px-0.5 text-[10px] leading-none text-fg-3">
-                  {mine ? t("tasks.router.agentStudioYou") : "Router"}
+                <span className="flex items-center gap-1 px-0.5 text-[10px] leading-none text-fg-3">
+                  {/* 谁在说话比说了什么先被读到：Router 每轮都顶着它自己的脸。 */}
+                  {mine ? null : (
+                    <AgentAvatar
+                      agentId={ROUTER_AVATAR_ID}
+                      avatar={routerAvatar}
+                      size={14}
+                      className="border-0"
+                    />
+                  )}
+                  {mine
+                    ? t("tasks.router.agentStudioYou")
+                    : t("tasks.agentView.routerName")}
                 </span>
                 <p
                   className={cn(
@@ -250,21 +285,30 @@ export function AgentStudioPanel({
       </div>
 
       <div className="flex flex-col gap-1">
-        <div className="flex items-end gap-1.5">
+        {/* 发送键在框里右下角：一列气泡加一个输入框，按钮吊在框外面会把这一列
+            撑出第二道边，也不符合「说到一半接着往下写」的用法。 */}
+        <div className="relative">
           <textarea
+            ref={inputRef}
             value={input}
-            rows={2}
+            rows={4}
             className={cn(
               fieldClass,
-              // 两行起步、最多五行：够写一段，但不会把整列 timeline 挤没。
+              // 四行起步、最长约六行：够写清一个岗位，又不至于把 timeline 挤没。
+              // 右侧留出按钮的位置（pe-11），文字不会写到按钮底下。
+              // 必须是块级：行内块底下会留一条基线间隙，容器比框高几像素，
+              // 右下角的按钮就会压在下边框上，看着像挂到框外面去了。
               // 不覆写字体尺寸与行高：font-size 工具类在样式表里的先后顺序不受
               // className 顺序控制，覆盖会变成两边看运气。
-              "max-h-24 min-h-[52px] resize-none py-1.5",
+              "block max-h-40 min-h-[96px] resize-none py-2 pe-11",
             )}
             aria-label={t("tasks.router.agentStudioPlaceholder")}
             placeholder={t("tasks.router.agentStudioPlaceholder")}
             disabled={busy}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={(event) => {
+              setInput(event.target.value);
+              grow(event.currentTarget);
+            }}
             onKeyDown={(event) => {
               // 回车就是换行：一句话常常要分几段说清一个岗位，
               // 一按回车就发出去，只会把人逼成挤在一行里写。
@@ -276,14 +320,17 @@ export function AgentStudioPanel({
             }}
           />
           <Button
-            variant="neutral"
-            size="compact"
-            className="mb-0.5 shrink-0"
+            type="button"
+            // 框里不再套一个带边框的白方块：那会让框的右下角看起来有两个边。
+            variant="ghost"
+            size="icon-compact"
+            className="absolute bottom-2 end-2"
+            aria-label={t("tasks.router.agentStudioSend")}
+            title={t("tasks.router.agentStudioSend")}
             disabled={busy || input.trim() === ""}
             onClick={() => void send()}
           >
             <Send data-icon className="h-3.5 w-3.5" strokeWidth={1.5} />
-            {t("tasks.router.agentStudioSend")}
           </Button>
         </div>
         <p
