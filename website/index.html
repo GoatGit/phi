@@ -6,23 +6,23 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#fffdfa">
   <title>PHI — 一个网关，统一你的 AI 开发栈</title>
-  <meta name="description" content="PHI 把 Claude Code、Codex、Gemini CLI 接到同一套本地网关：协议按需转换，模型按直连或路由组选择，终端、会话和用量都在这个窗口里。">
+  <meta name="description" content="PHI 把 Claude Code、Codex、Gemini CLI 接到同一套本地网关：协议按需转换，模型按直连或路由组选择；终端、会话、Super Agent 和智能体调度都在这个窗口里。">
   <link rel="canonical" href="https://phi.semibot.ai/">
   <link rel="alternate" hreflang="zh-CN" href="https://phi.semibot.ai/">
   <link rel="alternate" hreflang="en" href="https://phi.semibot.ai/en/">
   <link rel="alternate" hreflang="ja" href="https://phi.semibot.ai/ja/">
   <link rel="alternate" hreflang="x-default" href="https://phi.semibot.ai/">
   <meta property="og:title" content="PHI — 一个网关，统一你的 AI 开发栈">
-  <meta property="og:description" content="协议互转、直连与路由组、内嵌 CLI 终端和用量记录，都在同一个桌面窗口里。">
+  <meta property="og:description" content="协议互转、直连与路由组、内嵌 CLI 终端、Super Agent 与智能体调度、用量记录，都在同一个桌面窗口里。">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://phi.semibot.ai/">
   <meta property="og:locale" content="zh_CN">
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="ja_JP">
   <link rel="icon" type="image/svg+xml" href="assets/phi-app.svg">
-  <link rel="stylesheet" href="css/style.css?v=flow-5">
+  <link rel="stylesheet" href="css/style.css?v=flow-7">
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"SoftwareApplication","name":"PHI","operatingSystem":"macOS, Windows, Linux","applicationCategory":"DeveloperApplication","description":"PHI 把 Claude Code、Codex、Gemini CLI 等应用接到同一套本地网关：在 OpenAI Chat、OpenAI Responses、Anthropic Messages 与 Gemini 之间转换（System One 即将支持），用直连或路由组选择模型，内嵌终端运行 CLI，并记录用量。","url":"https://phi.semibot.ai/","inLanguage":"zh-CN","downloadUrl":"https://github.com/GoatGit/phi/releases/latest","codeRepository":"https://github.com/GoatGit/phi","license":"https://opensource.org/licenses/MIT"}
+  {"@context":"https://schema.org","@type":"SoftwareApplication","name":"PHI","operatingSystem":"macOS, Windows, Linux","applicationCategory":"DeveloperApplication","description":"PHI 把 Claude Code、Codex、Gemini CLI 等应用接到同一套本地网关：在 OpenAI Chat、OpenAI Responses、Anthropic Messages 与 Gemini 之间转换（System One 即将支持），用直连或路由组选择模型，内嵌终端运行 CLI，Super Agent 把仓库里的 backlog 读成看板、按智能体指派并自动派发，用量记进本地账本。","url":"https://phi.semibot.ai/","inLanguage":"zh-CN","downloadUrl":"https://github.com/GoatGit/phi/releases/latest","codeRepository":"https://github.com/GoatGit/phi","license":"https://opensource.org/licenses/MIT"}
   </script>
 </head>
 <body>
@@ -50,10 +50,10 @@
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
         <img class="hero-mark" src="assets/phi-app.svg" width="84" height="84" alt="" aria-hidden="true">
-        <p class="hero-kicker">统一网关 · 统一路由 · 统一终端</p>
+        <p class="hero-kicker">统一网关 · 统一路由 · 一队智能体</p>
         <h1 id="hero-title">一个网关，<br><span class="h1-mark">统一你的 AI 开发栈。</span></h1>
         <p class="lede">
-          Claude Code、Codex、Gemini CLI 各说各的协议。PHI 在中间转换，供应商只配一次；直连还是走路由组，规则由你定，终端就开在同一个窗口。
+          Claude Code、Codex、Gemini CLI 各说各的协议。PHI 在中间转换，供应商只配一次；直连还是走路由组，规则由你定，终端就开在同一个窗口。活多的时候，还能把卡片派给一队智能体，按你写好的边界去跑。
         </p>
         <div class="actions">
           <a class="button" href="#download">下载 PHI <span aria-hidden="true">↓</span></a>
@@ -311,6 +311,93 @@
       </div>
     </section>
 
+    <section class="chapter wrap" id="agents" aria-labelledby="agents-title">
+      <div class="chapter-intro">
+        <h2 id="agents-title">一个人，也能带一队智能体。</h2>
+        <div class="chapter-copy">
+          <p>
+            终端里是你自己动手的地方，Super Agent 是把活派出去的地方。打开就是智能体视图，四列从左往右读：你和 Lead 谈的那一路、Lead、它手下的智能体、某个智能体手上的卡。点另一个节点，右边就换成他那一叠。卡片上的 ▶ 才是真的开工，想看阶段进度就切到「看板」。
+          </p>
+          <p>
+            任务卡是仓库 <code>backlog/</code> 里的 markdown，沿用 Backlog.md 的目录与命名，backlog 命令行和其它 agent 照样能读写。智能体定义存在本机：绑哪个 CLI、用哪个模型、追加哪些参数，都是这台机器上的事。
+          </p>
+        </div>
+      </div>
+
+      <figure class="agent-graph" aria-labelledby="graph-caption">
+        <div class="agent-graph-top" aria-hidden="true">
+          <span class="board-switch"><b class="is-on">智能体</b><b>看板</b></span>
+          <span class="board-title">Super Agent</span>
+          <span class="board-add">＋ 添加智能体</span>
+        </div>
+        <div class="agent-graph-body" aria-hidden="true">
+          <p class="graph-label col-input">输入</p>
+          <div class="graph-node is-talk col-input row-a">
+            <span class="graph-face"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 10.4a1.7 1.7 0 0 1-1.7 1.7H5.1L2 14.2V3.7A1.7 1.7 0 0 1 3.7 2h8.6A1.7 1.7 0 0 1 14 3.7z"/></svg></span>
+            <span class="graph-node-text"><strong>与 Lead 讨论</strong><span class="graph-node-meta">1 张在谈</span></span>
+          </div>
+
+          <p class="graph-label col-lead">Lead</p>
+          <div class="graph-node is-lead col-lead row-a">
+            <img src="assets/phi-app.svg" width="26" height="26" alt="">
+            <span class="graph-node-text"><strong>Lead</strong><span class="graph-node-meta">按规则派发</span></span>
+          </div>
+
+          <p class="graph-label col-agents">智能体</p>
+          <div class="graph-node is-agent is-focus col-agents row-a">
+            <img src="assets/apps/claude.svg" width="26" height="26" alt="">
+            <span class="graph-node-text"><strong>调研员</strong><span class="graph-node-meta">Claude Code · claude-sonnet</span><span class="graph-chip">1 张在跑</span></span>
+          </div>
+          <div class="graph-node is-agent col-agents row-b">
+            <img src="assets/apps/openai.svg" width="26" height="26" alt="">
+            <span class="graph-node-text"><strong>文档员</strong><span class="graph-node-meta">Codex · gpt-6.1-sol</span></span>
+          </div>
+          <div class="graph-node is-agent is-empty col-agents row-c">
+            <span class="graph-face is-empty"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9h3.2l.8 1.6h4l.8-1.6H14"/><path d="M3.4 3h9.2l1.4 5.2v3.1H2V8.2z"/></svg></span>
+            <span class="graph-node-text"><strong>未分配</strong><span class="graph-node-meta">等你说归谁</span></span>
+          </div>
+
+          <p class="graph-label col-tasks">调研员的任务</p>
+          <div class="graph-stack col-tasks">
+            <div class="graph-tools">
+              <span class="graph-switch"></span>
+              <span class="graph-tool"><svg viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.7 1.9l2.4 2.4-7.3 7.3-3 .6.6-3z"/><path d="M8.3 3.3l2.4 2.4"/></svg></span>
+              <span class="graph-tool"><svg viewBox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.7 3.5h10.6"/><path d="M5.4 3.5V2h3.2v1.5"/><path d="M3.2 3.5l.6 8.3h6.4l.6-8.3"/></svg></span>
+              <span class="graph-tool">＋</span>
+            </div>
+            <div class="graph-card is-run">
+              <b>整理今天的 AI 新闻</b>
+              <span class="graph-tag is-run">运行中</span>
+            </div>
+            <div class="graph-card">
+              <b>补上官网导航的键盘焦点</b>
+              <span class="graph-tag is-new">已指派</span>
+            </div>
+          </div>
+
+          <svg class="agent-graph-wire col-wire-a" viewBox="0 0 34 218" preserveAspectRatio="none"><path data-wire="human" d="M0 39C11 19 23 19 34 39"/></svg>
+          <svg class="agent-graph-wire col-wire-b" viewBox="0 0 34 218" preserveAspectRatio="none">
+            <path data-wire="run" d="M0 39H34"/>
+            <path data-wire="idle" d="M0 39C17 39 17 113 34 113"/>
+            <path data-wire="off" d="M0 39C17 39 17 183 34 183"/>
+          </svg>
+          <svg class="agent-graph-wire col-wire-c" viewBox="0 0 40 218" preserveAspectRatio="none">
+            <path data-wire="run" d="M0 39C20 39 20 65 40 65"/>
+            <path data-wire="own" d="M0 39C20 39 20 131 40 131"/>
+          </svg>
+        </div>
+        <figcaption id="graph-caption">示意图：从左往右是输入、Lead、智能体、任务四列。紫线是你和 Lead 谈的那一路，不参与派发；橙色的流动线是正在跑的那条；灰线是把活交给某个人，再落到他手上的每张卡。</figcaption>
+      </figure>
+
+      <div class="facts">
+        <div><h3>指派是归属，开工是动作</h3><p>拖过去只写归属，不会替你起进程。人工指派优先于自动挑人；归属认不出来时不猜、不降级，直接转人工。</p></div>
+        <div><h3>先谈清楚，再开工</h3><p>讨论在卡片详情里，说话的就你和 Lead 两个人。谈定的结论写回卡片，跟任务一起交给执行者；讨论和执行互斥，同一张卡不会边谈边跑。</p></div>
+        <div><h3>智能体是聊出来的，不是填出来的</h3><p>跟 Lead 说清楚它该负责什么，右边就长出一版定义：它是谁、负责什么、能使用什么、怎样算完成。每轮存一版，任意一版都能切回去接着改。</p></div>
+        <div><h3>放出去的事有上限</h3><p>并发数、每天派发几次、卡死多久算超时、连续失败几次转人工，都能设。先跑影子模式只判断不派发；排期可以是间隔、每天定时，或只跑一次。</p></div>
+      </div>
+      <p class="footnote">派发走的是内嵌终端，所以只在 macOS 13+ 可用；Windows 和 Linux 上可以建卡、讨论和指派，但还不能在 PHI 里开工。自动调度要先在设置里选一个调度模型，智能体自己用的 CLI 和供应商照常配置。</p>
+    </section>
+
     <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
       <div class="chapter-intro">
         <h2 id="memory-title">换工具可以，会话不用搬家。</h2>
@@ -362,7 +449,7 @@
         </div>
         <div>
           <dt>本地数据</dt>
-          <dd>PHI 没有项目方的云端后端：配置、会话统计和用量账本都在本机的 <code>~/.phi/</code> 里，订阅类 OAuth Token 交给系统钥匙串。用在线模型时，CLI 或本地网关才会连接你选择的供应商。</dd>
+          <dd>PHI 没有项目方的云端后端：配置、智能体定义、会话统计和用量账本都在本机的 <code>~/.phi/</code> 里，订阅类 OAuth Token 交给系统钥匙串。用在线模型时，CLI 或本地网关才会连接你选择的供应商。</dd>
         </div>
       </dl>
     </section>
@@ -390,6 +477,7 @@
         <details><summary>直连和路由组有什么区别？</summary><p>直连不经过网关，应用按原来的方式连一个供应商。路由组把几个供应商或模型放在一起，由 PHI 按策略挑，失败时换下一条；组内可以是不同协议。</p></details>
         <details><summary>我的密钥和请求会经过哪里？</summary><p>主要配置与用量数据保存在本机，订阅类 OAuth Token 存入系统钥匙串。走本地网关时，请求先到 PHI，再转给你配置的供应商；直连时由应用直接连接供应商。两种方式下，请求内容和必要凭据都会交给你选择的供应商。</p></details>
         <details><summary>会话和长期记忆现在能用吗？</summary><p>会话浏览能用：各工具留在本机的记录会收进一个列表，按项目或时间查看、搜索并复制恢复命令。跨工具的连续会话和长期记忆仍在规划中。</p></details>
+        <details><summary>智能体会自己动手改我的代码吗？</summary><p>只有你把卡拖进执行列，或在详情里点「开始」，它才会启动一次；用的还是你自己装的 CLI 和你配好的供应商。智能体能追加的参数只放行不改变权限和执行方式的开关。跑起来有并发上限、卡死超时和连续失败转人工，任务卡本身是仓库里的 markdown，改动留在 git 里，看得到也回得去。</p></details>
         <details><summary>Windows 和 Linux 也能在应用内运行 CLI 吗？</summary><p>内嵌终端目前仅适用于 macOS 13 及以上。Windows 和 Linux 可以用 PHI 管理配置、连接模型和查看用量，CLI 在外部终端运行。</p></details>
         <details><summary>如何更新和反馈问题？</summary><p>在应用内选择「检查更新」，或到 <a href="https://github.com/GoatGit/phi/releases/latest">GitHub Releases</a> 获取新版本。遇到问题可以在 <a href="https://github.com/GoatGit/phi/issues">GitHub Issues</a> 反馈，附上系统版本、工具名称和复现步骤，记得隐去密钥。</p></details>
       </div>
