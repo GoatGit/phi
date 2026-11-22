@@ -1,5 +1,44 @@
 [
   {
+    "version": "1.2.0",
+    "date": "2026-11-22",
+    "items": {
+      "zh": [
+        "智能体视图换成四列拓扑图：输入（与 Lead 讨论）、Lead、智能体、聚焦那一支手上的卡；点节点即聚焦。",
+        "每张任务卡各有一根归属线，只有正在跑的那张走主题色流动线。",
+        "系统默认带三个智能体：文档调研员、产品经理、工程师，只在还没配置过时生效。",
+        "智能体的追加参数改成下拉挑选项，只列真的能传进命令行的开关。",
+        "侧栏默认钉住 Super Agent，取消钉住后不会再自动加回。",
+        "任务看板整体改名 Super Agent，Router 与调度器统一改称 Lead。",
+        "页面默认落在智能体视图，切换顺序为「智能体 ｜ 看板」。",
+        "任务列的操作收成四个右对齐图标：启用、编辑、删除、＋。",
+        "讨论表单的提交键改成有描边的按钮，提交后进入等待态并锁住输入，不再当场消失。"
+      ],
+      "en": [
+        "The agent view is now a four-column graph: discussion with Lead, Lead, agents, and the focused agent's cards; click a node to focus it.",
+        "Every task card gets its own ownership wire, and only the running card animates in the accent colour.",
+        "Three agents ship built in: researcher, product manager and engineer, applied only before any settings exist.",
+        "Agent arguments are now picked from a dropdown that lists the flags actually allowed on the command line.",
+        "Super Agent is pinned to the sidebar by default, and unpinning it is not undone on restart.",
+        "The task board is now Super Agent, and Router and the dispatcher are both called Lead.",
+        "The agent view is the default, with the switch ordered agents first, board second.",
+        "The task column's actions collapse into four right-aligned icons: enable, edit, delete, plus.",
+        "The discussion form's submit button is now a bordered button; submitting waits and locks input instead of dropping the form."
+      ],
+      "ja": [
+        "エージェントビューを 4 列のトポロジー図に：Lead との相談、Lead、エージェント、注目中のエージェントのカード。ノードをクリックで絞り込みます。",
+        "各タスクカードに専用の帰属線を引き、実行中の 1 枚だけをアクセント色で流します。",
+        "文書リサーチャー・プロダクトマネージャー・エンジニアの 3 体を同梱し、未設定のときだけ適用します。",
+        "エージェントの追加引数をドロップダウン選択に変更し、実際に渡せるフラグだけを並べます。",
+        "Super Agent を既定でサイドバーに固定し、解除した状態が再起動で戻らないようにしました。",
+        "タスクボードを Super Agent に改名し、Router とディスパッチャーを Lead に統一しました。",
+        "既定の表示をエージェントビューにし、切り替えは「エージェント｜ボード」の順にしました。",
+        "タスク列の操作を右寄せの 4 つのアイコン（有効化・編集・削除・＋）にまとめました。",
+        "相談フォームの送信ボタンに枠を付け、送信後は待機状態で入力をロックし、フォームが消えないようにしました。"
+      ]
+    }
+  },
+  {
     "version": "1.1.0",
     "date": "2026-11-22",
     "items": {
