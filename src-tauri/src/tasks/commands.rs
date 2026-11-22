@@ -306,6 +306,22 @@ pub fn task_set_schedule(
     detail_with_links(&state, &workspace, &detail.task.id)
 }
 
+/// 选这张卡要续接哪一个 CLI 会话；`session` 为 `None` 就是恢复成「每次新起一个」。
+///
+/// 只写卡片，不派发：选会话是派发之前的准备动作，真正开工仍是「指派并开工」或自动调度。
+#[tauri::command]
+pub fn task_set_session(
+    state: State<'_, AppState>,
+    root: String,
+    task_id: String,
+    session: Option<String>,
+    fingerprint: String,
+) -> Result<TaskDetail, String> {
+    let workspace = open(&state, &root)?;
+    let detail = repository::set_session(&workspace, &task_id, session.as_deref(), &fingerprint)?;
+    detail_with_links(&state, &workspace, &detail.task.id)
+}
+
 /// 在文件管理器中显示一个产物。只接受仓库内、确实存在的文件。
 #[tauri::command]
 pub async fn task_reveal_artifact(

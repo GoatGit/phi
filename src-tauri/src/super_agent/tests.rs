@@ -344,6 +344,102 @@ async fn dispatch_records_session_attempt_and_quota() {
     assert_eq!(quota.dispatches, 1);
 }
 
+/// 卡片选了会话、而这个应用没法按 id 续接：停下等人，不要悄悄新起一个。
+#[tokio::test]
+async fn a_session_the_app_cannot_resume_stops_before_dispatch() {
+    let workspace = workspace(1, "In Progress");
+    let opened = crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("open");
+    let before = repository::list(&opened).expect("list")[0]
+        .fingerprint
+        .clone();
+    repository::set_session(&opened, "TASK-1", Some("6f1c8f0e-33c4"), &before).expect("session");
+
+    let dispatcher = RecordingDispatcher::default();
+    let mut config = settings(false);
+    config.agents = vec![RouterAgent {
+        id: "codex-writer".into(),
+        name: "Codex 写手".into(),
+        app_id: "codex".into(),
+        ..Default::default()
+    }];
+    config.worker_apps = vec!["codex-writer".into()];
+    let episode = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: vec![Decision::dispatch("TASK-1", "codex-writer", "接着上次说")],
+            unfinished: false,
+        },
+    };
+
+    let report = run_tick(
+        &workspace.db,
+        config,
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &episode,
+    )
+    .await;
+
+    assert_eq!(dispatcher.count(), 0, "不支持续接就不该起进程");
+    assert_eq!(report.needs_you, vec!["TASK-1".to_string()]);
+    let run = workspace
+        .db
+        .router_run(&workspace.root, "TASK-1")
+        .expect("run")
+        .expect("row");
+    assert_eq!(run.state, RunState::NeedsYou);
+    assert!(run
+        .detail
+        .expect("detail")
+        .starts_with("session-resume-unsupported:"));
+}
+
+/// 同一段对话同时只能有一个 worker：另一个还占着就等下一轮，不去打断也并行。
+#[tokio::test]
+async fn a_session_already_running_waits_for_the_next_tick() {
+    let workspace = workspace(2, "In Progress");
+    let opened = crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("open");
+    let tasks = repository::list(&opened).expect("list");
+    for task in &tasks {
+        repository::set_session(&opened, &task.id, Some("6f1c8f0e-33c4"), &task.fingerprint)
+            .expect("session");
+    }
+    // TASK-1 已经在跑，占着这段对话；假运行时说这个会话还活着，别被巡检收掉。
+    dispatch_run(&workspace.db, &workspace.root, "worker-1", None);
+    let dispatcher = RecordingDispatcher {
+        alive: Mutex::new(vec!["worker-1".to_string()]),
+        ..Default::default()
+    };
+    let episode = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: vec![Decision::dispatch("TASK-2", "claude", "同一段对话")],
+            unfinished: false,
+        },
+    };
+    let report = run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &episode,
+    )
+    .await;
+
+    assert!(
+        report.degraded.contains(&"session-busy:TASK-2".to_string()),
+        "degraded={:?} dispatched={:?} decisions={:?}",
+        report.degraded,
+        report.dispatched,
+        report.decisions
+    );
+    assert_eq!(dispatcher.count(), 0);
+    // 不写运行态：下一轮它还是「待派」的样子，等前一个跑完自然接手。
+    assert!(workspace
+        .db
+        .router_run(&workspace.root, "TASK-2")
+        .expect("run")
+        .is_none());
+}
+
 #[tokio::test]
 async fn dispatch_failure_keeps_the_reason_and_counts_the_attempt() {
     let workspace = workspace(1, "In Progress");
@@ -1377,6 +1473,7 @@ fn dependencies_are_resolved_inside_the_same_repository() {
         schedule: None,
         assignees: Vec::new(),
         labels: Vec::new(),
+        session: None,
         run: None,
     };
     let outcome = crate::super_agent::prefilter::apply(
@@ -1713,6 +1810,7 @@ fn blocked_dependencies_keep_the_card_queued() {
         schedule: None,
         assignees: Vec::new(),
         labels: Vec::new(),
+        session: None,
         run: None,
     };
     let outcome = crate::super_agent::prefilter::apply(
@@ -1836,6 +1934,7 @@ fn the_task_prompt_prioritizes_autonomous_completion() {
         app_id: "codex".into(),
         file: file.into(),
         title: "实现任务".into(),
+        session: None,
     };
     assert_eq!(spec.prompt(), prompt, "自动派发与手动入口必须共用指令");
 }
@@ -2374,6 +2473,65 @@ fn an_agent_cannot_override_the_startup_flags() {
     );
 }
 
+/// 允许列表要和前端 `agentArguments.ts` 一一对上：界面上列出来的每一项这里都要收，
+/// 而清单之外的写法（含同一参数的危险取值）仍要拒。
+#[test]
+fn the_argument_allow_list_matches_the_picker() {
+    let agent = |app: &str, args: &[&str]| RouterAgent {
+        id: "picked".into(),
+        name: "挑了参数的".into(),
+        app_id: app.into(),
+        arguments: args.iter().map(|a| (*a).to_string()).collect(),
+        ..Default::default()
+    };
+    let validate = |app: &str, args: &[&str]| {
+        RouterSettings {
+            worker_apps: vec!["picked".into()],
+            agents: vec![agent(app, args)],
+            ..RouterSettings::default()
+        }
+        .validate_agents()
+    };
+
+    // 前端下拉里能点到的全部组合。
+    for (app, args) in [
+        ("claude", vec!["--verbose", "--strict-mcp-config"]),
+        ("claude", vec!["--effort", "high"]),
+        ("claude", vec!["--dangerously-skip-permissions"]),
+        ("codex", vec!["--ephemeral", "--ignore-user-config"]),
+        ("codex", vec!["--ignore-rules"]),
+        ("codex", vec!["--sandbox", "read-only"]),
+        ("codex", vec!["--dangerously-bypass-approvals-and-sandbox"]),
+        ("gemini", vec!["--sandbox", "--skip-trust"]),
+        ("gemini", vec!["--yolo"]),
+        ("opencode", vec!["--pure", "--auto"]),
+    ] {
+        assert!(
+            validate(app, &args).is_ok(),
+            "{app} {args:?} 前端能点、后端却拒了"
+        );
+    }
+
+    // 同一参数的其它取值不放行：写边界仍由 phi 定。
+    assert_eq!(
+        validate("codex", &["--sandbox", "workspace-write"]),
+        Err("unsupported-agent-argument: --sandbox".into())
+    );
+    // 应用与参数不能错配：claude 的开关不该出现在 gemini 上。
+    assert_eq!(
+        validate(
+            "gemini",
+            &["--skip-trust", "--dangerously-skip-permissions"]
+        ),
+        Err("unsupported-agent-argument: --dangerously-skip-permissions".into())
+    );
+    // 取值缺失也要拒，不能只看 flag 名。
+    assert_eq!(
+        validate("codex", &["--sandbox"]),
+        Err("unsupported-agent-argument: --sandbox".into())
+    );
+}
+
 /// 模型名会原样拼在 `--model` 后面：带空格的名字会被 CLI 拆成两段，后面那段就
 /// 成了指令的一部分。名单以外的模型名本身允许——直连那家自己认它。
 #[test]
@@ -2578,7 +2736,7 @@ fn the_agent_model_lands_before_the_prompt() {
         ..Default::default()
     };
     let file = "backlog/tasks/TASK-1.md";
-    let args = crate::terminal::parse_arguments(&agent.launch_arguments(file)).expect("args");
+    let args = crate::terminal::parse_arguments(&agent.launch_arguments(file, None)).expect("args");
 
     assert_eq!(args[0], "exec");
     assert!(args

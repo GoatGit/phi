@@ -959,6 +959,28 @@ export function TaskBoardPage({
   };
 
   /**
+   * 选这张卡续接哪一个 CLI 会话。
+   *
+   * 与改排期同一条路：写卡片、读回最新指纹、刷新看板；卡片只要在详情里，
+   * 一律以返回的那份为准，免得下一次保存拿着过期指纹被拒。
+   */
+  const handleSetSession = (session: string | null) => {
+    if (!activeRoot || !detail) return;
+    const taskId = detail.task.id;
+    const fingerprint = detail.task.fingerprint;
+    void runRouterAction(async () => {
+      const fresh = await tasksApi.setSession(
+        activeRoot,
+        taskId,
+        session,
+        fingerprint,
+      );
+      setDetail(fresh);
+      await loadBoard(activeRoot);
+    });
+  };
+
+  /**
    * 指派（`start` = 指派并开工）。
    *
    * 拖放只调用前半截：改归属与授权起跑是两件事。改完立刻读一次看板，
@@ -1187,6 +1209,8 @@ export function TaskBoardPage({
           });
         }}
         onSetSchedule={handleSetSchedule}
+        onSetSession={handleSetSession}
+        repoRoot={activeRoot}
         onSendDiscussion={() => handleSendDiscussion()}
         onSayDiscussion={(message) => handleSayDiscussion(message)}
         onDeriveDiscussion={(note) => handleDeriveDiscussion(note)}

@@ -51,6 +51,7 @@ import type {
 } from "@/lib/api/superAgent";
 import { cn } from "@/lib/utils";
 import { AutoRouterSection } from "./AutoRouterSection";
+import { ResumeSessionField } from "./ResumeSessionField";
 import {
   INTERVAL_UNITS,
   MAX_INTERVAL_MINUTES,
@@ -127,6 +128,10 @@ interface TaskDetailSheetProps {
   allowedAgents?: string[];
   /** 指派（`start` = 指派并开工）；拖放与这里是同一套语义 */
   onAssign?: (agentId: string | null, start: boolean) => void;
+  /** 选这张卡续接哪一个 CLI 会话；`null` 表示每次新起一个 */
+  onSetSession?: (session: string | null) => void;
+  /** 当前仓库根：会话清单按它筛，别列到别的项目里去的对话 */
+  repoRoot?: string | null;
   onSetStatus: (status: string) => void;
   onArchive: () => void;
   onResolve: (decision: RouterHumanDecision) => void;
@@ -171,6 +176,8 @@ export function TaskDetailSheet({
   agents = [],
   allowedAgents = [],
   onAssign,
+  onSetSession,
+  repoRoot = null,
 }: TaskDetailSheetProps) {
   const { t } = useTranslation();
   const task = detail?.task ?? null;
@@ -467,6 +474,16 @@ export function TaskDetailSheet({
                           : undefined
                       }
                     />
+
+                    {onSetSession ? (
+                      <ResumeSessionField
+                        task={task}
+                        agents={agents}
+                        repoRoot={repoRoot}
+                        busy={busy}
+                        onSave={onSetSession}
+                      />
+                    ) : null}
 
                     <ScheduleSection
                       schedule={task.schedule}

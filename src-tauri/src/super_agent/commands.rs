@@ -130,7 +130,7 @@ pub fn task_session_arguments(
         .agent(&agent_id)
         .ok_or_else(|| format!("unknown-router-agent:{agent_id}"))?;
     agent.ready(&state.db)?;
-    Ok(agent.launch_arguments(&candidate.file))
+    Ok(agent.launch_arguments(&candidate.file, candidate.session.as_deref()))
 }
 
 /// 「打开 worker 的终端」的结果。
@@ -439,6 +439,7 @@ pub(crate) async fn start_task_locked(
         app_id: app_id.clone(),
         file: candidate.file.clone(),
         title: candidate.title.clone(),
+        session: candidate.session.clone(),
     };
     let result = workers.dispatch(&spec);
     // 成功时保留租约直到 TTL：写入运行态之前有一个窗口，并发的 tick 会再派一次。

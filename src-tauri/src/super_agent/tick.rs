@@ -120,6 +120,18 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
             )
         })
         .collect();
+    // 上一轮还占着的会话：同一段对话同时只能有一个 worker。
+    // 在这里先记下来，是因为 prefilter 之后「正在跑」的卡已经被剔掉了。
+    let busy_sessions: HashSet<(String, String)> = candidates
+        .iter()
+        .filter(|candidate| candidate.state().is_running())
+        .filter_map(|candidate| {
+            candidate
+                .session
+                .clone()
+                .map(|session| (candidate.root.clone(), session))
+        })
+        .collect();
     let filtered = prefilter::apply(candidates, &settings, &statuses, ctx.now);
     report.candidates = filtered.survivors.len();
     report.filtered = filtered.filtered;
@@ -238,12 +250,15 @@ pub(crate) async fn run(ctx: TickContext<'_>, trigger: &str) -> Result<TickOutco
 
         // ---------------------------------------------------------- 执行
         apply(
-            ctx.db,
-            ctx.workers,
-            &settings,
+            &ApplyContext {
+                db: ctx.db,
+                workers: ctx.workers,
+                settings: &settings,
+                busy_sessions: &busy_sessions,
+                now: ctx.now,
+            },
             &group,
             &decisions,
-            ctx.now,
             &mut report,
         );
 
@@ -1044,19 +1059,36 @@ pub(crate) fn settle(
     settled
 }
 
+/// 执行一轮决策需要的那几样东西。
+///
+/// 单独成结构体是因为参数已经到 8 个：再多一个布尔就得靠读调用点才知道哪个是哪个。
+/// 这里没有别的语义，只是把「同一轮 tick 的上下文」打成一包。
+struct ApplyContext<'a> {
+    db: &'a Database,
+    workers: &'a dyn WorkerRuntime,
+    settings: &'a RouterSettings,
+    /// 上一轮还在跑的会话：同一段对话同时只能有一个 worker。
+    busy_sessions: &'a HashSet<(String, String)>,
+    now: i64,
+}
+
 /// 执行决策。
 ///
 /// 影子模式只把运行态记成 `queued` 并落 trace，不派发任何进程。这不是省略，
 /// 是第一次开自动调度时必须走的路：先看它判断得对不对。
 fn apply(
-    db: &Database,
-    workers: &dyn WorkerRuntime,
-    settings: &RouterSettings,
+    ctx: &ApplyContext<'_>,
     candidates: &[Candidate],
     decisions: &[Decision],
-    now: i64,
     report: &mut TickReport,
 ) {
+    let ApplyContext {
+        db,
+        workers,
+        settings,
+        busy_sessions,
+        now,
+    } = *ctx;
     let by_id: HashMap<&str, &Candidate> = candidates
         .iter()
         .map(|candidate| (candidate.task_id.as_str(), candidate))
@@ -1094,6 +1126,43 @@ fn apply(
                     report.degraded.push(detail);
                     report.needs_you.push(candidate.task_id.clone());
                     continue;
+                }
+                // 续接会话：应用不支持按 id 续接时停下等人，而不是悄悄新起一个——
+                // 「从上次聊到的那句接着干」是这张卡明确的要求，换一段上下文等于换了个活。
+                if !agent.can_resume(candidate.session.as_deref()) {
+                    let detail = format!(
+                        "session-resume-unsupported:{}",
+                        candidate.session.as_deref().unwrap_or_default()
+                    );
+                    let _ = db.put_router_run(
+                        &candidate.root,
+                        &candidate.task_id,
+                        store::RunWrite {
+                            state: RunState::NeedsYou,
+                            worker_app: Some(&app_id),
+                            session_id: None,
+                            attempts: candidate.attempts(),
+                            detail: Some(&detail),
+                            card_fingerprint: Some(&candidate.fingerprint),
+                            shadow: false,
+                        },
+                        now,
+                    );
+                    report.degraded.push(detail);
+                    report.needs_you.push(candidate.task_id.clone());
+                    continue;
+                }
+                // 同一段对话同时只能有一个 worker 在跑：两个进程接着同一段上下文，
+                // 谁也说不清最后那份结论是谁写的。等它跑完，下一轮 tick 自然再派。
+                if let Some(session) = candidate.session.as_deref() {
+                    let busy =
+                        busy_sessions.contains(&(candidate.root.clone(), session.to_string()));
+                    if busy {
+                        report
+                            .degraded
+                            .push(format!("session-busy:{}", candidate.task_id));
+                        continue;
+                    }
                 }
                 if settings.shadow {
                     let detail = format!(
@@ -1139,6 +1208,7 @@ fn apply(
                     app_id: app_id.clone(),
                     file: candidate.file.clone(),
                     title: candidate.title.clone(),
+                    session: candidate.session.clone(),
                 };
                 let result = workers.dispatch(&spec);
                 // 成功时不放租约：写入运行态之前有一个窗口，并发的另一轮 tick

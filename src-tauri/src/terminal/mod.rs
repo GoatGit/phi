@@ -131,8 +131,18 @@ pub(crate) fn quote_argument(value: &str) -> String {
 ///
 /// 自动派发与看板上的「开始」都必须用它：两条入口各说一套，就会出现
 /// 「机器派的知道干完就退出、人点的那个永远停在提示符」这种分叉。
-pub(crate) fn worker_arguments(app: &str, extra: &[String], prompt: &str) -> String {
-    launch::worker_arguments(app, extra, prompt)
+pub(crate) fn worker_arguments(
+    app: &str,
+    extra: &[String],
+    resume: &[String],
+    prompt: &str,
+) -> String {
+    launch::worker_arguments(app, extra, resume, prompt)
+}
+
+/// 续接指定会话的参数；`None` 表示这个应用没有按 id 续接这条路。
+pub(crate) fn resume_arguments(app: &str, session: &str) -> Option<Vec<String>> {
+    launch::resume_arguments(app, session)
 }
 
 /// 同一个应用下不重名的窗格标题。

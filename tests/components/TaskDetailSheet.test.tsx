@@ -11,9 +11,12 @@ import i18n from "i18next";
 import { beforeAll } from "vitest";
 import zh from "@/i18n/locales/zh.json";
 import { TaskDetailSheet } from "@/components/tasks/TaskDetailSheet";
+import { renderWithQueryClient } from "../utils/testQueryClient";
 import type { TaskCard, TaskDetail } from "@/lib/api/tasks";
 
 beforeAll(() => {
+  // jsdom 没有 scrollIntoView，下拉打开时 Radix 会调它。
+  Element.prototype.scrollIntoView = vi.fn();
   i18n.addResourceBundle("zh", "translation", zh, true, true);
 });
 
@@ -36,6 +39,7 @@ const task: TaskCard = {
   acceptanceDone: 0,
   artifactCount: 0,
   schedule: null,
+  session: null,
   file: "backlog/tasks/task-1.md",
   fingerprint: "12:abcd",
 };
@@ -1067,6 +1071,57 @@ describe("TaskDetailSheet — 需求讨论", () => {
       screen.getByRole("button", { name: zh.tasks.discussion.discard }),
     );
     expect(onDiscardDiscussion).toHaveBeenCalledTimes(1);
+  });
+
+  it("指派到支持续接的智能体后，右栏能挑一段会话接着聊", async () => {
+    const user = userEvent.setup();
+    const onSetSession = vi.fn();
+    renderWithQueryClient(
+      <TaskDetailSheet
+        detail={{ ...detail, task: { ...task, assignees: ["doc-writer"] } }}
+        statuses={["To Do", "In Progress", "Done"]}
+        busy={false}
+        run={undefined}
+        agents={[
+          {
+            id: "doc-writer",
+            name: "文档写手",
+            avatar: "",
+            description: "",
+            appId: "claude",
+            prompt: "",
+            model: "",
+            arguments: [],
+            outcome: "",
+            boundary: "",
+            askUserWhen: [],
+            steps: [],
+            constraints: [],
+            completion: { result: "", evidence: [] },
+          },
+        ]}
+        allowedAgents={["doc-writer"]}
+        repoRoot="/mock/claude"
+        onSetSession={onSetSession}
+        onSetSchedule={vi.fn()}
+        onRevealArtifact={vi.fn()}
+        onClose={vi.fn()}
+        onAutoStart={vi.fn()}
+        onAutoPause={vi.fn()}
+        onAutoResume={vi.fn()}
+        onSetStatus={vi.fn()}
+        onArchive={vi.fn()}
+        onResolve={vi.fn()}
+        onUnlink={vi.fn()}
+      />,
+    );
+
+    const trigger = await screen.findByRole("combobox", {
+      name: zh.tasks.session.title,
+    });
+    await user.click(trigger);
+    await user.click(await screen.findByText("Claude Session One"));
+    expect(onSetSession).toHaveBeenCalledWith("claude-session-1");
   });
 
   it("讨论卡不显示排期、自动调度与验收：它不占执行槽位", () => {

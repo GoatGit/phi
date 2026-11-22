@@ -60,6 +60,7 @@ pub(crate) fn collect(db: &Database) -> Result<Snapshot, String> {
                 dependencies: task.dependencies,
                 assignees: task.assignees,
                 labels: task.labels,
+                session: task.session,
             });
         }
     }

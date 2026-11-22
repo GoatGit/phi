@@ -305,11 +305,16 @@ export const useUsageQuery = (
   };
 };
 
-export const useSessionsQuery = () => {
+/**
+ * 全部会话。`enabled=false` 给「只在某些卡片上才需要会话清单」的地方用：
+ * 扫描一遍要读各应用自己的记录，不该为了一个用不上的下拉去扫。
+ */
+export const useSessionsQuery = (options: { enabled?: boolean } = {}) => {
   return useQuery<SessionMeta[]>({
     queryKey: ["sessions"],
     queryFn: async () => sessionsApi.list(),
     staleTime: 30 * 1000,
+    enabled: options.enabled ?? true,
   });
 };
 

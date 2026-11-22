@@ -1,6 +1,5 @@
 import {
   fireEvent,
-  render,
   screen,
   waitFor,
   within,
@@ -15,6 +14,7 @@ import i18n from "i18next";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import zh from "@/i18n/locales/zh.json";
 import { TaskBoardPage } from "@/components/tasks/TaskBoardPage";
+import { renderWithQueryClient } from "../utils/testQueryClient";
 import { formatStamp } from "@/components/tasks/schedule";
 import type { TaskBoard, TaskCard, TaskWorkspace } from "@/lib/api/tasks";
 
@@ -138,6 +138,7 @@ const card: TaskCard = {
   acceptanceDone: 0,
   artifactCount: 0,
   schedule: null,
+  session: null,
   file: "backlog/tasks/task-1.md",
   fingerprint: "12:abcd",
 };
@@ -179,7 +180,9 @@ interface BoardOptions {
 
 /** 渲染这一页，不动视图。验默认视图时用它。 */
 function renderBoardDefaultView(options: BoardOptions = {}) {
-  return render(
+  // 卡片详情里的「续接会话」要读一次会话清单：真实应用里这一页就在
+  // QueryClientProvider 里，测试也照同一层挂上。
+  return renderWithQueryClient(
     <TaskBoardPage
       embedded={options.embedded}
       terminalApps={options.terminalApps ?? ["ghostty"]}

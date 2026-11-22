@@ -113,6 +113,11 @@ fn to_task(workspace: &Workspace, path: &Path, raw: &str) -> Result<Task, String
             names.extend(doc.list("assignees"));
             names
         },
+        // 空串等于没设：手写 frontmatter 时很容易留一个 `session:`，那不是一次会话。
+        session: doc
+            .string("session")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
         priority: doc.string("priority"),
         labels: doc.list("labels"),
         dependencies: doc.list("dependencies"),
@@ -871,6 +876,56 @@ pub fn set_assignees(
     read(workspace, id)
 }
 
+/// 续接哪一个 CLI 会话。`None` 表示取消，写回时把这个字段整个删掉。
+///
+/// 与改归属同一条约定：不动 `updated_date`，改的是「这活从哪接着干」，不是任务内容。
+///
+/// id 只放行 `[A-Za-z0-9._:-]` 且不超过 128 字：它会原样进命令行，一个带空白或引号的
+/// 值会把后面的参数拆成两段。真正的「这个 id 是不是这个应用的会话」由 CLI 判断，
+/// 派发失败会走现有的重试与转人工，不会静默换成新会话。
+pub fn set_session(
+    workspace: &Workspace,
+    id: &str,
+    session: Option<&str>,
+    expected_fingerprint: &str,
+) -> Result<TaskDetail, String> {
+    let next = match session.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => {
+            if !session_id_ok(value) {
+                return Err("invalid-session".into());
+            }
+            Some(value.to_string())
+        }
+        None => None,
+    };
+    let path = find_file(workspace, id)?;
+    let raw = read_to_string(&path)?;
+    if fingerprint(&raw) != expected_fingerprint {
+        return Err(STALE.into());
+    }
+    let doc = Document::parse(&raw).ok_or_else(|| "invalid-task-file".to_string())?;
+    let text = match next.as_deref() {
+        Some(value) => doc.with_field("session", FieldValue::Scalar(value)),
+        None => doc.without_field("session"),
+    };
+    write_atomic(&path, &text)?;
+    read(workspace, id)
+}
+
+/// CLI 会话 id 的字符集与长度。太宽松会让一个带空白的值把命令行拆坏。
+/// 开头必须是字母或数字：`--resume` 这种写法字符集合法，放进命令行却会被当成开关。
+pub fn session_id_ok(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphanumeric()
+        && value.chars().count() <= 128
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+}
+
 /// 归档：把文件移到 `archive/tasks/`。上游的归档就是换目录，不改 frontmatter。
 pub fn archive(workspace: &Workspace, id: &str, expected_fingerprint: &str) -> Result<(), String> {
     let path = find_file(workspace, id)?;
@@ -1109,6 +1164,49 @@ mod tests {
         let raw =
             fs::read_to_string(workspace.tasks_dir().join("task-1 - First-task.md")).expect("read");
         assert!(raw.contains("assignee: []"), "{raw}");
+    }
+
+    #[test]
+    fn the_session_is_written_to_frontmatter_and_can_be_cleared() {
+        let (_temp, workspace) = workspace();
+        write_task(&workspace, "task-1 - First-task.md", SAMPLE);
+        let before = list(&workspace).expect("list")[0].fingerprint.clone();
+        let detail =
+            set_session(&workspace, "TASK-1", Some("6f1c8f0e-33c4"), &before).expect("set");
+        assert_eq!(detail.task.session.as_deref(), Some("6f1c8f0e-33c4"));
+        // 与改归属同一条约定：改「从哪接着干」不算改任务内容。
+        assert_eq!(detail.task.updated_date, None);
+        let raw =
+            fs::read_to_string(workspace.tasks_dir().join("task-1 - First-task.md")).expect("read");
+        assert!(raw.contains("session: 6f1c8f0e-33c4"), "{raw}");
+
+        // 取消时把字段删掉，而不是留一个空的 session 行——那读起来像设了个空会话。
+        let cleared = set_session(&workspace, "TASK-1", None, &detail.task.fingerprint.clone())
+            .expect("clear");
+        assert_eq!(cleared.task.session, None);
+        let raw =
+            fs::read_to_string(workspace.tasks_dir().join("task-1 - First-task.md")).expect("read");
+        assert!(!raw.contains("session:"), "{raw}");
+    }
+
+    #[test]
+    fn a_session_id_must_survive_the_command_line() {
+        let (_temp, workspace) = workspace();
+        write_task(&workspace, "task-1 - First-task.md", SAMPLE);
+        let before = list(&workspace).expect("list")[0].fingerprint.clone();
+        // 空白会把后面的参数拆成新的一段；引号同理。保存时就拒，不留到派发。
+        for bad in ["bad id", "x; rm -rf /", "--resume"] {
+            assert_eq!(
+                set_session(&workspace, "TASK-1", Some(bad), &before).expect_err("bad id"),
+                "invalid-session",
+                "{bad:?} 不该被写进卡片"
+            );
+        }
+        // 合法的两家 id 都放行。
+        assert!(session_id_ok("6f1c8f0e-33c4-4c3a-9a2f-2b7f0d6a1b55"));
+        assert!(session_id_ok("ses_2ab31:run-1"));
+        assert!(!session_id_ok(&"a".repeat(129)));
+        assert!(!session_id_ok(""));
     }
 
     #[test]

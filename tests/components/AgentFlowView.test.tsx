@@ -55,6 +55,7 @@ function card(overrides: Partial<TaskCard> = {}): TaskCard {
     acceptanceDone: 0,
     artifactCount: 0,
     schedule: null,
+    session: null,
     file: "backlog/tasks/task-1.md",
     fingerprint: "1:aa",
     ...overrides,
@@ -172,6 +173,29 @@ describe("AgentFlowView", () => {
     expect(
       document.querySelector('.agent-flow-wires path[data-state="human"]'),
     ).not.toBeNull();
+  });
+
+  it("卡上写明它会接着某段对话干：不写的话看不出它为什么不是从零开始", () => {
+    renderView({
+      tasks: [
+        card({
+          id: "TASK-1",
+          title: "写文档",
+          assignees: ["writer"],
+          session: "6f1c8f0e-33c4",
+        }),
+      ],
+    });
+    const column = laneColumn();
+    expect(
+      within(column).getByText(zh.tasks.session.cardBadge),
+    ).toBeInTheDocument();
+    // 具体 id 放在 title 里：卡片上只留一句人话。
+    expect(
+      within(column).getByTitle(
+        zh.tasks.session.cardBadgeTitle.replace("{{id}}", "6f1c8f0e-33c4"),
+      ),
+    ).toBeInTheDocument();
   });
 
   it("任务列不重复智能体卡片：只留一排图标与卡", () => {

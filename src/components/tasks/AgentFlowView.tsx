@@ -641,6 +641,18 @@ export function AgentFlowView({
                         {scheduleLabel(t, task.schedule)}
                       </span>
                     ) : null}
+                    {/* 这张卡会接着某段对话干：不写出来，人就不知道它为什么
+                        不像别的卡那样从零开始。 */}
+                    {task.session ? (
+                      <span
+                        className="rounded-full bg-subtle px-1.5 py-[1px]"
+                        title={t("tasks.session.cardBadgeTitle", {
+                          id: task.session,
+                        })}
+                      >
+                        {t("tasks.session.cardBadge")}
+                      </span>
+                    ) : null}
                   </span>
                 </button>
                 {lane.agent && !doneCard ? (

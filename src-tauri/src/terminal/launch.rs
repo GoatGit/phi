@@ -61,16 +61,40 @@ pub fn worker_flags(app: &str) -> Option<&'static [&'static str]> {
     })
 }
 
-/// worker 的完整 arguments：非交互参数在前，指令在后，每一段单独转义。
+/// 续接一个指定会话要追加的参数；`None` 表示这个应用没有「按 id 续接」这条路。
+///
+/// 只收「非交互模式下也能按 id 续接」的两家，而且都验过真实 CLI：
+/// - claude：`--resume <uuid>`
+/// - opencode：`run -s <id>`
+///
+/// 其余应用有意不放进来，而不是「能凑就先凑」：gemini 的 `--resume` 收的是
+/// 当前项目里的会话序号（`latest` / `5`），换台机器或清理过就指向别的对话；
+/// codex 的 `exec resume` 是子命令，沙箱参数挂在父命令上，续接时能不能沿用
+/// 现有那套 `-s workspace-write` 没有可靠依据——两边都宁可让卡片停在「等你」，
+/// 也不要挂着一个人的名字去聊别人的上下文。
+pub fn resume_arguments(app: &str, session: &str) -> Option<Vec<String>> {
+    if !crate::tasks::repository::session_id_ok(session) {
+        return None;
+    }
+    match app {
+        "claude" => Some(vec!["--resume".into(), session.to_string()]),
+        "opencode" => Some(vec!["-s".into(), session.to_string()]),
+        _ => None,
+    }
+}
+
+/// worker 的完整 arguments：非交互参数在前，续接参数其次（要跟在子命令后面、
+/// 指令前面），指令最后，每一段单独转义。
 ///
 /// 与 `prepare_with` 的 `arguments` 同一种格式，所以两条派发路径（zellij 与托管
 /// 终端）不需要各写一套：谁能把 CLI 非交互地跑起来，谁就拿到同一份参数。
-pub fn worker_arguments(app: &str, extra: &[String], prompt: &str) -> String {
+pub fn worker_arguments(app: &str, extra: &[String], resume: &[String], prompt: &str) -> String {
     let mut parts: Vec<String> = worker_flags(app)
         .unwrap_or(&[])
         .iter()
         .map(|part| quote(part))
         .collect();
+    parts.extend(resume.iter().map(|part| quote(part)));
     parts.extend(extra.iter().map(|part| quote(part)));
     parts.push(quote(prompt));
     parts.join(" ")
@@ -314,7 +338,7 @@ mod tests {
         // 记账判定「是不是停了」，所以后台 worker 必须走 CLI 自己的非交互模式。
         let prompt = "读 backlog/tasks/task-1 - 芳芳说的发生.md 这张任务卡";
         assert_eq!(
-            parse_arguments(&worker_arguments("codex", &[], prompt)).unwrap(),
+            parse_arguments(&worker_arguments("codex", &[], &[], prompt)).unwrap(),
             vec![
                 "exec",
                 "-s",
@@ -345,8 +369,56 @@ mod tests {
         // 也不能凭空塞一个它不认的参数。
         assert_eq!(worker_flags("pi"), None);
         assert_eq!(
-            parse_arguments(&worker_arguments("pi", &[], prompt)).unwrap(),
+            parse_arguments(&worker_arguments("pi", &[], &[], prompt)).unwrap(),
             vec![prompt]
+        );
+    }
+
+    /// 续接会话只有两家：其余应用宁可停在「等你」，也不猜一个自己没把握的参数。
+    #[test]
+    fn only_apps_with_a_verified_resume_flag_can_continue_a_session() {
+        assert_eq!(
+            resume_arguments("claude", "6f1c8f0e-33c4-4c3a-9a2f-2b7f0d6a1b55").unwrap(),
+            vec![
+                "--resume".to_string(),
+                "6f1c8f0e-33c4-4c3a-9a2f-2b7f0d6a1b55".to_string()
+            ]
+        );
+        assert_eq!(
+            resume_arguments("opencode", "ses_2ab31").unwrap(),
+            vec!["-s".to_string(), "ses_2ab31".to_string()]
+        );
+        // gemini 的 --resume 收的是项目内序号，codex 的 resume 是子命令且沙箱参数
+        // 挂在父命令上：都没有可靠依据，因此不支持。
+        assert_eq!(resume_arguments("gemini", "latest"), None);
+        assert_eq!(resume_arguments("codex", "019aff6e-1f25"), None);
+        assert_eq!(resume_arguments("pi", "abc"), None);
+        // 一个带空白或引号的 id 会把后面的参数拆成两段。
+        assert_eq!(resume_arguments("claude", "bad id"), None);
+        assert_eq!(resume_arguments("claude", "x;rm -rf /"), None);
+    }
+
+    /// 续接参数要跟在非交互参数之后、指令之前：claude 的 prompt 是位置参数，
+    /// 放到最后一段才算「这一次要做什么」，而不是被当成 resume 的值。
+    #[test]
+    fn resume_arguments_sit_between_the_startup_flags_and_the_prompt() {
+        let prompt = "读这张任务卡";
+        let resume = resume_arguments("claude", "abc-123").unwrap();
+        assert_eq!(
+            parse_arguments(&worker_arguments("claude", &[], &resume, prompt)).unwrap(),
+            vec![
+                "-p",
+                "--permission-mode",
+                "acceptEdits",
+                "--resume",
+                "abc-123",
+                prompt
+            ]
+        );
+        let resume = resume_arguments("opencode", "ses_2ab31").unwrap();
+        assert_eq!(
+            parse_arguments(&worker_arguments("opencode", &[], &resume, prompt)).unwrap(),
+            vec!["run", "-s", "ses_2ab31", prompt]
         );
     }
 
