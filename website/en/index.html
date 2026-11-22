@@ -6,23 +6,23 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#fffdfa">
   <title>PHI — One gateway for your whole AI stack</title>
-  <meta name="description" content="PHI connects Claude Code, Codex and Gemini CLI to one local gateway: protocols are translated as needed, models come from direct connections or route groups, and terminals, sessions and usage all live in one window.">
+  <meta name="description" content="PHI connects Claude Code, Codex and Gemini CLI to one local gateway: protocols are translated as needed, models come from direct connections or route groups, and the terminal, sessions, Super Agent and agent dispatch all live in this window.">
   <link rel="canonical" href="https://phi.semibot.ai/en/">
   <link rel="alternate" hreflang="zh-CN" href="https://phi.semibot.ai/">
   <link rel="alternate" hreflang="en" href="https://phi.semibot.ai/en/">
   <link rel="alternate" hreflang="ja" href="https://phi.semibot.ai/ja/">
   <link rel="alternate" hreflang="x-default" href="https://phi.semibot.ai/">
   <meta property="og:title" content="PHI — One gateway for your whole AI stack">
-  <meta property="og:description" content="Protocol translation, direct and grouped routing, a built-in CLI terminal and usage records — all in one desktop window.">
+  <meta property="og:description" content="Protocol translation, direct and grouped routing, a built-in CLI terminal, Super Agent with agent dispatch, and usage records — all in one desktop window.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://phi.semibot.ai/en/">
   <meta property="og:locale" content="en_US">
   <meta property="og:locale:alternate" content="zh_CN">
   <meta property="og:locale:alternate" content="ja_JP">
   <link rel="icon" type="image/svg+xml" href="../assets/phi-app.svg">
-  <link rel="stylesheet" href="../css/style.css?v=flow-5">
+  <link rel="stylesheet" href="../css/style.css?v=flow-7">
   <script type="application/ld+json">
-  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI connects Claude Code, Codex, Gemini CLI and other apps to one local gateway. It translates between OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini (System One coming soon), picks models through direct connections or route groups, runs CLIs in a built-in terminal, and records usage.", "url": "https://phi.semibot.ai/en/", "inLanguage": "en", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
+  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI connects Claude Code, Codex, Gemini CLI and other apps to one local gateway. It translates between OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini (System One coming soon), picks models through direct connections or route groups, runs CLIs in a built-in terminal, reads a repository's backlog as a board in Super Agent where cards are assigned to agents and dispatched automatically, and keeps usage in a local ledger.", "url": "https://phi.semibot.ai/en/", "inLanguage": "en", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
   </script>
 </head>
 <body>
@@ -50,10 +50,10 @@
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
         <img class="hero-mark" src="../assets/phi-app.svg" width="84" height="84" alt="" aria-hidden="true">
-        <p class="hero-kicker">Gateway · Routing · Terminal</p>
+        <p class="hero-kicker">Gateway · Routing · A team of agents</p>
         <h1 id="hero-title">One gateway.<br><span class="h1-mark">Your AI stack, unified.</span></h1>
         <p class="lede">
-          Claude Code, Codex and Gemini CLI each speak their own protocol. PHI translates in between, so a provider is set up once. Go direct or through a route group on rules you set, with the terminal in the same window.
+          Claude Code, Codex and Gemini CLI each speak their own protocol. PHI translates in between, so a provider is set up once. Go direct or through a route group on rules you set, with the terminal in the same window. When there is a lot to do, hand cards to a team of agents and let them work inside the boundaries you wrote.
         </p>
         <div class="actions">
           <a class="button" href="#download">Download PHI <span aria-hidden="true">↓</span></a>
@@ -311,6 +311,93 @@
       </div>
     </section>
 
+    <section class="chapter wrap" id="agents" aria-labelledby="agents-title">
+      <div class="chapter-intro">
+        <h2 id="agents-title">One person, a whole team of agents.</h2>
+        <div class="chapter-copy">
+          <p>
+            The terminal is where you do the work yourself; Super Agent is where you hand it out. It opens on the agent view, and the four columns read left to right: where you talk to Lead, Lead itself, the agents under it, and the cards one agent is holding. Focus another node and the pile switches to theirs. The ▶ on a card is what actually starts a run; switch to the board tab when you want stage progress.
+          </p>
+          <p>
+            Task cards are markdown files in <code>backlog/</code>, the same directory and naming Backlog.md uses, so the backlog CLI and other agents can read and write them just the same. Agent definitions stay on this machine: which CLI it runs, which model it uses and which extra flags it takes are all local.
+          </p>
+        </div>
+      </div>
+
+      <figure class="agent-graph" aria-labelledby="graph-caption">
+        <div class="agent-graph-top" aria-hidden="true">
+          <span class="board-switch"><b class="is-on">Agents</b><b>Board</b></span>
+          <span class="board-title">Super Agent</span>
+          <span class="board-add">＋ Add agent</span>
+        </div>
+        <div class="agent-graph-body" aria-hidden="true">
+          <p class="graph-label col-input">Input</p>
+          <div class="graph-node is-talk col-input row-a">
+            <span class="graph-face"><svg viewbox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 10.4a1.7 1.7 0 0 1-1.7 1.7H5.1L2 14.2V3.7A1.7 1.7 0 0 1 3.7 2h8.6A1.7 1.7 0 0 1 14 3.7z"></path></svg></span>
+            <span class="graph-node-text"><strong>Talk to Lead</strong><span class="graph-node-meta">1 in discussion</span></span>
+          </div>
+
+          <p class="graph-label col-lead">Lead</p>
+          <div class="graph-node is-lead col-lead row-a">
+            <img src="../assets/phi-app.svg" width="26" height="26" alt="">
+            <span class="graph-node-text"><strong>Lead</strong><span class="graph-node-meta">Dispatches by rule</span></span>
+          </div>
+
+          <p class="graph-label col-agents">Agents</p>
+          <div class="graph-node is-agent is-focus col-agents row-a">
+            <img src="../assets/apps/claude.svg" width="26" height="26" alt="">
+            <span class="graph-node-text"><strong>Researcher</strong><span class="graph-node-meta">Claude Code · claude-sonnet</span><span class="graph-chip">1 running</span></span>
+          </div>
+          <div class="graph-node is-agent col-agents row-b">
+            <img src="../assets/apps/openai.svg" width="26" height="26" alt="">
+            <span class="graph-node-text"><strong>Writer</strong><span class="graph-node-meta">Codex · gpt-6.1-sol</span></span>
+          </div>
+          <div class="graph-node is-agent is-empty col-agents row-c">
+            <span class="graph-face is-empty"><svg viewbox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9h3.2l.8 1.6h4l.8-1.6H14"></path><path d="M3.4 3h9.2l1.4 5.2v3.1H2V8.2z"></path></svg></span>
+            <span class="graph-node-text"><strong>Unassigned</strong><span class="graph-node-meta">Waiting for your call</span></span>
+          </div>
+
+          <p class="graph-label col-tasks">Researcher's tasks</p>
+          <div class="graph-stack col-tasks">
+            <div class="graph-tools">
+              <span class="graph-switch"></span>
+              <span class="graph-tool"><svg viewbox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.7 1.9l2.4 2.4-7.3 7.3-3 .6.6-3z"></path><path d="M8.3 3.3l2.4 2.4"></path></svg></span>
+              <span class="graph-tool"><svg viewbox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.7 3.5h10.6"></path><path d="M5.4 3.5V2h3.2v1.5"></path><path d="M3.2 3.5l.6 8.3h6.4l.6-8.3"></path></svg></span>
+              <span class="graph-tool">＋</span>
+            </div>
+            <div class="graph-card is-run">
+              <b>Compile today's AI news</b>
+              <span class="graph-tag is-run">Running</span>
+            </div>
+            <div class="graph-card">
+              <b>Fix keyboard focus in the site nav</b>
+              <span class="graph-tag is-new">Assigned</span>
+            </div>
+          </div>
+
+          <svg class="agent-graph-wire col-wire-a" viewbox="0 0 34 218" preserveaspectratio="none"><path data-wire="human" d="M0 39C11 19 23 19 34 39"></path></svg>
+          <svg class="agent-graph-wire col-wire-b" viewbox="0 0 34 218" preserveaspectratio="none">
+            <path data-wire="run" d="M0 39H34"></path>
+            <path data-wire="idle" d="M0 39C17 39 17 113 34 113"></path>
+            <path data-wire="off" d="M0 39C17 39 17 183 34 183"></path>
+          </svg>
+          <svg class="agent-graph-wire col-wire-c" viewbox="0 0 40 218" preserveaspectratio="none">
+            <path data-wire="run" d="M0 39C20 39 20 65 40 65"></path>
+            <path data-wire="own" d="M0 39C20 39 20 131 40 131"></path>
+          </svg>
+        </div>
+        <figcaption id="graph-caption">Illustration: four columns read left to right — input, Lead, agents, tasks. The purple line is where you talk to Lead and takes no part in dispatch; the flowing orange line is the one actually running; grey lines pass work to an agent and down to each card it holds.</figcaption>
+      </figure>
+
+      <div class="facts">
+        <div><h3>Assigning is ownership, starting is an action</h3><p>Dropping a card only records who owns it; it starts nothing. A manual assignment wins over automatic picking, and an owner PHI cannot resolve is reported instead of guessed or silently downgraded.</p></div>
+        <div><h3>Settle it first, then start</h3><p>Discussion lives in the card's detail view, and only you and Lead speak there. What you settle is written back to the card and handed over with the task; discussion and execution are mutually exclusive, so one card never talks and runs at once.</p></div>
+        <div><h3>Agents come out of a conversation, not a form</h3><p>Tell Lead what it should be responsible for and a definition takes shape on the right: who it is, what it handles, what it can use, and what counts as done. Every round is kept as a version, and any version can be reopened and edited further.</p></div>
+        <div><h3>Delegated work stays bounded</h3><p>Set how many run at once, how many dispatches a day, how long before a stuck run counts as hung, and how many failures in a row hand the card back to you. Shadow mode lets it judge without dispatching; a schedule can repeat on an interval, run daily, or fire once.</p></div>
+      </div>
+      <p class="footnote">Dispatch goes through the built-in terminal, so it needs macOS 13 or later; on Windows and Linux you can create cards, discuss and assign, but runs cannot start inside PHI yet. Auto-dispatch needs a router model picked in settings first, and the CLIs and providers your agents use are configured as usual.</p>
+    </section>
+
     <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
       <div class="chapter-intro">
         <h2 id="memory-title">Switch tools. Your sessions stay put.</h2>
@@ -362,7 +449,7 @@
         </div>
         <div>
           <dt>Local data</dt>
-          <dd>PHI has no project-run cloud backend: configuration, session statistics and the usage ledger live on this machine in <code>~/.phi/</code>. Subscription OAuth tokens go to the system keychain. Only when you use an online model does the CLI or local gateway connect to your chosen provider.</dd>
+          <dd>PHI has no project-run cloud backend: configuration, agent definitions, session statistics and the usage ledger live on this machine in <code>~/.phi/</code>. Subscription OAuth tokens go to the system keychain. Only when you use an online model does the CLI or local gateway connect to your chosen provider.</dd>
         </div>
       </dl>
     </section>
@@ -390,6 +477,7 @@
         <details><summary>What's the difference between direct and a route group?</summary><p>Direct mode skips the gateway and keeps the app's existing connection to one provider. A route group puts several providers or models together, PHI picks one by strategy, and moves on when one fails. Members can use different protocols.</p></details>
         <details><summary>Where do my keys and requests go?</summary><p>Main configuration and usage data stay on this machine; subscription OAuth tokens go to the system keychain. Through the local gateway, requests reach PHI first and are then forwarded to the provider you configured; in direct mode the app connects to the provider itself. Either way, request content and the credentials it needs go to the provider you chose.</p></details>
         <details><summary>Are unified sessions and long-term memory available now?</summary><p>Session browsing works: records the tools keep on this machine land in one list, where you can view them by project or time, search, and copy a resume command. Continuous sessions across tools and long-term memory are still in planning.</p></details>
+        <details><summary>Will an agent change my code on its own?</summary><p>A run starts only when you drag a card into the execution column or press Start in the detail view, and it uses the CLI you installed and the provider you configured. The extra flags an agent can add are limited to ones that change neither permissions nor how the CLI runs. Runs have a concurrency cap, a hang timeout, and hand the card back to you after repeated failures. Task cards are markdown in your repo, so changes stay in git, visible and revertable.</p></details>
         <details><summary>Can I run CLIs inside PHI on Windows or Linux?</summary><p>The built-in terminal currently requires macOS 13 or later. On Windows and Linux, use PHI to manage settings, connect models and track usage, and run CLIs in an external terminal.</p></details>
         <details><summary>How do I update or report a problem?</summary><p>Choose “Check for updates” in the app, or visit <a href="https://github.com/GoatGit/phi/releases/latest">GitHub Releases</a> for the latest version. Report problems on <a href="https://github.com/GoatGit/phi/issues">GitHub Issues</a> with your OS version, tool name and steps to reproduce. Remember to remove any keys.</p></details>
       </div>

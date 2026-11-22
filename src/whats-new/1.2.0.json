@@ -1,0 +1,33 @@
+{
+  "version": "1.2.0",
+  "items": [
+    {
+      "type": "new",
+      "zh": "智能体视图改为四列拓扑图：输入、Lead、智能体、它的任务卡",
+      "zh-TW": "智能體檢視改為四欄拓撲圖：輸入、Lead、智能體、它的任務卡",
+      "en": "The agent view is now a four-column graph: input, Lead, agents, their cards",
+      "ja": "エージェントビューを 4 列のトポロジー図に：入力、Lead、エージェント、そのタスクカード"
+    },
+    {
+      "type": "new",
+      "zh": "默认带三个智能体：文档调研员、产品经理、工程师",
+      "zh-TW": "預設帶三個智能體：文件調研員、產品經理、工程師",
+      "en": "Three agents come built in: researcher, product manager and engineer",
+      "ja": "文書リサーチャー・プロダクトマネージャー・エンジニアの 3 体を同梱"
+    },
+    {
+      "type": "improve",
+      "zh": "任务看板改名 Super Agent，Router 改称 Lead",
+      "zh-TW": "任務看板改名 Super Agent，Router 改稱 Lead",
+      "en": "The task board is now Super Agent, Router is now Lead",
+      "ja": "ボードを Super Agent に、Router を Lead に改名、既定はエージェントビュー"
+    },
+    {
+      "type": "fix",
+      "zh": "讨论表单的提交键看得见了，提交后进入等待态并锁住输入",
+      "zh-TW": "討論表單的提交鍵看得見了，提交後進入等待狀態並鎖住輸入",
+      "en": "The discussion form's submit button is visible, and submitting now waits and locks input",
+      "ja": "相談フォームの送信ボタンが見えるようになり、送信後は待機状態で入力をロック"
+    }
+  ]
+}

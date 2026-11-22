@@ -2508,6 +2508,45 @@ fn an_old_settings_blob_without_router_avatar_still_loads() {
     assert_eq!(settings.router_avatar, "");
 }
 
+/// 全新安装（库里还没有设置行）时在册的就是这三个智能体，并且真的能被派发。
+#[test]
+fn a_fresh_install_starts_with_three_named_agents() {
+    let settings = RouterSettings::starter();
+    let names: Vec<&str> = settings.agents.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, ["文档调研员", "产品经理", "工程师"]);
+    // 允许名单就是这三个人；少一个就会有人永远收不到活。
+    assert_eq!(
+        settings.worker_apps,
+        ["doc-researcher", "product-manager", "engineer"]
+    );
+    assert_eq!(settings.allowed_agents().len(), 3);
+    // 头像撞成同一张就分不出这是三个人。
+    let avatars: std::collections::HashSet<&str> =
+        settings.agents.iter().map(|a| a.avatar.as_str()).collect();
+    assert_eq!(avatars.len(), 3);
+    assert!(settings.validate_agents().is_ok());
+    // 默认不花模型的预算：自动调度要在人点开之后才算数。
+    assert!(!settings.enabled);
+}
+
+/// 设置行不存在时读到的是默认编制；存过设置的一律原样返回。
+#[test]
+fn an_unconfigured_database_reads_back_the_starter_agents() {
+    let db = Database::memory().expect("db");
+    let fresh = db.router_settings().expect("settings");
+    assert_eq!(fresh.agents.len(), 3);
+
+    // 存过一份空的：这是一份真实配置，读回来就是空的，不能被默认编制盖掉。
+    let saved = RouterSettings {
+        agents: Vec::new(),
+        worker_apps: Vec::new(),
+        ..RouterSettings::default()
+    };
+    db.save_router_settings(&saved).expect("save");
+    let read = db.router_settings().expect("settings");
+    assert!(read.agents.is_empty(), "存过的配置不能被默认编制盖掉");
+}
+
 /// 老设置里 `worker_apps` 存的是应用 id。升级后不该因为智能体列表为空就停派。
 #[test]
 fn legacy_app_entries_still_resolve_to_follow_the_app_agents() {

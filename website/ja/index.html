@@ -6,23 +6,23 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#fffdfa">
   <title>PHI — ひとつのゲートウェイで、AI 開発スタックをまとめる</title>
-  <meta name="description" content="PHI は Claude Code、Codex、Gemini CLI をひとつのローカルゲートウェイにつなぎます。プロトコルは必要に応じて変換し、モデルは直接接続かルートグループから選び、ターミナル、セッション、利用状況を同じウィンドウにまとめます。">
+  <meta name="description" content="PHI は Claude Code、Codex、Gemini CLI をひとつのローカルゲートウェイにつなぎます。プロトコルは必要に応じて変換し、モデルは直接接続かルートグループから選び、ターミナル、セッション、Super Agent、エージェントの派遣を同じウィンドウにまとめます。">
   <link rel="canonical" href="https://phi.semibot.ai/ja/">
   <link rel="alternate" hreflang="zh-CN" href="https://phi.semibot.ai/">
   <link rel="alternate" hreflang="en" href="https://phi.semibot.ai/en/">
   <link rel="alternate" hreflang="ja" href="https://phi.semibot.ai/ja/">
   <link rel="alternate" hreflang="x-default" href="https://phi.semibot.ai/">
   <meta property="og:title" content="PHI — ひとつのゲートウェイで、AI 開発スタックをまとめる">
-  <meta property="og:description" content="プロトコル変換、直接接続とルートグループ、内蔵 CLI ターミナル、利用記録。すべて同じデスクトップウィンドウに。">
+  <meta property="og:description" content="プロトコル変換、直接接続とルートグループ、内蔵 CLI ターミナル、Super Agent とエージェントの派遣、利用記録。すべて同じデスクトップウィンドウに。">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://phi.semibot.ai/ja/">
   <meta property="og:locale" content="ja_JP">
   <meta property="og:locale:alternate" content="en_US">
   <meta property="og:locale:alternate" content="zh_CN">
   <link rel="icon" type="image/svg+xml" href="../assets/phi-app.svg">
-  <link rel="stylesheet" href="../css/style.css?v=flow-5">
+  <link rel="stylesheet" href="../css/style.css?v=flow-7">
   <script type="application/ld+json">
-  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI は Claude Code、Codex、Gemini CLI などのアプリをひとつのローカルゲートウェイにつなぎます。OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini の間を変換し（System One は近日対応）、直接接続またはルートグループでモデルを選び、内蔵ターミナルで CLI を実行し、利用量を記録します。", "url": "https://phi.semibot.ai/ja/", "inLanguage": "ja", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
+  {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "PHI", "operatingSystem": "macOS, Windows, Linux", "applicationCategory": "DeveloperApplication", "description": "PHI は Claude Code、Codex、Gemini CLI などのアプリをひとつのローカルゲートウェイにつなぎます。OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini の間を変換し（System One は近日対応）、直接接続またはルートグループでモデルを選び、内蔵ターミナルで CLI を実行します。Super Agent はリポジトリの backlog を読み、エージェントごとに割り当てて自動で派遣し、利用量はローカル台帳に記録します。", "url": "https://phi.semibot.ai/ja/", "inLanguage": "ja", "downloadUrl": "https://github.com/GoatGit/phi/releases/latest", "codeRepository": "https://github.com/GoatGit/phi", "license": "https://opensource.org/licenses/MIT"}
   </script>
 </head>
 <body>
@@ -50,10 +50,10 @@
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
         <img class="hero-mark" src="../assets/phi-app.svg" width="84" height="84" alt="" aria-hidden="true">
-        <p class="hero-kicker">ゲートウェイ・ルーティング・ターミナル</p>
+        <p class="hero-kicker">ゲートウェイ・ルーティング・エージェントのチーム</p>
         <h1 id="hero-title">ゲートウェイ 1 つで、<br><span class="h1-mark">AI 開発をまとめる。</span></h1>
         <p class="lede">
-          Claude Code、Codex、Gemini CLI は、それぞれ違うプロトコルで話します。その間を PHI が変換するので、プロバイダーの設定は一度で済みます。直接接続かルートグループかは自分のルールで決められ、ターミナルも同じウィンドウにあります。
+          Claude Code、Codex、Gemini CLI は、それぞれ違うプロトコルで話します。その間を PHI が変換するので、プロバイダーの設定は一度で済みます。直接接続かルートグループかは自分のルールで決められ、ターミナルも同じウィンドウにあります。仕事が多いときは、カードをエージェントのチームに渡し、自分で書いた境界の中で走らせられます。
         </p>
         <div class="actions">
           <a class="button" href="#download">PHI をダウンロード <span aria-hidden="true">↓</span></a>
@@ -311,6 +311,93 @@
       </div>
     </section>
 
+    <section class="chapter wrap" id="agents" aria-labelledby="agents-title">
+      <div class="chapter-intro">
+        <h2 id="agents-title">ひとりでも、エージェントのチームを率いられる。</h2>
+        <div class="chapter-copy">
+          <p>
+            ターミナルは自分で手を動かす場所、Super Agent は仕事を任せる場所です。開くとエージェントビューになり、4 列を左から右へ読んでいきます。あなたが Lead と話す列、Lead、その配下のエージェント、そしてあるエージェントが抱えているカードです。別のノードを選べば右側の束が入れ替わり、実際に走り出すのはカードの ▶ です。段階の進み具合を見たいときは「ボード」に切り替えます。
+          </p>
+          <p>
+            タスクカードはリポジトリの <code>backlog/</code> にある markdown で、Backlog.md のディレクトリと命名をそのまま使うため、backlog コマンドや他の agent からも読み書きできます。エージェントの定義はこのマシンに保存され、どの CLI を使い、どのモデルで、どんな追加引数を付けるかはローカルの話です。
+          </p>
+        </div>
+      </div>
+
+      <figure class="agent-graph" aria-labelledby="graph-caption">
+        <div class="agent-graph-top" aria-hidden="true">
+          <span class="board-switch"><b class="is-on">エージェント</b><b>ボード</b></span>
+          <span class="board-title">Super Agent</span>
+          <span class="board-add">＋ エージェントを追加</span>
+        </div>
+        <div class="agent-graph-body" aria-hidden="true">
+          <p class="graph-label col-input">入力</p>
+          <div class="graph-node is-talk col-input row-a">
+            <span class="graph-face"><svg viewbox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 10.4a1.7 1.7 0 0 1-1.7 1.7H5.1L2 14.2V3.7A1.7 1.7 0 0 1 3.7 2h8.6A1.7 1.7 0 0 1 14 3.7z"></path></svg></span>
+            <span class="graph-node-text"><strong>Lead と相談</strong><span class="graph-node-meta">1 件を相談中</span></span>
+          </div>
+
+          <p class="graph-label col-lead">Lead</p>
+          <div class="graph-node is-lead col-lead row-a">
+            <img src="../assets/phi-app.svg" width="26" height="26" alt="">
+            <span class="graph-node-text"><strong>Lead</strong><span class="graph-node-meta">ルールで割り当て</span></span>
+          </div>
+
+          <p class="graph-label col-agents">エージェント</p>
+          <div class="graph-node is-agent is-focus col-agents row-a">
+            <img src="../assets/apps/claude.svg" width="26" height="26" alt="">
+            <span class="graph-node-text"><strong>リサーチ担当</strong><span class="graph-node-meta">Claude Code · claude-sonnet</span><span class="graph-chip">1 件を実行中</span></span>
+          </div>
+          <div class="graph-node is-agent col-agents row-b">
+            <img src="../assets/apps/openai.svg" width="26" height="26" alt="">
+            <span class="graph-node-text"><strong>ドキュメント担当</strong><span class="graph-node-meta">Codex · gpt-6.1-sol</span></span>
+          </div>
+          <div class="graph-node is-agent is-empty col-agents row-c">
+            <span class="graph-face is-empty"><svg viewbox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9h3.2l.8 1.6h4l.8-1.6H14"></path><path d="M3.4 3h9.2l1.4 5.2v3.1H2V8.2z"></path></svg></span>
+            <span class="graph-node-text"><strong>未割り当て</strong><span class="graph-node-meta">誰に渡すか待ち</span></span>
+          </div>
+
+          <p class="graph-label col-tasks">リサーチ担当のタスク</p>
+          <div class="graph-stack col-tasks">
+            <div class="graph-tools">
+              <span class="graph-switch"></span>
+              <span class="graph-tool"><svg viewbox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.7 1.9l2.4 2.4-7.3 7.3-3 .6.6-3z"></path><path d="M8.3 3.3l2.4 2.4"></path></svg></span>
+              <span class="graph-tool"><svg viewbox="0 0 14 14" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.7 3.5h10.6"></path><path d="M5.4 3.5V2h3.2v1.5"></path><path d="M3.2 3.5l.6 8.3h6.4l.6-8.3"></path></svg></span>
+              <span class="graph-tool">＋</span>
+            </div>
+            <div class="graph-card is-run">
+              <b>今日の AI ニュースをまとめる</b>
+              <span class="graph-tag is-run">実行中</span>
+            </div>
+            <div class="graph-card">
+              <b>サイトのナビにキーボードフォーカスを足す</b>
+              <span class="graph-tag is-new">担当決定</span>
+            </div>
+          </div>
+
+          <svg class="agent-graph-wire col-wire-a" viewbox="0 0 34 218" preserveaspectratio="none"><path data-wire="human" d="M0 39C11 19 23 19 34 39"></path></svg>
+          <svg class="agent-graph-wire col-wire-b" viewbox="0 0 34 218" preserveaspectratio="none">
+            <path data-wire="run" d="M0 39H34"></path>
+            <path data-wire="idle" d="M0 39C17 39 17 113 34 113"></path>
+            <path data-wire="off" d="M0 39C17 39 17 183 34 183"></path>
+          </svg>
+          <svg class="agent-graph-wire col-wire-c" viewbox="0 0 40 218" preserveaspectratio="none">
+            <path data-wire="run" d="M0 39C20 39 20 65 40 65"></path>
+            <path data-wire="own" d="M0 39C20 39 20 131 40 131"></path>
+          </svg>
+        </div>
+        <figcaption id="graph-caption">図の説明。左から右へ、入力・Lead・エージェント・タスクの 4 列です。紫の線はあなたが Lead と話す列で、派遣には関わりません。オレンジで流れる線は実際に走っているもの、灰色の線は仕事をエージェントへ、そしてその手元の各カードへ渡す線です。</figcaption>
+      </figure>
+
+      <div class="facts">
+        <div><h3>割り当ては所属、着手は操作</h3><p>ドロップしても担当が書き込まれるだけで、プロセスは起きません。手動の割り当ては自動の選人より優先され、解決できない担当は推測も格下げもせず、人に回します。</p></div>
+        <div><h3>まず話を固めてから着手</h3><p>相談はカードの詳細の中だけで、話すのはあなたと Lead の二人です。決まったことはカードに書き戻され、タスクと一緒に実行する側へ渡ります。相談と実行は同時に成立しないので、同じカードが話しながら走ることはありません。</p></div>
+        <div><h3>エージェントは会話から生まれる</h3><p>何を担うのかを Lead に伝えると、右側に定義ができていきます。それは誰で、何を担い、何を使え、どうなれば完了か。やり取りごとに版が残り、どの版に戻っても続きを編集できます。</p></div>
+        <div><h3>任せた仕事には上限がある</h3><p>同時に走らせる数、1 日の派遣回数、どこからを停止とみなすか、何回続けて失敗したら人に戻すかは、すべて設定できます。まずは影のモードで判断だけをさせ、派遣はしません。予定は一定間隔、毎日定時、1 回だけから選べます。</p></div>
+      </div>
+      <p class="footnote">派遣は内蔵ターミナルを通るため、macOS 13 以降でのみ使えます。Windows と Linux ではカード作成・相談・割り当てはできますが、PHI の中から実行を始めることはまだできません。自動派遣には設定でルーターモデルを選ぶ必要があり、エージェントが使う CLI とプロバイダーはこれまでどおり設定します。</p>
+    </section>
+
     <section class="chapter wrap" id="memory" aria-labelledby="memory-title">
       <div class="chapter-intro">
         <h2 id="memory-title">ツールは変えても、セッションは引っ越さない。</h2>
@@ -362,7 +449,7 @@
         </div>
         <div>
           <dt>ローカルデータ</dt>
-          <dd>PHI は開発元のクラウドバックエンドを持ちません。設定、セッション統計、利用台帳はローカルの <code>~/.phi/</code> に保存し、サブスクリプションの OAuth トークンはシステムのキーチェーンに預けます。オンラインモデルを使うときだけ、CLI またはローカルゲートウェイが選択したプロバイダーへ接続します。</dd>
+          <dd>PHI は開発元のクラウドバックエンドを持ちません。設定、エージェントの定義、セッション統計、利用台帳はローカルの <code>~/.phi/</code> に保存し、サブスクリプションの OAuth トークンはシステムのキーチェーンに預けます。オンラインモデルを使うときだけ、CLI またはローカルゲートウェイが選択したプロバイダーへ接続します。</dd>
         </div>
       </dl>
     </section>
@@ -390,6 +477,7 @@
         <details><summary>直接接続とルートグループは何が違いますか？</summary><p>直接接続はゲートウェイを通らず、アプリ従来の方法でひとつのプロバイダーにつなぎます。ルートグループは複数のプロバイダーやモデルをまとめ、PHI が戦略に従って選び、失敗時は次へ切り替えます。メンバーは別プロトコルでもかまいません。</p></details>
         <details><summary>キーやリクエストはどこに送られますか？</summary><p>主な設定と使用量データはこのマシンに保存し、サブスクリプションの OAuth トークンはシステムキーチェーンに預けます。ローカルゲートウェイ経由では、リクエストはまず PHI に届き、設定したプロバイダーへ転送されます。直接接続ではアプリがプロバイダーに直接つなぎます。どちらも、リクエスト内容と必要な認証情報は選んだプロバイダーに渡ります。</p></details>
         <details><summary>セッション統合と長期記憶は今使えますか？</summary><p>セッション閲覧は利用できます。各ツールがこのマシンに残した記録がひとつの一覧に集まり、プロジェクト別または時系列で表示し、検索し、再開コマンドをコピーできます。ツールをまたぐ継続セッションと長期記憶は計画中です。</p></details>
+        <details><summary>エージェントが勝手にコードを書き換えますか？</summary><p>実行が始まるのは、カードを実行列にドラッグするか、詳細で「開始」を押したときだけです。使うのは自分で入れた CLI と自分で設定したプロバイダーです。エージェントが追加できる引数は、権限も実行のしかたも変えないものに限られます。実行には同時数の上限、停止判定のタイムアウト、連続失敗で人に戻す仕組みがあります。タスクカードはリポジトリの markdown なので、変更は git に残り、確認も取り消しもできます。</p></details>
         <details><summary>Windows や Linux でもアプリ内で CLI を実行できますか？</summary><p>内蔵ターミナルは現在 macOS 13 以降のみ対応しています。Windows と Linux では、PHI で設定管理、モデル接続、利用状況の確認を行い、CLI は外部ターミナルで実行してください。</p></details>
         <details><summary>更新や不具合の報告はどうすればよいですか？</summary><p>アプリ内の「更新を確認」、または <a href="https://github.com/GoatGit/phi/releases/latest">GitHub Releases</a> から新しいバージョンを入手できます。不具合は <a href="https://github.com/GoatGit/phi/issues">GitHub Issues</a> へ、OS のバージョン、ツール名、再現手順を添えて報告してください。キーなどの秘密情報は必ず伏せてください。</p></details>
       </div>

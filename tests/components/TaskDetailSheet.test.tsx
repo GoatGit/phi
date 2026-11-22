@@ -757,6 +757,147 @@ describe("TaskDetailSheet — 需求讨论", () => {
     );
   });
 
+  it("提交键是看得见的按钮，不是一行灰字", () => {
+    renderSheet({
+      ...discussionProps(),
+      detail: {
+        ...detail,
+        task: { ...task, kind: "discussion" as const, discussionHold: true },
+        discussionTurns: [
+          {
+            role: "router",
+            text: "还缺一个信息。",
+            createdAt: 1,
+            form: {
+              title: "还需要你定一件事",
+              fields: [
+                {
+                  id: "source",
+                  label: "新闻从哪里取？",
+                  type: "text" as const,
+                  placeholder: null,
+                  options: [],
+                  required: false,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    // 表单自己就是 bg-subtle：只靠悬停底色的那一档在这里既没有边、也没有悬停变化，
+    // 屏幕上只剩「提交这几项」几个字，用户会以为没有提交按钮。
+    const submit = screen.getByRole("button", {
+      name: zh.tasks.discussion.formSubmit,
+    });
+    expect(submit.className).toContain("border-border-strong");
+    expect(submit.className).toContain("bg-surface");
+  });
+
+  it("表单里 Ctrl+回车就提交，回车本身不会", async () => {
+    const user = userEvent.setup();
+    const props = discussionProps();
+    renderSheet({
+      ...props,
+      detail: {
+        ...detail,
+        task: { ...task, kind: "discussion" as const, discussionHold: true },
+        discussionTurns: [
+          {
+            role: "router",
+            text: "还缺一个信息。",
+            createdAt: 1,
+            form: {
+              title: "还需要你定一件事",
+              fields: [
+                {
+                  id: "source",
+                  label: "新闻从哪里取？",
+                  type: "text" as const,
+                  placeholder: null,
+                  options: [],
+                  required: true,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    const field = screen.getByLabelText("新闻从哪里取？");
+    await user.type(field, "36 氪");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(props.onSayDiscussion).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(field, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(props.onSayDiscussion).toHaveBeenCalledWith(
+        "新闻从哪里取？ 36 氪",
+      ),
+    );
+  });
+
+  it("提交表单后进入等待态：答案不消失，Lead 回完才收起", async () => {
+    const user = userEvent.setup();
+    let resolveSay: (sent: boolean) => void = () => {};
+    const onSayDiscussion = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSay = resolve;
+        }),
+    );
+    renderSheet({
+      ...discussionProps(),
+      onSayDiscussion,
+      detail: {
+        ...detail,
+        task: { ...task, kind: "discussion" as const, discussionHold: true },
+        discussionTurns: [
+          {
+            role: "router",
+            text: "还缺一个信息。",
+            createdAt: 1,
+            form: {
+              title: "还需要你定一件事",
+              fields: [
+                {
+                  id: "source",
+                  label: "新闻从哪里取？",
+                  type: "text" as const,
+                  placeholder: null,
+                  options: [],
+                  required: true,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    await user.type(screen.getByLabelText("新闻从哪里取？"), "36 氪");
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.discussion.formSubmit }),
+    );
+
+    // 点了提交，屏幕上必须有反应：和手打一样进入「Lead 正在回复…」，输入框锁住
+    expect(screen.getByText(zh.tasks.discussion.thinking)).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(zh.tasks.discussion.sayPlaceholder),
+    ).toBeDisabled();
+    // 刚填的答案不能在这几十秒里凭空消失
+    expect(screen.getByText("还需要你定一件事")).toBeInTheDocument();
+
+    resolveSay(true);
+    await waitFor(() =>
+      expect(
+        screen.getByPlaceholderText(zh.tasks.discussion.sayPlaceholder),
+      ).toBeEnabled(),
+    );
+  });
+
   it("答过之后，上一轮的表单不再挂在 timeline 上", () => {
     renderSheet({
       ...discussionProps(),

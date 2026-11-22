@@ -325,9 +325,9 @@
     "同一プロトコルの透過転送"
   ],
   [
-    "统一网关 · 统一路由 · 统一终端",
-    "Gateway · Routing · Terminal",
-    "ゲートウェイ・ルーティング・ターミナル"
+    "统一网关 · 统一路由 · 一队智能体",
+    "Gateway · Routing · A team of agents",
+    "ゲートウェイ・ルーティング・エージェントのチーム"
   ],
   [
     "流式输出",
@@ -370,19 +370,19 @@
     "ルートグループ"
   ],
   [
-    "PHI 把 Claude Code、Codex、Gemini CLI 接到同一套本地网关：协议按需转换，模型按直连或路由组选择，终端、会话和用量都在这个窗口里。",
-    "PHI connects Claude Code, Codex and Gemini CLI to one local gateway: protocols are translated as needed, models come from direct connections or route groups, and terminals, sessions and usage all live in one window.",
-    "PHI は Claude Code、Codex、Gemini CLI をひとつのローカルゲートウェイにつなぎます。プロトコルは必要に応じて変換し、モデルは直接接続かルートグループから選び、ターミナル、セッション、利用状況を同じウィンドウにまとめます。"
+    "PHI 把 Claude Code、Codex、Gemini CLI 接到同一套本地网关：协议按需转换，模型按直连或路由组选择；终端、会话、Super Agent 和智能体调度都在这个窗口里。",
+    "PHI connects Claude Code, Codex and Gemini CLI to one local gateway: protocols are translated as needed, models come from direct connections or route groups, and the terminal, sessions, Super Agent and agent dispatch all live in this window.",
+    "PHI は Claude Code、Codex、Gemini CLI をひとつのローカルゲートウェイにつなぎます。プロトコルは必要に応じて変換し、モデルは直接接続かルートグループから選び、ターミナル、セッション、Super Agent、エージェントの派遣を同じウィンドウにまとめます。"
   ],
   [
-    "协议互转、直连与路由组、内嵌 CLI 终端和用量记录，都在同一个桌面窗口里。",
-    "Protocol translation, direct and grouped routing, a built-in CLI terminal and usage records — all in one desktop window.",
-    "プロトコル変換、直接接続とルートグループ、内蔵 CLI ターミナル、利用記録。すべて同じデスクトップウィンドウに。"
+    "协议互转、直连与路由组、内嵌 CLI 终端、Super Agent 与智能体调度、用量记录，都在同一个桌面窗口里。",
+    "Protocol translation, direct and grouped routing, a built-in CLI terminal, Super Agent with agent dispatch, and usage records — all in one desktop window.",
+    "プロトコル変換、直接接続とルートグループ、内蔵 CLI ターミナル、Super Agent とエージェントの派遣、利用記録。すべて同じデスクトップウィンドウに。"
   ],
   [
-    "Claude Code、Codex、Gemini CLI 各说各的协议。PHI 在中间转换，供应商只配一次；直连还是走路由组，规则由你定，终端就开在同一个窗口。",
-    "Claude Code, Codex and Gemini CLI each speak their own protocol. PHI translates in between, so a provider is set up once. Go direct or through a route group on rules you set, with the terminal in the same window.",
-    "Claude Code、Codex、Gemini CLI は、それぞれ違うプロトコルで話します。その間を PHI が変換するので、プロバイダーの設定は一度で済みます。直接接続かルートグループかは自分のルールで決められ、ターミナルも同じウィンドウにあります。"
+    "Claude Code、Codex、Gemini CLI 各说各的协议。PHI 在中间转换，供应商只配一次；直连还是走路由组，规则由你定，终端就开在同一个窗口。活多的时候，还能把卡片派给一队智能体，按你写好的边界去跑。",
+    "Claude Code, Codex and Gemini CLI each speak their own protocol. PHI translates in between, so a provider is set up once. Go direct or through a route group on rules you set, with the terminal in the same window. When there is a lot to do, hand cards to a team of agents and let them work inside the boundaries you wrote.",
+    "Claude Code、Codex、Gemini CLI は、それぞれ違うプロトコルで話します。その間を PHI が変換するので、プロバイダーの設定は一度で済みます。直接接続かルートグループかは自分のルールで決められ、ターミナルも同じウィンドウにあります。仕事が多いときは、カードをエージェントのチームに渡し、自分で書いた境界の中で走らせられます。"
   ],
   [
     "Claude Code 说 Anthropic Messages，Codex 说 OpenAI Responses，Gemini CLI 说 Gemini 原生；供应商那边可能是另一种。PHI 在中间识别、直通或转换，应用不必为每家供应商各接一次。第五种是 System One，按问题和答案组织的决策协议，正在接入。",
@@ -500,9 +500,9 @@
     "リクエストはローカルゲートウェイを通り、セッション数、トークン、費用、キャッシュヒット、稼働時間がローカルの台帳に記録されます。日ごとの推移や、曜日 × 時間のヒートマップで、よく使う時間帯を見つけられます。"
   ],
   [
-    "PHI 没有项目方的云端后端：配置、会话统计和用量账本都在本机的",
-    "PHI has no project-run cloud backend: configuration, session statistics and the usage ledger live on this machine in",
-    "PHI は開発元のクラウドバックエンドを持ちません。設定、セッション統計、利用台帳はローカルの"
+    "PHI 没有项目方的云端后端：配置、智能体定义、会话统计和用量账本都在本机的",
+    "PHI has no project-run cloud backend: configuration, agent definitions, session statistics and the usage ledger live on this machine in",
+    "PHI は開発元のクラウドバックエンドを持ちません。設定、エージェントの定義、セッション統計、利用台帳はローカルの"
   ],
   [
     "里，订阅类 OAuth Token 交给系统钥匙串。用在线模型时，CLI 或本地网关才会连接你选择的供应商。",
@@ -630,9 +630,9 @@
     "17 アプリ"
   ],
   [
-    "PHI 把 Claude Code、Codex、Gemini CLI 等应用接到同一套本地网关：在 OpenAI Chat、OpenAI Responses、Anthropic Messages 与 Gemini 之间转换（System One 即将支持），用直连或路由组选择模型，内嵌终端运行 CLI，并记录用量。",
-    "PHI connects Claude Code, Codex, Gemini CLI and other apps to one local gateway. It translates between OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini (System One coming soon), picks models through direct connections or route groups, runs CLIs in a built-in terminal, and records usage.",
-    "PHI は Claude Code、Codex、Gemini CLI などのアプリをひとつのローカルゲートウェイにつなぎます。OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini の間を変換し（System One は近日対応）、直接接続またはルートグループでモデルを選び、内蔵ターミナルで CLI を実行し、利用量を記録します。"
+    "PHI 把 Claude Code、Codex、Gemini CLI 等应用接到同一套本地网关：在 OpenAI Chat、OpenAI Responses、Anthropic Messages 与 Gemini 之间转换（System One 即将支持），用直连或路由组选择模型，内嵌终端运行 CLI，Super Agent 把仓库里的 backlog 读成看板、按智能体指派并自动派发，用量记进本地账本。",
+    "PHI connects Claude Code, Codex, Gemini CLI and other apps to one local gateway. It translates between OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini (System One coming soon), picks models through direct connections or route groups, runs CLIs in a built-in terminal, reads a repository's backlog as a board in Super Agent where cards are assigned to agents and dispatched automatically, and keeps usage in a local ledger.",
+    "PHI は Claude Code、Codex、Gemini CLI などのアプリをひとつのローカルゲートウェイにつなぎます。OpenAI Chat、OpenAI Responses、Anthropic Messages、Gemini の間を変換し（System One は近日対応）、直接接続またはルートグループでモデルを選び、内蔵ターミナルで CLI を実行します。Super Agent はリポジトリの backlog を読み、エージェントごとに割り当てて自動で派遣し、利用量はローカル台帳に記録します。"
   ],
   [
     "System One 还在接入，其余十六个应用现在就能用。",
@@ -768,5 +768,170 @@
     "Claude、OpenAI、Gemini 等应用名与图标是各自所有者的商标，这里只用来标明兼容了哪些应用。",
     "App names and icons such as Claude, OpenAI and Gemini are trademarks of their respective owners, used here only to show which apps are compatible.",
     "Claude、OpenAI、Gemini などのアプリ名とアイコンは各所有者の商標で、対応アプリを示す目的にのみ使用しています。"
+  ],
+  [
+    "一个人，也能带一队智能体。",
+    "One person, a whole team of agents.",
+    "ひとりでも、エージェントのチームを率いられる。"
+  ],
+  [
+    "终端里是你自己动手的地方，Super Agent 是把活派出去的地方。打开就是智能体视图，四列从左往右读：你和 Lead 谈的那一路、Lead、它手下的智能体、某个智能体手上的卡。点另一个节点，右边就换成他那一叠。卡片上的 ▶ 才是真的开工，想看阶段进度就切到「看板」。",
+    "The terminal is where you do the work yourself; Super Agent is where you hand it out. It opens on the agent view, and the four columns read left to right: where you talk to Lead, Lead itself, the agents under it, and the cards one agent is holding. Focus another node and the pile switches to theirs. The ▶ on a card is what actually starts a run; switch to the board tab when you want stage progress.",
+    "ターミナルは自分で手を動かす場所、Super Agent は仕事を任せる場所です。開くとエージェントビューになり、4 列を左から右へ読んでいきます。あなたが Lead と話す列、Lead、その配下のエージェント、そしてあるエージェントが抱えているカードです。別のノードを選べば右側の束が入れ替わり、実際に走り出すのはカードの ▶ です。段階の進み具合を見たいときは「ボード」に切り替えます。"
+  ],
+  [
+    "任务卡是仓库",
+    "Task cards are markdown files in",
+    "タスクカードはリポジトリの"
+  ],
+  [
+    "里的 markdown，沿用 Backlog.md 的目录与命名，backlog 命令行和其它 agent 照样能读写。智能体定义存在本机：绑哪个 CLI、用哪个模型、追加哪些参数，都是这台机器上的事。",
+    ", the same directory and naming Backlog.md uses, so the backlog CLI and other agents can read and write them just the same. Agent definitions stay on this machine: which CLI it runs, which model it uses and which extra flags it takes are all local.",
+    "にある markdown で、Backlog.md のディレクトリと命名をそのまま使うため、backlog コマンドや他の agent からも読み書きできます。エージェントの定義はこのマシンに保存され、どの CLI を使い、どのモデルで、どんな追加引数を付けるかはローカルの話です。"
+  ],
+  [
+    "输入",
+    "Input",
+    "入力"
+  ],
+  [
+    "与 Lead 讨论",
+    "Talk to Lead",
+    "Lead と相談"
+  ],
+  [
+    "1 张在谈",
+    "1 in discussion",
+    "1 件を相談中"
+  ],
+  [
+    "智能体",
+    "Agents",
+    "エージェント"
+  ],
+  [
+    "调研员",
+    "Researcher",
+    "リサーチ担当"
+  ],
+  [
+    "1 张在跑",
+    "1 running",
+    "1 件を実行中"
+  ],
+  [
+    "文档员",
+    "Writer",
+    "ドキュメント担当"
+  ],
+  [
+    "未分配",
+    "Unassigned",
+    "未割り当て"
+  ],
+  [
+    "等你说归谁",
+    "Waiting for your call",
+    "誰に渡すか待ち"
+  ],
+  [
+    "调研员的任务",
+    "Researcher's tasks",
+    "リサーチ担当のタスク"
+  ],
+  [
+    "＋ 添加智能体",
+    "＋ Add agent",
+    "＋ エージェントを追加"
+  ],
+  [
+    "看板",
+    "Board",
+    "ボード"
+  ],
+  [
+    "整理今天的 AI 新闻",
+    "Compile today's AI news",
+    "今日の AI ニュースをまとめる"
+  ],
+  [
+    "运行中",
+    "Running",
+    "実行中"
+  ],
+  [
+    "补上官网导航的键盘焦点",
+    "Fix keyboard focus in the site nav",
+    "サイトのナビにキーボードフォーカスを足す"
+  ],
+  [
+    "已指派",
+    "Assigned",
+    "担当決定"
+  ],
+  [
+    "按规则派发",
+    "Dispatches by rule",
+    "ルールで割り当て"
+  ],
+  [
+    "示意图：从左往右是输入、Lead、智能体、任务四列。紫线是你和 Lead 谈的那一路，不参与派发；橙色的流动线是正在跑的那条；灰线是把活交给某个人，再落到他手上的每张卡。",
+    "Illustration: four columns read left to right — input, Lead, agents, tasks. The purple line is where you talk to Lead and takes no part in dispatch; the flowing orange line is the one actually running; grey lines pass work to an agent and down to each card it holds.",
+    "図の説明。左から右へ、入力・Lead・エージェント・タスクの 4 列です。紫の線はあなたが Lead と話す列で、派遣には関わりません。オレンジで流れる線は実際に走っているもの、灰色の線は仕事をエージェントへ、そしてその手元の各カードへ渡す線です。"
+  ],
+  [
+    "指派是归属，开工是动作",
+    "Assigning is ownership, starting is an action",
+    "割り当ては所属、着手は操作"
+  ],
+  [
+    "拖过去只写归属，不会替你起进程。人工指派优先于自动挑人；归属认不出来时不猜、不降级，直接转人工。",
+    "Dropping a card only records who owns it; it starts nothing. A manual assignment wins over automatic picking, and an owner PHI cannot resolve is reported instead of guessed or silently downgraded.",
+    "ドロップしても担当が書き込まれるだけで、プロセスは起きません。手動の割り当ては自動の選人より優先され、解決できない担当は推測も格下げもせず、人に回します。"
+  ],
+  [
+    "先谈清楚，再开工",
+    "Settle it first, then start",
+    "まず話を固めてから着手"
+  ],
+  [
+    "讨论在卡片详情里，说话的就你和 Lead 两个人。谈定的结论写回卡片，跟任务一起交给执行者；讨论和执行互斥，同一张卡不会边谈边跑。",
+    "Discussion lives in the card's detail view, and only you and Lead speak there. What you settle is written back to the card and handed over with the task; discussion and execution are mutually exclusive, so one card never talks and runs at once.",
+    "相談はカードの詳細の中だけで、話すのはあなたと Lead の二人です。決まったことはカードに書き戻され、タスクと一緒に実行する側へ渡ります。相談と実行は同時に成立しないので、同じカードが話しながら走ることはありません。"
+  ],
+  [
+    "智能体是聊出来的，不是填出来的",
+    "Agents come out of a conversation, not a form",
+    "エージェントは会話から生まれる"
+  ],
+  [
+    "跟 Lead 说清楚它该负责什么，右边就长出一版定义：它是谁、负责什么、能使用什么、怎样算完成。每轮存一版，任意一版都能切回去接着改。",
+    "Tell Lead what it should be responsible for and a definition takes shape on the right: who it is, what it handles, what it can use, and what counts as done. Every round is kept as a version, and any version can be reopened and edited further.",
+    "何を担うのかを Lead に伝えると、右側に定義ができていきます。それは誰で、何を担い、何を使え、どうなれば完了か。やり取りごとに版が残り、どの版に戻っても続きを編集できます。"
+  ],
+  [
+    "放出去的事有上限",
+    "Delegated work stays bounded",
+    "任せた仕事には上限がある"
+  ],
+  [
+    "并发数、每天派发几次、卡死多久算超时、连续失败几次转人工，都能设。先跑影子模式只判断不派发；排期可以是间隔、每天定时，或只跑一次。",
+    "Set how many run at once, how many dispatches a day, how long before a stuck run counts as hung, and how many failures in a row hand the card back to you. Shadow mode lets it judge without dispatching; a schedule can repeat on an interval, run daily, or fire once.",
+    "同時に走らせる数、1 日の派遣回数、どこからを停止とみなすか、何回続けて失敗したら人に戻すかは、すべて設定できます。まずは影のモードで判断だけをさせ、派遣はしません。予定は一定間隔、毎日定時、1 回だけから選べます。"
+  ],
+  [
+    "派发走的是内嵌终端，所以只在 macOS 13+ 可用；Windows 和 Linux 上可以建卡、讨论和指派，但还不能在 PHI 里开工。自动调度要先在设置里选一个调度模型，智能体自己用的 CLI 和供应商照常配置。",
+    "Dispatch goes through the built-in terminal, so it needs macOS 13 or later; on Windows and Linux you can create cards, discuss and assign, but runs cannot start inside PHI yet. Auto-dispatch needs a router model picked in settings first, and the CLIs and providers your agents use are configured as usual.",
+    "派遣は内蔵ターミナルを通るため、macOS 13 以降でのみ使えます。Windows と Linux ではカード作成・相談・割り当てはできますが、PHI の中から実行を始めることはまだできません。自動派遣には設定でルーターモデルを選ぶ必要があり、エージェントが使う CLI とプロバイダーはこれまでどおり設定します。"
+  ],
+  [
+    "智能体会自己动手改我的代码吗？",
+    "Will an agent change my code on its own?",
+    "エージェントが勝手にコードを書き換えますか？"
+  ],
+  [
+    "只有你把卡拖进执行列，或在详情里点「开始」，它才会启动一次；用的还是你自己装的 CLI 和你配好的供应商。智能体能追加的参数只放行不改变权限和执行方式的开关。跑起来有并发上限、卡死超时和连续失败转人工，任务卡本身是仓库里的 markdown，改动留在 git 里，看得到也回得去。",
+    "A run starts only when you drag a card into the execution column or press Start in the detail view, and it uses the CLI you installed and the provider you configured. The extra flags an agent can add are limited to ones that change neither permissions nor how the CLI runs. Runs have a concurrency cap, a hang timeout, and hand the card back to you after repeated failures. Task cards are markdown in your repo, so changes stay in git, visible and revertable.",
+    "実行が始まるのは、カードを実行列にドラッグするか、詳細で「開始」を押したときだけです。使うのは自分で入れた CLI と自分で設定したプロバイダーです。エージェントが追加できる引数は、権限も実行のしかたも変えないものに限られます。実行には同時数の上限、停止判定のタイムアウト、連続失敗で人に戻す仕組みがあります。タスクカードはリポジトリの markdown なので、変更は git に残り、確認も取り消しもできます。"
   ]
 ]

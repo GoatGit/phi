@@ -354,7 +354,7 @@ pub(super) fn session_exit_hook_for_plugin(
 fn builtin_plugins() -> Vec<LoadedPlugin> {
     [
         ("report-card", "Report card", "report-card", 10),
-        ("task-board", "Task board", "task-board", 15),
+        ("task-board", "Super Agent", "task-board", 15),
     ]
     .into_iter()
     .map(|(id, name, panel, order)| LoadedPlugin {

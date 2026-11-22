@@ -12,6 +12,14 @@ export const PINNED_PLUGINS_STORAGE_KEY = "phi-pinned-plugins";
 /** 侧栏一级入口不能无限长：超过这个数就不再接受新的钉住。 */
 export const MAX_PINNED_PLUGINS = 12;
 
+/**
+ * 首次启动时钉在侧栏的插件。
+ *
+ * 只在本地完全没存过偏好（storage key 不存在）时给一次：用户取消钉住之后
+ * 存的是空数组，这个默认值不会再冒出来把侧栏改回去。
+ */
+export const DEFAULT_PINNED_PLUGINS: readonly string[] = ["task-board"];
+
 /** 后端插件 id 的字符集；顺手挡住被手改成路径/空白之类的东西。 */
 const PLUGIN_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
@@ -34,11 +42,16 @@ function normalize(ids: unknown): string[] {
   return normalized;
 }
 
-/** 读取钉住的插件；坏数据当作空列表，不让界面起不来。 */
+/**
+ * 读取钉住的插件；从没存过时给一次默认值。
+ *
+ * 坏数据仍然当作空列表：读不懂的东西不该顺手换成默认值，那会把人自己
+ * 排好的侧栏静默改写；只有「这一台机器从没做过选择」才套默认。
+ */
 export function readPinnedPlugins(): string[] {
   try {
     const raw = localStorage.getItem(PINNED_PLUGINS_STORAGE_KEY);
-    if (!raw) return [];
+    if (raw === null) return [...DEFAULT_PINNED_PLUGINS];
     return normalize(JSON.parse(raw));
   } catch {
     return [];

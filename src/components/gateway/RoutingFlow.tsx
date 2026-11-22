@@ -70,6 +70,16 @@ import {
   useSaveGatewayCatalog,
 } from "./useGatewayCatalog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  WIRE_FAN_GAP,
+  boxOf,
+  round1,
+  sameBox,
+  wirePath,
+  type NodeBox,
+} from "@/components/flow/flowWires";
+// 线型算法与编制图共用同一份实现；这个导出保留给几何用例。
+export { wirePath };
 
 /** 只用于跟随窗口宽度调图表密度：唯一的状态是这条媒体查询的真假。 */
 function useMediaQuery(query: string): boolean {
@@ -145,17 +155,6 @@ const VISIBLE_APP_LIMIT = 5;
 const VISIBLE_APP_LIMIT_NARROW = 3;
 const EMPTY_BINDINGS: readonly AccessBinding[] = [];
 
-/** A node's real on-screen box, relative to the flow stage. Wires are drawn
- *  from these measured values, so they always touch the rendered nodes no
- *  matter how the CSS grid distributes rows or how tall columns grow. */
-type NodeBox = {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-  cy: number;
-};
-
 type FlowGeometry = {
   width: number;
   height: number;
@@ -166,19 +165,6 @@ type FlowGeometry = {
   groups: Map<string, NodeBox>;
   models: Map<string, NodeBox>;
 };
-
-const round1 = (value: number) => Math.round(value * 10) / 10;
-
-function boxOf(el: Element, stage: DOMRect): NodeBox {
-  const rect = el.getBoundingClientRect();
-  return {
-    left: round1(rect.left - stage.left),
-    top: round1(rect.top - stage.top),
-    right: round1(rect.right - stage.left),
-    bottom: round1(rect.bottom - stage.top),
-    cy: round1(rect.top + rect.height / 2 - stage.top),
-  };
-}
 
 function readGeometry(
   stage: HTMLElement,
@@ -211,16 +197,6 @@ function readGeometry(
   };
 }
 
-const sameBox = (a?: NodeBox, b?: NodeBox) =>
-  a === b ||
-  (!!a &&
-    !!b &&
-    a.left === b.left &&
-    a.top === b.top &&
-    a.right === b.right &&
-    a.bottom === b.bottom &&
-    a.cy === b.cy);
-
 function sameGeometry(a: FlowGeometry | null, b: FlowGeometry) {
   if (
     !a ||
@@ -242,39 +218,6 @@ function sameGeometry(a: FlowGeometry | null, b: FlowGeometry) {
     }
   }
   return true;
-}
-
-/** 连线在节点边缘上的落点与节点圆角之间保留的余量：扇出再大也不会画到
- *  节点外面去。 */
-const WIRE_EDGE_INSET = 8;
-
-/** 平行线之间的间距。 */
-const WIRE_FAN_GAP = 5;
-
-type WireEnd = Pick<NodeBox, "cy"> & Partial<Pick<NodeBox, "top" | "bottom">>;
-
-/** 线在节点上的落点：节点纵轴中心加上这条线的扇出偏移，并收在节点边缘
- *  之内。偏移一旦超出节点高度，线就会飘到节点上下的空白处。 */
-function edgeY(box: WireEnd, offset: number): number {
-  const y = box.cy + offset;
-  if (box.top == null || box.bottom == null) return round1(y);
-  const inset = Math.min(WIRE_EDGE_INSET, (box.bottom - box.top) / 4);
-  return round1(Math.min(Math.max(y, box.top + inset), box.bottom - inset));
-}
-
-/** Horizontal cubic that leaves the source's right edge and lands exactly
- *  on the target's left edge. Pure function so the shape stays testable. */
-export function wirePath(
-  from: Pick<NodeBox, "right"> & WireEnd,
-  to: Pick<NodeBox, "left"> & WireEnd,
-  offset = 0,
-): string {
-  const x1 = round1(from.right);
-  const y1 = edgeY(from, offset);
-  const x2 = round1(to.left);
-  const y2 = edgeY(to, offset);
-  const bend = round1(Math.max(18, (x2 - x1) * 0.45));
-  return `M ${x1} ${y1} C ${round1(x1 + bend)} ${y1}, ${round1(x2 - bend)} ${y2}, ${x2} ${y2}`;
 }
 
 type GroupDraft = {

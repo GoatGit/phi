@@ -111,6 +111,11 @@ beforeEach(() => {
   apiMocks.deriveDiscussion.mockReset();
   apiMocks.convertDiscussion.mockReset();
   apiMocks.discardDiscussion.mockReset();
+  // 智能体视图会读一次 MCP 服务数（Lead 的输入之一）：给一个空目录，
+  // 免得每个用例都报一条未拦截的请求。
+  server.use(
+    http.post(`${TAURI_ENDPOINT}/get_mcp_servers`, () => HttpResponse.json({})),
+  );
   localStorage.clear();
 });
 
@@ -161,16 +166,43 @@ const board: TaskBoard = {
   ],
 };
 
-function renderBoard() {
+interface BoardOptions {
+  terminalApps?: string[];
+  embedded?: boolean;
+  onStartSession?: (
+    root: string,
+    appId: string,
+    argumentsText?: string,
+  ) => Promise<string>;
+  onOpenSession?: (appId: string, sessionId: string) => Promise<boolean>;
+}
+
+/** 渲染这一页，不动视图。验默认视图时用它。 */
+function renderBoardDefaultView(options: BoardOptions = {}) {
   return render(
     <TaskBoardPage
-      terminalApps={["ghostty"]}
-      onStartSession={vi.fn()}
-      onOpenSession={vi.fn()}
+      embedded={options.embedded}
+      terminalApps={options.terminalApps ?? ["ghostty"]}
+      onStartSession={options.onStartSession ?? vi.fn()}
+      onOpenSession={options.onOpenSession ?? vi.fn()}
       onOpenWorker={vi.fn().mockResolvedValue(true)}
       liveSessionIds={[]}
     />,
   );
+}
+
+/**
+ * 页面默认落在智能体视图；看板用例先切过去。
+ *
+ * 这一步取代的是「以前看板就是默认」的前置条件，不是在绕开产品行为：
+ * 每条看板用例验的仍然是看板读法。
+ */
+async function renderBoard(options: BoardOptions = {}) {
+  const result = renderBoardDefaultView(options);
+  fireEvent.click(
+    await screen.findByRole("button", { name: zh.tasks.agentView.board }),
+  );
+  return result;
 }
 
 describe("TaskBoardPage — 快速新建任务", () => {
@@ -189,8 +221,21 @@ describe("TaskBoardPage — 快速新建任务", () => {
     });
   });
 
+  it("默认落在智能体视图：不点任何东西先看到这队人", async () => {
+    renderBoardDefaultView();
+
+    expect(
+      await screen.findByRole("heading", { name: zh.tasks.agentView.title }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: zh.tasks.agentView.agents }),
+    ).toHaveAttribute("aria-pressed", "true");
+    // 阶段列是另一种读法：默认不该同时铺开三列。
+    expect(screen.queryByRole("region", { name: "To Do" })).toBeNull();
+  });
+
   it("入口在 To Do 栏的第一条，点开是一个输入框", async () => {
-    renderBoard();
+    await renderBoard();
     const todo = await screen.findByRole("region", { name: "To Do" });
 
     const [first] = within(todo).getAllByRole("button");
@@ -202,7 +247,7 @@ describe("TaskBoardPage — 快速新建任务", () => {
 
   it("只填标题就能建卡：状态走默认列，其余字段不传", async () => {
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
     const todo = await screen.findByRole("region", { name: "To Do" });
 
     await user.click(
@@ -237,7 +282,7 @@ describe("TaskBoardPage — 快速新建任务", () => {
       artifacts: [],
       discussionTurns: [],
     });
-    renderBoard();
+    await renderBoard();
     const todo = await screen.findByRole("region", { name: "To Do" });
 
     await user.click(
@@ -295,15 +340,7 @@ describe("TaskBoardPage — 快速新建任务", () => {
 
   it("讨论不需要终端应用：没有可用应用也能建卡进讨论", async () => {
     const user = userEvent.setup();
-    render(
-      <TaskBoardPage
-        terminalApps={[]}
-        onStartSession={vi.fn()}
-        onOpenSession={vi.fn()}
-        onOpenWorker={vi.fn().mockResolvedValue(true)}
-        liveSessionIds={[]}
-      />,
-    );
+    await renderBoard({ terminalApps: [] });
     const todo = await screen.findByRole("region", { name: "To Do" });
 
     await user.click(
@@ -332,7 +369,7 @@ describe("TaskBoardPage — 快速新建任务", () => {
   it("建卡时就能选持续任务，间隔跟着带进去", async () => {
     const user = userEvent.setup();
     Element.prototype.scrollIntoView = vi.fn();
-    renderBoard();
+    await renderBoard();
     const todo = await screen.findByRole("region", { name: "To Do" });
 
     await user.click(
@@ -383,7 +420,7 @@ describe("TaskBoardPage — 快速新建任务", () => {
   it("建卡时选定时任务：没填时刻不能提交，填了才带 schedule", async () => {
     const user = userEvent.setup();
     Element.prototype.scrollIntoView = vi.fn();
-    renderBoard();
+    await renderBoard();
     const todo = await screen.findByRole("region", { name: "To Do" });
 
     await user.click(
@@ -436,7 +473,7 @@ it("Done 只预览最近五张；日期回退后按任务号倒序，展开后�
     ...board,
     columns: [...board.columns.slice(0, 2), { status: "Done", tasks }],
   });
-  renderBoard();
+  await renderBoard();
   const done = within(await screen.findByRole("region", { name: "Done" }));
   const ids = () => done.getAllByText(/^TASK-/).map((el) => el.textContent);
   const preview = ["TASK-4", "TASK-3", "TASK-7", "TASK-6", "TASK-5"];
@@ -455,7 +492,7 @@ describe("TaskBoardPage — 仓库下拉", () => {
 
   it("仓库列表、添加仓库、移出看板在同一个下拉里", async () => {
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
 
     await user.click(
       await screen.findByRole("button", { name: zh.tasks.workspace }),
@@ -498,7 +535,7 @@ describe("TaskBoardPage — 开始会话", () => {
   it("卡片上不再显示优先级徽标", async () => {
     apiMocks.workspaces.mockResolvedValue([workspace]);
     apiMocks.board.mockResolvedValue(board);
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     const cardButton = within(todo).getByRole("button", { name: card.title });
@@ -510,15 +547,7 @@ describe("TaskBoardPage — 开始会话", () => {
   it("统一启动交给 router，不再从前端开无运行态的会话", async () => {
     const onStartSession = vi.fn().mockResolvedValue("s-1");
     const user = userEvent.setup();
-    render(
-      <TaskBoardPage
-        terminalApps={["codex"]}
-        onStartSession={onStartSession}
-        onOpenSession={vi.fn()}
-        onOpenWorker={vi.fn().mockResolvedValue(true)}
-        liveSessionIds={[]}
-      />,
-    );
+    await renderBoard({ terminalApps: ["codex"], onStartSession });
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     await user.click(within(todo).getByRole("button", { name: card.title }));
@@ -594,15 +623,7 @@ describe("TaskBoardPage — 派发后打开会话", () => {
         }),
       ),
     );
-    render(
-      <TaskBoardPage
-        terminalApps={["codex"]}
-        onStartSession={vi.fn()}
-        onOpenSession={onOpenSession}
-        onOpenWorker={vi.fn().mockResolvedValue(true)}
-        liveSessionIds={[]}
-      />,
-    );
+    await renderBoard({ terminalApps: ["codex"], onOpenSession });
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     await user.click(within(todo).getByRole("button", { name: card.title }));
@@ -623,16 +644,7 @@ describe("TaskBoardPage — 版心与列宽", () => {
   });
 
   it("三列平分看板宽度，并与上方工具栏、下方说明块落在同一条版心上", async () => {
-    const { container } = render(
-      <TaskBoardPage
-        embedded
-        terminalApps={["ghostty"]}
-        onStartSession={vi.fn()}
-        onOpenSession={vi.fn()}
-        onOpenWorker={vi.fn().mockResolvedValue(true)}
-        liveSessionIds={[]}
-      />,
-    );
+    const { container } = await renderBoard({ embedded: true });
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     // 列不再写死宽度：写死 300 时三列右边缘会比上下板块短一截
@@ -644,7 +656,7 @@ describe("TaskBoardPage — 版心与列宽", () => {
   });
 
   it("列高度被看板框住，滚动发生在列内的卡片区", async () => {
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     // 少了 min-h-0/overflow-hidden，卡片一多整列会跟着长高，看板变成长列表且没有滚动条
@@ -666,7 +678,7 @@ describe("TaskBoardPage — 卡片浮在列的底色上", () => {
   });
 
   it("列是满色托盘、卡片自带浮起投影", async () => {
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     // 托盘不能靠透明度写法：主题色是 var(--bg-*) 形式，bg-subtle/40 生成不出类，会静默失效
@@ -738,7 +750,7 @@ describe("TaskBoardPage — 自动调度", () => {
         ),
       ),
     );
-    renderBoard();
+    await renderBoard();
     const column = await screen.findByRole("region", { name: "In Progress" });
     expect(
       await within(column).findByText(zh.tasks.router.state.working),
@@ -764,7 +776,7 @@ describe("TaskBoardPage — 自动调度", () => {
         ),
       ),
     );
-    renderBoard();
+    await renderBoard();
     const column = await screen.findByRole("region", { name: "In Progress" });
     expect(
       await within(column).findByText(zh.tasks.router.state.shadow),
@@ -779,7 +791,7 @@ describe("TaskBoardPage — 自动调度", () => {
       ),
     );
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
 
     await user.click(
       await screen.findByRole("button", { name: zh.tasks.router.button }),
@@ -850,7 +862,7 @@ describe("TaskBoardPage — 自动调度", () => {
     Element.prototype.scrollIntoView = vi.fn();
 
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
     await user.click(
       await screen.findByRole("button", { name: zh.tasks.router.button }),
     );
@@ -914,7 +926,7 @@ describe("TaskBoardPage — 持续 / 定时任务", () => {
   });
 
   it("卡片上直接标出「每 2 小时」与「每天 09:30」", async () => {
-    renderBoard();
+    await renderBoard();
     const todo = await screen.findByRole("region", { name: "To Do" });
     expect(
       within(todo).getByText(
@@ -984,7 +996,7 @@ describe("TaskBoardPage — 排期的等待提示", () => {
     apiMocks.board.mockResolvedValue(
       boardWith([scheduled({ kind: "interval", minutes: 120, nextRunAt })]),
     );
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     expect(
@@ -999,7 +1011,7 @@ describe("TaskBoardPage — 排期的等待提示", () => {
     apiMocks.board.mockResolvedValue(
       boardWith([scheduled({ kind: "interval", minutes: 120, nextRunAt })]),
     );
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     const hint = within(todo).getByText(zh.tasks.schedule.dueShort);
@@ -1031,7 +1043,7 @@ describe("TaskBoardPage — 排期的等待提示", () => {
         "In Progress",
       ),
     );
-    renderBoard();
+    await renderBoard();
 
     const column = await screen.findByRole("region", { name: "In Progress" });
     expect(
@@ -1052,7 +1064,7 @@ describe("TaskBoardPage — 排期的等待提示", () => {
         }),
       ]),
     );
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     expect(
@@ -1097,7 +1109,7 @@ describe("TaskBoardPage — 需求讨论", () => {
   });
 
   it("待办卡面直接写出待决定的问题，并标出讨论中", async () => {
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     expect(within(todo).getByText(question)).toBeInTheDocument();
@@ -1121,15 +1133,7 @@ describe("TaskBoardPage — 需求讨论", () => {
     };
     apiMocks.discussionSay.mockResolvedValue(said);
     const user = userEvent.setup();
-    render(
-      <TaskBoardPage
-        terminalApps={["codex"]}
-        onStartSession={onStartSession}
-        onOpenSession={vi.fn()}
-        onOpenWorker={vi.fn().mockResolvedValue(true)}
-        liveSessionIds={[]}
-      />,
-    );
+    await renderBoard({ terminalApps: ["codex"], onStartSession });
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     await user.click(within(todo).getByRole("button", { name: card.title }));
@@ -1199,7 +1203,7 @@ describe("TaskBoardPage — 需求讨论", () => {
       artifacts: [],
     });
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
 
     const done = await screen.findByRole("region", { name: "Done" });
     await user.click(
@@ -1275,7 +1279,7 @@ describe("TaskBoardPage — 需求讨论", () => {
       artifacts: [],
     });
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     await user.click(within(todo).getByRole("button", { name: card.title }));
@@ -1324,7 +1328,7 @@ describe("TaskBoardPage — 需求讨论", () => {
       artifacts: [],
     });
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
 
     const running = await screen.findByRole("region", { name: "In Progress" });
     await user.click(
@@ -1372,7 +1376,7 @@ describe("TaskBoardPage — 需求讨论", () => {
     });
     apiMocks.discardDiscussion.mockResolvedValue(undefined);
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     expect(
@@ -1431,7 +1435,7 @@ describe("TaskBoardPage — 需求讨论", () => {
     });
     apiMocks.discardDiscussion.mockResolvedValue(undefined);
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     await user.click(
@@ -1506,7 +1510,7 @@ describe("TaskBoardPage — 需求讨论", () => {
       discussionTurns: [],
     });
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     await user.click(
@@ -1556,7 +1560,7 @@ describe("TaskBoardPage — 需求讨论", () => {
       discussionTurns: [{ role: "user", text: "先定范围", createdAt: 1 }],
     });
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     await user.click(
@@ -1594,7 +1598,7 @@ describe("TaskBoardPage — 需求讨论", () => {
         { status: "Done", tasks: [] },
       ],
     });
-    renderBoard();
+    await renderBoard();
 
     const todo = await screen.findByRole("region", { name: "To Do" });
     expect(within(todo).getByText("讨论 · 第 2 轮")).toBeInTheDocument();
@@ -1638,9 +1642,9 @@ describe("TaskBoardPage — 智能体视图", () => {
     );
   });
 
-  it("智能体与看板是同一排的两个视图，切过去先看到讨论行与未分配行", async () => {
+  it("智能体视图是一张编制图：输入 → Lead → 智能体，切过去先看未分配", async () => {
     const user = userEvent.setup();
-    renderBoard();
+    await renderBoard();
     await screen.findByRole("region", { name: "To Do" });
 
     await user.click(
@@ -1650,12 +1654,12 @@ describe("TaskBoardPage — 智能体视图", () => {
     expect(
       await screen.findByRole("heading", { name: zh.tasks.agentView.title }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: zh.tasks.agentView.discussionRow }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: zh.tasks.agentView.unassigned }),
-    ).toBeInTheDocument();
+    // 图里的节点：输入列里的讨论、Lead、每个智能体，还有未分配
+    for (const key of ["discussion", "lead", "agent:writer", "unassigned"]) {
+      expect(
+        document.querySelector(`[data-flow-node="${key}"]`),
+      ).not.toBeNull();
+    }
     // 没指派的卡落在「未分配」，不会凭空消失
     expect(screen.getAllByText(card.title).length).toBeGreaterThan(0);
   });
@@ -1684,7 +1688,7 @@ describe("TaskBoardPage — 智能体视图", () => {
         { status: "Done", tasks: [] },
       ],
     });
-    renderBoard();
+    await renderBoard();
     await screen.findByRole("region", { name: "In Progress" });
     await user.click(
       screen.getByRole("button", { name: zh.tasks.agentView.agents }),
@@ -1701,7 +1705,7 @@ describe("TaskBoardPage — 智能体视图", () => {
     });
   });
 
-  it("行里的 + 建出来的卡直接归这一行：建卡时就写 assignee", async () => {
+  it("一栏里的 + 建出来的卡直接归这一栏：建卡时就写 assignee", async () => {
     const user = userEvent.setup();
     apiMocks.create.mockResolvedValue({
       task: card,
@@ -1713,27 +1717,34 @@ describe("TaskBoardPage — 智能体视图", () => {
       artifacts: [],
       discussionTurns: [],
     });
-    renderBoard();
+    await renderBoard();
     await screen.findByRole("region", { name: "To Do" });
     await user.click(
       screen.getByRole("button", { name: zh.tasks.agentView.agents }),
     );
 
-    const heading = await screen.findByRole("heading", { name: "文档写手" });
-    const writerRow = heading.closest("section") as HTMLElement;
+    // 先聚焦到它那一栏（不送的话右栏还停在「未分配」）
     await user.click(
-      within(writerRow).getByRole("button", {
+      await screen.findByRole("button", {
+        name: zh.tasks.agentView.focusNode.replace("{{name}}", "文档写手"),
+      }),
+    );
+    const writerLane = document.querySelector<HTMLElement>(
+      '[data-lane="agent:writer"]',
+    ) as HTMLElement;
+    await user.click(
+      within(writerLane).getByRole("button", {
         name: zh.tasks.agentView.addTask.replace("{{name}}", "文档写手"),
       }),
     );
     await user.type(
-      within(writerRow).getByPlaceholderText(
+      within(writerLane).getByPlaceholderText(
         zh.tasks.agentView.addTaskPlaceholder,
       ),
       "补一段迁移说明",
     );
     await user.click(
-      within(writerRow).getByRole("button", { name: zh.tasks.newTaskSend }),
+      within(writerLane).getByRole("button", { name: zh.tasks.newTaskSend }),
     );
 
     // 一张卡一次请求：归属写在 assignee 里，不单开一次指派

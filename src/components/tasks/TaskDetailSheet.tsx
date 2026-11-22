@@ -1349,16 +1349,25 @@ function DiscussionEditor({
     endRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [turns.length, sending, replying]);
 
-  const send = async () => {
-    const text = message.trim();
-    if (!text || waiting || busy) return;
+  /**
+   * 一句发言交给 Router。手打与表单提交共用这一条：两者都要把界面同时推进等待态
+   * （「Lead 正在回复…」、输入框与发送键锁住），否则在表单里点提交之后，屏幕上
+   * 什么都没变，看着像没提交上，用户会再点一次或改用输入框重说一遍。
+   */
+  const say = async (text: string): Promise<boolean> => {
     setSending(true);
     try {
-      // 成功才清空：失败（模型没配、网关没起来）时这句话还在，按一次重发即可
-      if (await onSay(text)) setMessage("");
+      return await onSay(text);
     } finally {
       setSending(false);
     }
+  };
+
+  const send = async () => {
+    const text = message.trim();
+    if (!text || waiting || busy) return;
+    // 成功才清空：失败（模型没配、网关没起来）时这句话还在，按一次重发即可
+    if (await say(text)) setMessage("");
   };
 
   const sendTask = async () => {
@@ -1408,10 +1417,10 @@ function DiscussionEditor({
         {turns.map((turn, index) => {
           // 只有最新一轮的表单还能填：用户答过之后就有新的发言，那一轮不再是
           // 最后一条，表单自然收起，不用额外存一个「已提交」状态。
+          // 等待回复期间仍然留着它（只是禁用），别让刚填的答案在「Lead 正在回复…」
+          // 那几十秒里凭空消失。
           const pendingForm =
-            turn.form && index === turns.length - 1 && !waiting
-              ? turn.form
-              : null;
+            turn.form && index === turns.length - 1 ? turn.form : null;
           return (
             <div
               key={`${turn.createdAt}-${index}`}
@@ -1440,7 +1449,7 @@ function DiscussionEditor({
                 <DiscussionFormCard
                   form={pendingForm}
                   disabled={disabled}
-                  onSubmit={onSay}
+                  onSubmit={say}
                 />
               ) : null}
             </div>
@@ -1625,7 +1634,16 @@ function DiscussionFormCard({
   };
 
   return (
-    <div className="space-y-2 rounded-panel border border-border bg-subtle px-3 py-2">
+    <div
+      className="space-y-2 rounded-panel border border-border bg-subtle px-3 py-2"
+      // 填完不用回鼠标：Ctrl/⌘+Enter 提交，与下面的输入框是同一套键
+      onKeyDown={(event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          event.preventDefault();
+          void submit();
+        }
+      }}
+    >
       {form.title ? (
         <p className="m-0 text-caption font-medium text-fg-1">{form.title}</p>
       ) : null}
@@ -1676,18 +1694,23 @@ function DiscussionFormCard({
           )}
         </div>
       ))}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5">
+        <span className="text-[11px] text-fg-3">
+          {t("tasks.discussion.formHint")}
+        </span>
         <Button
-          variant="secondary"
+          // 卡片自身就是 bg-subtle：只靠悬停底色的变体在这里既没有边、也没有
+          // 悬停变化，看起来只是一行字。提交键用描边档，才看得出是个按钮。
+          variant="neutral"
           size="compact"
+          // 窄到换行时也贴右：`ms-auto` 比父容器的 justify-between 更稳（换行后
+          // 单独一行的那一个仍会被推到右边）。
+          className="ms-auto"
           disabled={blocked || missing}
           onClick={() => void submit()}
         >
           {t("tasks.discussion.formSubmit")}
         </Button>
-        <span className="text-[11px] text-fg-3">
-          {t("tasks.discussion.formHint")}
-        </span>
       </div>
     </div>
   );

@@ -184,7 +184,100 @@ impl Default for RouterSettings {
     }
 }
 
+/// 首次安装时在册的三个智能体。
+///
+/// 它们是「一队人长什么样」的默认答案，不是模板库：id 会真正落盘，卡片上的
+/// `assignee` 从此有东西可写，改名改设置也都按改后的走。执行应用统一填 `claude`
+/// （`worker_apps` 的老默认第一项）；换成本机实际在用的应用是一次编辑的事，
+/// 默认值不替用户猜。
+///
+/// 头像显式给不同的三张：默认值也要看得出「这是三个人」，不能靠哈希撞运气。
+fn starter_agents() -> Vec<RouterAgent> {
+    vec![
+        RouterAgent {
+            id: "doc-researcher".into(),
+            name: "文档调研员".into(),
+            avatar: "avatar-05".into(),
+            description: "查资料、读文档、写说明。适合要先查清事实再动笔的活。".into(),
+            app_id: "claude".into(),
+            outcome: "一份经得起复查的说明：结论、依据与出处都在里面。".into(),
+            boundary: "不接改代码、跑测试、动仓库配置这类实现活；查不到的出处不写。".into(),
+            ask_user_when: vec!["要查的材料只有内部渠道能拿到".into()],
+            steps: vec![
+                "先确认要回答的问题、读者是谁，以及这版不需要覆盖的部分。".into(),
+                "逐条查资料，把出处与日期记在旁边。".into(),
+                "按结论、依据、仍待确认三块整理成文。".into(),
+            ],
+            constraints: vec!["资料不足就直说缺什么，不用推测填空。".into()],
+            completion: AgentCompletion {
+                result: "读者能按这份说明自己复述结论，并找到每一条的出处。".into(),
+                evidence: vec!["每个结论都能对应到实际查过的来源。".into()],
+            },
+            ..Default::default()
+        },
+        RouterAgent {
+            id: "product-manager".into(),
+            name: "产品经理".into(),
+            avatar: "avatar-09".into(),
+            description: "把想法收敛成能开工的需求：目标、范围与验收标准。适合还说不清的活。"
+                .into(),
+            app_id: "claude".into(),
+            outcome: "一份能直接开工的需求：要解决什么问题、这版做到哪、怎么验收。".into(),
+            boundary: "不替人定优先级与排期；不接纯实现类的活。".into(),
+            ask_user_when: vec!["几个目标互相冲突，得由人挑一个".into()],
+            steps: vec![
+                "先问清用户是谁、现在卡在哪一步。".into(),
+                "把目标、范围与这版不做的部分写清楚。".into(),
+                "给出可以逐条打勾的验收标准。".into(),
+            ],
+            constraints: vec!["范围之外的想法记成「这版不做」，不顺手扩。".into()],
+            completion: AgentCompletion {
+                result: "这份需求可以直接交给工程师，验收标准能逐条判断过没过。".into(),
+                evidence: vec!["每条验收标准都对应一次可做的观察或操作。".into()],
+            },
+            ..Default::default()
+        },
+        RouterAgent {
+            id: "engineer".into(),
+            name: "工程师".into(),
+            avatar: "avatar-13".into(),
+            description: "改代码、补测试、修 bug。适合已经说清要做什么的实现任务。".into(),
+            app_id: "claude".into(),
+            outcome: "一次能跑通的改动：代码、测试，以及一句说清怎么验证的结论。".into(),
+            boundary: "需求还说不清时先退回产品经理或问用户，不自行扩大范围。".into(),
+            ask_user_when: vec!["改动会动到数据迁移或删除用户数据".into()],
+            steps: vec![
+                "先读相关代码，确认真正要动的位置。".into(),
+                "做最小的改动，并补上对应的测试。".into(),
+                "跑项目现有的检查命令，把结果写回卡片。".into(),
+            ],
+            constraints: vec![
+                "不改与这次任务无关的文件。".into(),
+                "不为了让测试变绿而放宽断言。".into(),
+            ],
+            completion: AgentCompletion {
+                result: "改动通过项目现有的检查命令，并说清了怎么验证。".into(),
+                evidence: vec!["列出实际跑过的命令与结果。".into()],
+            },
+            ..Default::default()
+        },
+    ]
+}
+
 impl RouterSettings {
+    /// 还没有任何设置落盘时的第一份：三个默认智能体已经在册，自动调度仍然关着。
+    ///
+    /// 只在「库里没有这一行」时用它。存过设置的（哪怕智能体是空的、允许名单还是
+    /// 老的应用 id）一律用存下来的那份：那是一份真实配置，不能被默认值盖掉。
+    pub fn starter() -> Self {
+        let agents = starter_agents();
+        Self {
+            worker_apps: agents.iter().map(|agent| agent.id.clone()).collect(),
+            agents,
+            ..Self::default()
+        }
+    }
+
     pub fn agent(&self, id: &str) -> Option<RouterAgent> {
         self.agents
             .iter()

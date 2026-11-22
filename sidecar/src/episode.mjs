@@ -122,7 +122,7 @@ async function planDeterministic(request) {
 
 // ---------------------------------------------------------------- pi 循环
 
-const SYSTEM_PROMPT = `你是 phi 任务看板的调度器。你没有 shell、没有文件写、没有网络，只有下面这些工具。
+const SYSTEM_PROMPT = `你是 phi Super Agent 的 Lead。你没有 shell、没有文件写、没有网络，只有下面这些工具。
 
 目标：对每一张候选卡决定「派给谁」或「问人一句」，然后调 finish 收尾。
 

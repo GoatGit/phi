@@ -328,7 +328,12 @@ export const superAgentApi = {
       message,
       current,
     }),
-  /** 调度器提议：只提议，不落库。 */
+  /**
+   * 调度器提议：只提议，不落库。
+   *
+   * 看板不再展示这条提议（它占着头条位置、又经常对不上人正在做的事），
+   * 后端能力保留，将来要挪到设置里或改成按需触发时直接用这里。
+   */
   agentSuggestions: () => invoke<AgentSuggestion[]>("router_agent_suggestions"),
   /**
    * 打开这次运行的 worker。
