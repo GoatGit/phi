@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_PINNED_PLUGINS,
   MAX_PINNED_PLUGINS,
   PINNED_PLUGINS_STORAGE_KEY,
   readPinnedPlugins,
@@ -12,7 +13,13 @@ describe("pluginPins", () => {
     localStorage.clear();
   });
 
-  it("reads an empty list when nothing is stored", () => {
+  it("首次打开先把 Super Agent 钉在侧栏", () => {
+    expect(readPinnedPlugins()).toEqual(["task-board"]);
+    expect(DEFAULT_PINNED_PLUGINS).toContain("task-board");
+  });
+
+  it("取消钉住之后不再把默认值加回来", () => {
+    storePinnedPlugins(togglePinnedPlugin(readPinnedPlugins(), "task-board"));
     expect(readPinnedPlugins()).toEqual([]);
   });
 
@@ -24,7 +31,7 @@ describe("pluginPins", () => {
     );
   });
 
-  it("falls back to an empty list on broken storage", () => {
+  it("读不懂的存储当作空列表，不套默认值", () => {
     localStorage.setItem(PINNED_PLUGINS_STORAGE_KEY, "{not json");
     expect(readPinnedPlugins()).toEqual([]);
   });
