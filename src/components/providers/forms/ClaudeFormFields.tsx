@@ -579,7 +579,13 @@ export function ClaudeFormFields({
             autoComplete="off"
             className="flex-1"
           />
-          <Button variant="outline" size="icon" className="shrink-0" disabled>
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-hidden="true"
+            disabled
+          >
             <Loader2 className="h-4 w-4 animate-spin" />
           </Button>
         </div>
