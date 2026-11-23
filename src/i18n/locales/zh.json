@@ -4579,6 +4579,7 @@
     "apps": "应用",
     "appsTitle": "应用：安装、升级、在侧栏添加哪些",
     "appsHasUpdate": "应用 · 有可用更新",
+    "auth": "账号中心",
     "settings": "设置",
     "settingsHasUpdate": "设置 · PHI 有新版本",
     "mode": {

@@ -4579,6 +4579,7 @@
     "apps": "應用",
     "appsTitle": "應用：安裝、升級、在側欄新增哪些",
     "appsHasUpdate": "應用 · 有可用更新",
+    "auth": "帳號中心",
     "settings": "設定",
     "settingsHasUpdate": "設定 · PHI 有新版本",
     "mode": {

@@ -187,9 +187,9 @@ function ${data.sessionExitEntry}(event) {
   ]);
 
   const decisionRows: Array<[string, ReactNode]> = [
-    ["action", t("pluginCenter.protocol.decision.action")],
-    ["mode", t("pluginCenter.protocol.decision.mode")],
-    ["reason", t("pluginCenter.protocol.decision.reason")],
+    ["action", t("pluginCenter.protocol.script.decision.action")],
+    ["mode", t("pluginCenter.protocol.script.decision.mode")],
+    ["reason", t("pluginCenter.protocol.script.decision.reason")],
   ];
 
   return (

@@ -4579,6 +4579,7 @@
     "apps": "アプリ",
     "appsTitle": "アプリ：インストール、アップグレード、サイドバーへの追加",
     "appsHasUpdate": "アプリ · 更新があります",
+    "auth": "アカウント",
     "settings": "設定",
     "settingsHasUpdate": "設定 · PHI の新しいバージョンがあります",
     "mode": {

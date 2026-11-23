@@ -4579,6 +4579,7 @@
     "apps": "Apps",
     "appsTitle": "Apps: install, upgrade, add to the sidebar",
     "appsHasUpdate": "Apps · updates available",
+    "auth": "Accounts",
     "settings": "Settings",
     "settingsHasUpdate": "Settings · a new PHI version is available",
     "mode": {
