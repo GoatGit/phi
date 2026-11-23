@@ -441,6 +441,48 @@ async fn a_session_already_running_waits_for_the_next_tick() {
 }
 
 #[tokio::test]
+async fn two_cards_on_one_session_do_not_both_dispatch_in_the_same_tick() {
+    // 「同一段对话只有一个 worker」不能只看上一轮的快照：两张卡都还在待办里、
+    // 这一轮同时被提名时，它们在同一轮里都还是「没在跑」，只看快照会各起一个进程。
+    let workspace = workspace(2, "In Progress");
+    let opened = crate::tasks::document::open(std::path::Path::new(&workspace.root)).expect("open");
+    for task in repository::list(&opened).expect("list") {
+        repository::set_session(&opened, &task.id, Some("6f1c8f0e-33c4"), &task.fingerprint)
+            .expect("session");
+    }
+    let dispatcher = RecordingDispatcher::default();
+    let episode = FixedEpisode {
+        decisions: DecisionSet {
+            decisions: vec![
+                Decision::dispatch("TASK-1", "claude", "接着这段"),
+                Decision::dispatch("TASK-2", "claude", "同一段对话"),
+            ],
+            unfinished: false,
+        },
+    };
+    let report = run_tick(
+        &workspace.db,
+        settings(false),
+        &FixedJudge::noul(0.9),
+        &dispatcher,
+        &episode,
+    )
+    .await;
+
+    assert_eq!(
+        dispatcher.count(),
+        1,
+        "同一段对话在同一轮里只能起一个进程，dispatched={:?}",
+        report.dispatched
+    );
+    assert!(
+        report.degraded.contains(&"session-busy:TASK-2".to_string()),
+        "degraded={:?}",
+        report.degraded
+    );
+}
+
+#[tokio::test]
 async fn dispatch_failure_keeps_the_reason_and_counts_the_attempt() {
     let workspace = workspace(1, "In Progress");
     let dispatcher = RecordingDispatcher {

@@ -1089,6 +1089,10 @@ fn apply(
         busy_sessions,
         now,
     } = *ctx;
+    // 本轮派出去的也算「占着」：两张同一段对话的卡都在待办里时，它们在这
+    // 一轮都还是「没在跑」——只用上一轮的快照挡，会让它们在同一轮各起一个
+    // 进程接着同一段上下文。派一个就往里记一个，后面的卡下一轮再说。
+    let mut busy_sessions = busy_sessions.clone();
     let by_id: HashMap<&str, &Candidate> = candidates
         .iter()
         .map(|candidate| (candidate.task_id.as_str(), candidate))
@@ -1144,7 +1148,9 @@ fn apply(
                             attempts: candidate.attempts(),
                             detail: Some(&detail),
                             card_fingerprint: Some(&candidate.fingerprint),
-                            shadow: false,
+                            // 影子模式只记「本来会怎样」，别在这一支里写出一条
+                            // 非影子的运行态：那会让看板显示成真派过、真停了。
+                            shadow: settings.shadow,
                         },
                         now,
                     );
@@ -1220,6 +1226,11 @@ fn apply(
 
                 match result {
                     Ok(outcome) => {
+                        // 这一段对话从现在起归这张卡：同一轮里后面还有同一段会话的卡，
+                        // 它们要等下一轮，而不是在同一个 tick 里也起一个进程。
+                        if let Some(session) = candidate.session.as_deref() {
+                            busy_sessions.insert((candidate.root.clone(), session.to_string()));
+                        }
                         let _ = db.put_router_run(
                             &candidate.root,
                             &candidate.task_id,
