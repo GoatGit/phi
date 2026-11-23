@@ -541,35 +541,13 @@ fn save_settings_file(settings: &AppSettings) -> Result<(), AppError> {
         return Err(AppError::Config("无法获取用户主目录".to_string()));
     };
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
-    }
-
     let json = serde_json::to_string_pretty(&normalized)
         .map_err(|e| AppError::JsonSerialize { source: e })?;
-    #[cfg(unix)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&path)
-            .map_err(|e| AppError::io(&path, e))?;
-        file.write_all(json.as_bytes())
-            .map_err(|e| AppError::io(&path, e))?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        fs::write(&path, json).map_err(|e| AppError::io(&path, e))?;
-    }
-
-    Ok(())
+    // 原子写 + 0600：设置文件是本机偏好，历史版本里还存过 WebDAV 凭据。
+    // 直接截断重写时，强退或断电会留下半截 JSON，下次启动解析失败就回落成
+    // `default()`——用户所有偏好会静默重置，而且没有备份可救。临时文件 + rename
+    // 让步进要么是旧内容、要么是新内容，不会出现中间态。
+    crate::config::atomic_write_private(&path, json.as_bytes())
 }
 
 static SETTINGS_STORE: OnceLock<RwLock<AppSettings>> = OnceLock::new();
