@@ -6,6 +6,7 @@ import zh from "@/i18n/locales/zh.json";
 import { ResumeSessionField } from "@/components/tasks/ResumeSessionField";
 import type { RouterAgent } from "@/lib/api/superAgent";
 import type { TaskCard } from "@/lib/api/tasks";
+import { listSessions, setSessionFixtures } from "../msw/state";
 import { renderWithQueryClient } from "../utils/testQueryClient";
 
 beforeAll(() => {
@@ -109,6 +110,49 @@ describe("ResumeSessionField", () => {
     const option = await screen.findByText("Claude Session One");
     await user.click(option);
     expect(onSave).toHaveBeenCalledWith("claude-session-1");
+  });
+
+  it("不把来源仓库不明的会话当作当前仓库的候选", async () => {
+    const user = userEvent.setup();
+    const known = listSessions().find((item) => item.providerId === "claude")!;
+    setSessionFixtures(
+      [
+        known,
+        {
+          ...known,
+          sessionId: "unknown",
+          projectDir: undefined,
+          title: "Unknown origin",
+        },
+      ],
+      {},
+    );
+    renderWithQueryClient(
+      <ResumeSessionField
+        task={card()}
+        agents={[agent()]}
+        repoRoot="/mock/claude"
+        onSave={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("combobox"));
+    expect(await screen.findByText("Claude Session One")).toBeInTheDocument();
+    expect(screen.queryByText("Unknown origin")).toBeNull();
+  });
+
+  it("改派给不支持续接的应用后仍能解除旧绑定", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    renderWithQueryClient(
+      <ResumeSessionField
+        task={card({ session: "old-session" })}
+        agents={[agent({ appId: "codex" })]}
+        repoRoot="/mock/claude"
+        onSave={onSave}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "取消续接" }));
+    expect(onSave).toHaveBeenCalledWith(null);
   });
 
   it("选回「新建会话」就是取消续接", async () => {

@@ -6474,6 +6474,8 @@
       "hint": "With a session picked, the dispatch continues that conversation; only one card runs on a session at a time.",
       "empty": "No session in this repository yet. Start a new one.",
       "missing": "The chosen session ({{id}}) is not in the list — deleted, or from another project",
+      "blocked": "This agent cannot resume session {{id}}. Assign a compatible agent or unlink the session before dispatch.",
+      "clear": "Unlink session",
       "needsAgent": "Assign an agent first: it decides which app runs and which sessions can be continued.",
       "unsupported": "{{app}} cannot continue a session by id; this card starts a new one every time.",
       "cardBadge": "Continues session",

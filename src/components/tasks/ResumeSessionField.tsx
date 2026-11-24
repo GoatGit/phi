@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -59,14 +60,13 @@ export function ResumeSessionField({
   const appId = agent?.appId ?? "";
   const supported = (RESUME_APPS as readonly string[]).includes(appId);
   // 用不上清单时不必去扫一遍各应用的会话记录。
-  const { data: sessions = [] } = useSessionsQuery({ enabled: supported });
+  const { data: sessions = [] } = useSessionsQuery({
+    enabled: supported && Boolean(repoRoot),
+  });
 
   const options = sessions
     .filter((session) => session.providerId === appId)
-    .filter(
-      (session) =>
-        !repoRoot || !session.projectDir || session.projectDir === repoRoot,
-    )
+    .filter((session) => Boolean(repoRoot) && session.projectDir === repoRoot)
     .sort(
       (left, right) =>
         (right.lastActiveAt ?? right.createdAt ?? 0) -
@@ -96,7 +96,22 @@ export function ResumeSessionField({
       >
         {t("tasks.session.title")}
       </Label>
-      {!agent ? (
+      {!supported && task.session ? (
+        <>
+          <p className="m-0 break-words text-caption text-fg-2">
+            {t("tasks.session.blocked", { id: task.session })}
+          </p>
+          <Button
+            type="button"
+            variant="neutral"
+            size="compact"
+            disabled={busy}
+            onClick={() => onSave(null)}
+          >
+            {t("tasks.session.clear")}
+          </Button>
+        </>
+      ) : !agent ? (
         <p className="m-0 text-[11px] leading-relaxed text-fg-3">
           {t("tasks.session.needsAgent")}
         </p>
