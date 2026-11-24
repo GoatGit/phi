@@ -6454,7 +6454,7 @@
       "invalidSchedule": "時間寫法不對，試試 09:30 或 2026-11-20 09:30",
       "conflictingSchedule": "持續任務和定時任務只能選一個",
       "discussionNotPending": "這張卡已經開工，討論只在待辦欄進行",
-      "routerModelMissing": "Lead 還沒設定模型：先在「自動排程」裡選一個調度模型，討論需要它來思考",
+      "routerModelMissing": "Lead 還沒設定模型：先在「自動調度」裡選一個調度模型，討論需要它來思考",
       "routerSidecarMissing": "調度側車沒起來（閘道未監聽或缺隨包執行環境），討論暫時不可用",
       "emptyDiscussionMessage": "先寫一句想討論什麼",
       "invalidDiscussionMessage": "這段話太長了，精簡到 8000 字以內",
