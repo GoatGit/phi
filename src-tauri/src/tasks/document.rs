@@ -95,7 +95,8 @@ pub fn open(root: &Path) -> Result<Workspace, String> {
 
     for candidate in [root.join("backlog"), root.join(".backlog")] {
         if candidate.join("config.yml").is_file() {
-            return Ok(workspace_at(root, candidate, name));
+            let dir = contained(&root, &candidate)?;
+            return Ok(workspace_at(root, dir, name));
         }
     }
 
@@ -119,13 +120,30 @@ pub fn open(root: &Path) -> Result<Workspace, String> {
             return Err("no-backlog".into());
         }
         if dir.join("config.yml").is_file() {
+            let dir = contained(&root, &dir)?;
             return Ok(workspace_at(root, dir, name));
         }
         // 只有根上的 config 文件也算数（上游允许这种布局）
         let config = parse_config(&text, &name);
+        let dir = contained(&root, &dir)?;
         return Ok(Workspace { root, dir, config });
     }
 
+    Err("no-backlog".into())
+}
+
+/// 工作区目录必须落在仓库根之内。
+///
+/// 目录是仓库里的内容决定的（`backlog` / `.backlog` 目录本身，或 `backlog.config.yml`
+/// 里的 `backlog_directory`），一个 `../..` 或者指向仓库外的符号链接，就会把任务的
+/// 读写带到别人的目录里。命令层对 `root` 做了登记校验，这条校验必须跟着落到真正
+/// 读写文件的目录上，否则「只在登记过的工作区里读写」这句承诺就是空的。
+fn contained(root: &Path, dir: &Path) -> Result<PathBuf, String> {
+    let resolved = dir.canonicalize().map_err(|_| "no-backlog".to_string())?;
+    if resolved.starts_with(root) {
+        return Ok(resolved);
+    }
+    log::warn!("backlog directory escapes the workspace root: {}", dir.display());
     Err("no-backlog".into())
 }
 
@@ -378,5 +396,20 @@ mod tests {
             open(temp.path()).expect_err("should fail"),
             "no-backlog".to_string()
         );
+    }
+
+    #[test]
+    fn refuses_backlog_directory_outside_the_workspace() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("repo");
+        fs::create_dir_all(&root).expect("mkdir");
+        fs::create_dir_all(temp.path().join("outside")).expect("mkdir");
+        fs::write(
+            root.join("backlog.config.yml"),
+            "backlog_directory: ../outside\n",
+        )
+        .expect("write");
+        // 目录存在但不是本工作区的：拒绝，而不是把任务写到根之外。
+        assert_eq!(open(&root).expect_err("should fail"), "no-backlog".to_string());
     }
 }
