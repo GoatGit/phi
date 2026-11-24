@@ -1,0 +1,26 @@
+{
+  "version": "1.3.0",
+  "items": [
+    {
+      "type": "new",
+      "zh": "任务卡可续接本仓库的 Claude 或 OpenCode 会话",
+      "zh-TW": "任務卡可接續此儲存庫的 Claude 或 OpenCode 工作階段",
+      "en": "Task cards can resume a Claude or OpenCode session from the same repository.",
+      "ja": "カードから同じリポジトリの Claude・OpenCode セッションを再開"
+    },
+    {
+      "type": "improve",
+      "zh": "配置智能体时，按应用挑选追加参数；需要放宽审批的开关单独列出。",
+      "zh-TW": "設定智慧體時可依應用程式選擇額外參數；放寬審批的選項獨立列出。",
+      "en": "Choose agent arguments by application, with approval-related flags grouped separately.",
+      "ja": "アプリ別に追加引数を選べます。承認に関わるオプションは別のグループに表示されます。"
+    },
+    {
+      "type": "fix",
+      "zh": "改派给不支持续接的智能体后，可在卡片里取消旧会话绑定。",
+      "zh-TW": "改派給不支援接續的智慧體後，可直接在卡片中解除原本的工作階段。",
+      "en": "Unlink a saved session directly on the card after assigning an agent that cannot resume it.",
+      "ja": "再開に対応しないエージェントに割り当て直した場合も、カードからセッションの指定を解除できます。"
+    }
+  ]
+}
