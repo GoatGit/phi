@@ -143,7 +143,10 @@ fn contained(root: &Path, dir: &Path) -> Result<PathBuf, String> {
     if resolved.starts_with(root) {
         return Ok(resolved);
     }
-    log::warn!("backlog directory escapes the workspace root: {}", dir.display());
+    log::warn!(
+        "backlog directory escapes the workspace root: {}",
+        dir.display()
+    );
     Err("no-backlog".into())
 }
 
@@ -410,6 +413,9 @@ mod tests {
         )
         .expect("write");
         // 目录存在但不是本工作区的：拒绝，而不是把任务写到根之外。
-        assert_eq!(open(&root).expect_err("should fail"), "no-backlog".to_string());
+        assert_eq!(
+            open(&root).expect_err("should fail"),
+            "no-backlog".to_string()
+        );
     }
 }
