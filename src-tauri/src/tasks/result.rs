@@ -316,9 +316,16 @@ fn resolve_inside(root: &Path, path: &str) -> Option<PathBuf> {
     };
     let normalized = normalize(&joined)?;
     let normalized_root = normalize(root)?;
-    normalized
-        .starts_with(&normalized_root)
-        .then_some(normalized)
+    if !normalized.starts_with(&normalized_root) {
+        return None;
+    }
+    // 词法上在仓库内还不够：仓库里可以有一个指向外部的软链接，`a/link.md`
+    // 和 `../secret.md` 看一眼没区别。能规范化就再比一次真实路径；文件不存在时
+    // `canonicalize` 会失败，那一路照旧交给调用方按「文件不存在」处理。
+    match (normalized.canonicalize(), normalized_root.canonicalize()) {
+        (Ok(real), Ok(real_root)) => real.starts_with(&real_root).then_some(real),
+        _ => Some(normalized),
+    }
 }
 
 /// 消掉 `.` 与 `..`，不访问文件系统（`canonicalize` 会要求文件已经存在）。
@@ -400,6 +407,30 @@ mod tests {
         assert!(resolved[0].exists);
         assert_eq!(resolved[0].size, Some(2));
         assert!(!resolved[1].exists);
+    }
+
+    /// 仓库里可能藏着指向外部的软链接：词法检查看不出越界，规范化后必须拦住，
+    /// 否则卡片正文写一个 `link.md` 就能让「在文件管理器中显示」打开工作区外的文件。
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_escaping_the_repository_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("secret.md");
+        std::fs::write(&secret, "top secret").unwrap();
+        std::os::unix::fs::symlink(&secret, temp.path().join("link.md")).unwrap();
+        assert_eq!(
+            within_workspace(temp.path(), "link.md").unwrap_err(),
+            "invalid-artifact"
+        );
+        let refs = vec![ArtifactRef {
+            label: "link".into(),
+            path: "link.md".into(),
+            explicit: true,
+        }];
+        let resolved = resolve(temp.path(), &refs);
+        assert!(!resolved[0].exists, "软链接不应被当成仓库内的产物");
+        assert_eq!(resolved[0].size, None);
     }
 
     #[test]
