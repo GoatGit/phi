@@ -1,0 +1,33 @@
+{
+  "version": "1.3.0",
+  "items": [
+    {
+      "type": "new",
+      "zh": "任务可续接智能体的指定会话，在同一段对话里接着干",
+      "zh-TW": "任務可續接智能體的指定會話，在同一段對話裡接著做",
+      "en": "Tasks can resume a chosen agent session and continue in the same conversation",
+      "ja": "タスクはエージェントの指定セッションを引き継ぎ、同じ会話で続けられます"
+    },
+    {
+      "type": "new",
+      "zh": "追加参数扩到四家应用并按用途分组，审批类开关单独标注",
+      "zh-TW": "追加參數擴到四家應用並按用途分組，審批類開關單獨標註",
+      "en": "Extra agent arguments now cover four apps, grouped by purpose, with approval flags marked",
+      "ja": "追加引数を 4 アプリに広げて用途別に分類し、承認系フラグは別枠で明示"
+    },
+    {
+      "type": "fix",
+      "zh": "智能体视图滚动后连线跟着重算，不再错位",
+      "zh-TW": "智能體檢視滾動後連線跟著重算，不再錯位",
+      "en": "Wires in the agent view follow scrolling again instead of drifting out of place",
+      "ja": "エージェントビューの線がスクロールに追従し、位置ずれを解消"
+    },
+    {
+      "type": "fix",
+      "zh": "设置文件改为原子写，强退不再清空本机偏好",
+      "zh-TW": "設定檔改為原子寫入，強制結束不再清空本機偏好",
+      "en": "Settings are written atomically, so a hard quit no longer clears local preferences",
+      "ja": "設定ファイルを原子的に書き込み、強制終了でローカル設定が消えないように"
+    }
+  ]
+}

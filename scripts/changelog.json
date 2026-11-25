@@ -1,5 +1,44 @@
 [
   {
+    "version": "1.3.0",
+    "date": "2026-11-25",
+    "items": {
+      "zh": [
+        "任务可以续接智能体的指定会话，在同一段对话里接着做；同一段对话同时只跑一张卡。",
+        "智能体的追加参数扩到 claude、codex、gemini、opencode 四家，按用途分组，清单长了下拉自己滚。",
+        "审批类开关单独成组，并标注「等于放开审批」；沙箱类只收更严格的只读选项。",
+        "智能体视图聚焦栏滚动后，连线跟着重算，不再整片错位。",
+        "产物路径校验拦到软链接：仓库里指向外部的文件不会再被打开或报出大小。",
+        "多行标签与指派写成合法 YAML，不再把整张卡写成解析不了的文本。",
+        "backlog 目录必须在工作区根内，配置指向根外会被拒绝。",
+        "设置文件改为原子写，强退或断电不再把本机偏好静默清空。",
+        "插件规则替换按字面量处理，$5 不再被当成捕获组；协议页与账号中心不再显示原始键名。"
+      ],
+      "en": [
+        "Tasks can resume a chosen agent session and keep working in that conversation; only one card runs a session at a time.",
+        "Extra agent arguments now cover claude, codex, gemini and opencode, grouped by purpose, and the list scrolls on its own.",
+        "Approval flags sit in their own group marked as turning approval off; sandbox options only include the stricter read-only mode.",
+        "The agent view's wires now follow scrolling instead of drifting out of place.",
+        "Artifact paths are now checked against symlinks, so files outside the repository are neither opened nor sized.",
+        "Multi-line labels and assignees are written as valid YAML instead of making the whole card unreadable.",
+        "The backlog directory must sit inside the workspace root; paths pointing outside are refused.",
+        "Settings are written atomically, so a hard quit or power loss no longer clears local preferences.",
+        "Plugin rule replacements are literal, so $5 is no longer expanded as a capture group; the protocol page and account panel stop showing raw keys."
+      ],
+      "ja": [
+        "タスクはエージェントの指定セッションを引き継いで同じ会話で続行でき、同時に走るのは 1 枚だけです。",
+        "エージェントの追加引数を claude・codex・gemini・opencode の 4 アプリに拡大し、用途別に分類。長い一覧は自動でスクロールします。",
+        "承認系のフラグは別グループにまとめて「承認を外す」と明示し、サンドボックスはより厳しい読み取り専用のみを収録しました。",
+        "エージェントビューの線がスクロールに追従して再計算され、位置ずれを解消しました。",
+        "成果物のパス検証がシンボリックリンクにも効き、リポジトリ外のファイルは開かれずサイズも表示されません。",
+        "複数行のラベルと担当者は正しい YAML で書き出され、カード全体が読めなくなることがなくなりました。",
+        "backlog ディレクトリはワークスペース直下にある必要があり、外を指す設定は拒否されます。",
+        "設定ファイルを原子的に書き込むようにし、強制終了や電源断でローカル設定が消えないようにしました。",
+        "プラグインのルール置換をリテラル扱いにし、$5 がキャプチャグループとして展開されなくなりました。プロトコルページとアカウントパネルは生のキー名を表示しません。"
+      ]
+    }
+  },
+  {
     "version": "1.2.0",
     "date": "2026-11-22",
     "items": {
