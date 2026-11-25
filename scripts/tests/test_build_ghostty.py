@@ -246,6 +246,31 @@ class DownloadTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+    def test_download_restarts_when_the_server_refuses_to_resume(self):
+        # codeload 这类现算的打包接口不支持 Range：带 --continue-at 时 curl 直接失败、
+        # 一个字节都不传。这时候必须丢掉上次的牛途，不能每轮原地撞同一堵墙。
+        payload = b"ghostty" * (16 * 1024)
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            target = Path(directory) / "ghostty.tar.gz"
+            partial = target.with_suffix(".download")
+            partial.write_bytes(payload[: 30 * 1024])
+            calls = []
+
+            def fake_run(command, **kwargs):
+                calls.append(list(command))
+                if "--continue-at" in command:
+                    return subprocess.CompletedProcess(command, 56)
+                Path(command[command.index("--output") + 1]).write_bytes(payload)
+                return subprocess.CompletedProcess(command, 0)
+
+            with patch.object(ghostty.subprocess, "run", fake_run), patch.object(ghostty, "DOWNLOAD_RETRY_DELAY_SECONDS", 0):
+                ghostty.download("https://example.invalid/ghostty.tar.gz", target, hashlib.sha256(payload).hexdigest())
+
+            self.assertEqual(target.read_bytes(), payload)
+            self.assertIn("--continue-at", calls[0])
+            self.assertNotIn("--continue-at", calls[1])
+            self.assertFalse(partial.exists())
+
     def test_download_rejects_a_corrupt_cached_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "zig.tar.xz"

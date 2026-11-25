@@ -61,15 +61,22 @@ def download(url, path, checksum):
         if remaining < DOWNLOAD_MIN_ATTEMPT_SECONDS:
             break
         timeout = min(DOWNLOAD_ATTEMPT_SECONDS, int(remaining))
+        resume_from = partial.stat().st_size if partial.exists() else 0
         command = ["curl", "--fail", "--location", "--max-time", str(timeout), "--output", str(partial)]
-        if partial.exists() and partial.stat().st_size > 0:
+        if resume_from:
             command[1:1] = ["--continue-at", "-"]
-            print(f"Resuming {path.name} at {partial.stat().st_size} bytes")
+            print(f"Resuming {path.name} at {resume_from} bytes")
         command.append(url)
         result = subprocess.run(command)
         if partial.exists() and hashlib.sha256(partial.read_bytes()).hexdigest() == checksum:
             partial.replace(path)
             return
+        # 不支持 Range 的源（codeload 这类现算的打包接口）遇到 --continue-at 会直接失败、
+        # 一个字节都不传，留着临时文件只会让每一轮都撞同一堵墙：丢掉进度，下一轮从头来。
+        stalled = partial.exists() and partial.stat().st_size <= resume_from
+        if resume_from and result.returncode != 0 and stalled:
+            print(f"{path.name}: the server refused to resume, restarting from scratch")
+            partial.unlink()
         if attempt == DOWNLOAD_ATTEMPTS:
             break
         print(f"Download attempt {attempt}/{DOWNLOAD_ATTEMPTS} of {path.name} failed with exit {result.returncode}; retrying")
