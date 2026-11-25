@@ -614,6 +614,11 @@ pub(crate) fn commit_staged(tmp: &Path, path: &Path) -> Result<(), AppError> {
         const ERROR_ACCESS_DENIED: i32 = 5;
         const ERROR_SHARING_VIOLATION: i32 = 32;
         const ERROR_LOCK_VIOLATION: i32 = 33;
+        // ReplaceFileW 自己报的三种「换不过去」：并发替换同一目标时，对方正在挪动
+        // 临时文件或原文件。目标保持原名，重试即可。
+        const ERROR_UNABLE_TO_REMOVE_REPLACED: i32 = 1175;
+        const ERROR_UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
+        const ERROR_UNABLE_TO_MOVE_REPLACEMENT_2: i32 = 1177;
 
         let is_transient = |error: &std::io::Error| {
             matches!(
@@ -621,8 +626,19 @@ pub(crate) fn commit_staged(tmp: &Path, path: &Path) -> Result<(), AppError> {
                 Some(ERROR_SHARING_VIOLATION)
                     | Some(ERROR_LOCK_VIOLATION)
                     | Some(ERROR_ACCESS_DENIED)
+                    | Some(ERROR_UNABLE_TO_REMOVE_REPLACED)
+                    | Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT)
+                    | Some(ERROR_UNABLE_TO_MOVE_REPLACEMENT_2)
             )
         };
+
+        // 同进程内的替换串行化：两个线程同时替换同一个目标时，ReplaceFileW 会互相
+        // 搬走对方的临时文件（1176/1177），重试也只是把碰撞往后推。锁只护住替换这一
+        // 步，毫秒级；跨进程的占用仍靠上面的退避重试。
+        static REPLACE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _replace_guard = REPLACE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let mut completed = false;
         let mut last_error = None;
