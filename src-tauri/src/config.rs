@@ -607,10 +607,27 @@ pub(crate) fn commit_staged(tmp: &Path, path: &Path) -> Result<(), AppError> {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
+        // 目标或临时文件被别的进程短暂占用时（并发写、杀毒扫描、索引服务），
+        // ReplaceFileW 与 fs::rename 都会以共享冲突失败。这类失败多为瞬时，重试几次
+        // 就过去了；真被独占时重试耗尽仍原样报错，调用方的恢复逻辑不变。
+        const ATTEMPTS: u32 = 6;
+        const ERROR_ACCESS_DENIED: i32 = 5;
+        const ERROR_SHARING_VIOLATION: i32 = 32;
+        const ERROR_LOCK_VIOLATION: i32 = 33;
+
+        let is_transient = |error: &std::io::Error| {
+            matches!(
+                error.raw_os_error(),
+                Some(ERROR_SHARING_VIOLATION)
+                    | Some(ERROR_LOCK_VIOLATION)
+                    | Some(ERROR_ACCESS_DENIED)
+            )
+        };
+
         let mut completed = false;
         let mut last_error = None;
 
-        for _ in 0..3 {
+        for attempt in 0..ATTEMPTS {
             // SAFETY: both path buffers are NUL-terminated UTF-16 and remain alive for the
             // duration of the call. Backup, exclusion, and reserved pointers are intentionally null.
             let replaced_ok = unsafe {
@@ -633,29 +650,27 @@ pub(crate) fn commit_staged(tmp: &Path, path: &Path) -> Result<(), AppError> {
             // std::fs::rename uses a different replace-existing API on Windows.
             let replace_not_supported =
                 replace_error.raw_os_error() == Some(ERROR_NOT_SUPPORTED as i32);
-            if replace_error.kind() != std::io::ErrorKind::NotFound && !replace_not_supported {
-                last_error = Some(replace_error);
+            let error =
+                if replace_error.kind() == std::io::ErrorKind::NotFound || replace_not_supported {
+                    match fs::rename(tmp, path) {
+                        Ok(()) => {
+                            completed = true;
+                            break;
+                        }
+                        Err(source) => source,
+                    }
+                } else {
+                    replace_error
+                };
+
+            let transient = is_transient(&error);
+            last_error = Some(error);
+            if !transient || attempt + 1 == ATTEMPTS {
                 break;
             }
-
-            match fs::rename(tmp, path) {
-                Ok(()) => {
-                    completed = true;
-                    break;
-                }
-                Err(source)
-                    if matches!(
-                        source.kind(),
-                        std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::PermissionDenied
-                    ) =>
-                {
-                    last_error = Some(source);
-                }
-                Err(source) => {
-                    last_error = Some(source);
-                    break;
-                }
-            }
+            std::thread::sleep(std::time::Duration::from_millis(
+                20 * u64::from(attempt + 1),
+            ));
         }
 
         if !completed {
