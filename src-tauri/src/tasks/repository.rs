@@ -258,6 +258,13 @@ pub fn read(workspace: &Workspace, id: &str) -> Result<TaskDetail, String> {
 
 /// 用 YAML 规则给标量加引号，`To Do` 不变，`@codex` 这类会加单引号。
 fn scalar(text: &str) -> String {
+    // 多行文本：serde_yaml 会写成块标量（`|-\n  a\n  b`）。块标量只能在块上下文里
+    // 出现，`inline_list` 把它塞进流式序列（`[a, |- ...]`）就是非法 YAML，整张卡片
+    // 会变成解析不了的文本。JSON 的字符串转义恰好是合法的 YAML 双引号标量：单行、
+    // 能原样读回，也不依赖哪个序列化器先挑风格。
+    if text.contains(['\n', '\r']) {
+        return serde_json::to_string(text).unwrap_or_else(|_| format!("{text:?}"));
+    }
     serde_yaml::to_string(&serde_yaml::Value::String(text.to_string()))
         .map(|value| value.trim_end_matches('\n').to_string())
         .unwrap_or_else(|_| format!("'{text}'"))
@@ -1040,6 +1047,30 @@ mod tests {
         )
         .expect("create");
         assert_eq!(second.task.id, "TASK-2");
+    }
+
+    /// 标签、归属是用户可填的自由文本，里面带换行时不能被写成块标量：
+    /// `labels: [a, |-\n  b]` 不是合法 YAML，卡片当场变成解析不了的文本。
+    #[test]
+    fn a_multi_line_label_does_not_break_the_card() {
+        let (_temp, workspace) = workspace();
+        let detail = create(
+            &workspace,
+            &NewTask {
+                title: "Multi line label".into(),
+                labels: Some(vec!["two\nlines".into()]),
+                assignees: Some(vec!["@a\nb".into()]),
+                ..Default::default()
+            },
+        )
+        .expect("create");
+        // 写出来的必须能原样读回，而不是变成一张报错的卡。
+        assert_eq!(detail.task.labels, vec!["two\nlines"]);
+        assert_eq!(detail.task.assignees, vec!["@a\nb"]);
+        let again = read(&workspace, &detail.task.id).expect("read back");
+        assert_eq!(again.task.labels, vec!["two\nlines"]);
+        let listed = list(&workspace).expect("list");
+        assert_eq!(listed.len(), 1);
     }
 
     #[test]
