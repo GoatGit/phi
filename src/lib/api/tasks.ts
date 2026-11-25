@@ -42,6 +42,8 @@ export interface TaskCard {
   title: string;
   status: string;
   assignees: string[];
+  /** 这张卡要续接的 CLI 会话 id；`null` 表示每次新起一个 */
+  session: string | null;
   priority: string | null;
   labels: string[];
   dependencies: string[];
@@ -239,6 +241,19 @@ export const tasksApi = {
       taskId,
       recurrence,
       schedule,
+      fingerprint,
+    }),
+  /** 选这张卡续接哪一个 CLI 会话；`null` 表示恢复成每次新起一个 */
+  setSession: (
+    root: string,
+    taskId: string,
+    session: string | null,
+    fingerprint: string,
+  ) =>
+    invoke<TaskDetail>("task_set_session", {
+      root,
+      taskId,
+      session,
       fingerprint,
     }),
   /** 在文件管理器中显示一个产物（只接受仓库内确实存在的文件） */

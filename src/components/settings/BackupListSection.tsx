@@ -334,6 +334,7 @@ export function BackupListSection({
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 shrink-0"
+                        aria-label={t("settings.backupManager.confirmRename")}
                         onClick={handleConfirmRename}
                         disabled={isRenaming || !editValue.trim()}
                       >
@@ -343,6 +344,7 @@ export function BackupListSection({
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 shrink-0"
+                        aria-label={t("settings.backupManager.cancelRename")}
                         onClick={handleCancelRename}
                         disabled={isRenaming}
                       >

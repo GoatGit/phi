@@ -547,6 +547,7 @@ const EndpointSpeedTest: React.FC<EndpointSpeedTestProps> = ({
             />
             <Button
               type="button"
+              aria-label={t("endpointTest.addEndpoint")}
               onClick={handleAddEndpoint}
               variant="outline"
               size="icon"

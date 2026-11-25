@@ -25,6 +25,12 @@ pub struct Task {
     pub title: String,
     pub status: String,
     pub assignees: Vec<String>,
+    /// 这张卡要续接哪一个 CLI 会话（frontmatter 的 `session`）；为空表示每次新起一个。
+    ///
+    /// 存的是 CLI 自己的会话 id（claude 的 UUID、opencode 的 `ses_…`），不是 phi 的
+    /// worker 会话。派发时按应用翻译成各自的 resume 参数；应用不支持或 id 不合法时不派，
+    /// 不会「悄悄新起一个」。
+    pub session: Option<String>,
     pub priority: Option<String>,
     pub labels: Vec<String>,
     pub dependencies: Vec<String>,

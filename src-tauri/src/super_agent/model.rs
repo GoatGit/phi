@@ -442,6 +442,8 @@ pub struct Candidate {
     pub assignees: Vec<String>,
     /// 卡片的标签。用于调度器提议「同类活反复派给同一个应用」。
     pub labels: Vec<String>,
+    /// 这张卡要续接的 CLI 会话；`None` 表示每次新起一个。
+    pub session: Option<String>,
     pub run: Option<TaskRun>,
 }
 
@@ -655,6 +657,8 @@ pub struct DispatchSpec {
     /// 相对仓库根的任务文件路径。
     pub file: String,
     pub title: String,
+    /// 要续接的 CLI 会话 id；只在支持按 id 续接的应用上才会派发。
+    pub session: Option<String>,
 }
 
 impl DispatchSpec {

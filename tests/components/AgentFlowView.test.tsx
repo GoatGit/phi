@@ -55,6 +55,7 @@ function card(overrides: Partial<TaskCard> = {}): TaskCard {
     acceptanceDone: 0,
     artifactCount: 0,
     schedule: null,
+    session: null,
     file: "backlog/tasks/task-1.md",
     fingerprint: "1:aa",
     ...overrides,
@@ -174,6 +175,29 @@ describe("AgentFlowView", () => {
     ).not.toBeNull();
   });
 
+  it("卡上写明它会接着某段对话干：不写的话看不出它为什么不是从零开始", () => {
+    renderView({
+      tasks: [
+        card({
+          id: "TASK-1",
+          title: "写文档",
+          assignees: ["writer"],
+          session: "6f1c8f0e-33c4",
+        }),
+      ],
+    });
+    const column = laneColumn();
+    expect(
+      within(column).getByText(zh.tasks.session.cardBadge),
+    ).toBeInTheDocument();
+    // 具体 id 放在 title 里：卡片上只留一句人话。
+    expect(
+      within(column).getByTitle(
+        zh.tasks.session.cardBadgeTitle.replace("{{id}}", "6f1c8f0e-33c4"),
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("任务列不重复智能体卡片：只留一排图标与卡", () => {
     renderView({
       tasks: [card({ id: "TASK-1", title: "写文档", assignees: ["writer"] })],
@@ -226,6 +250,86 @@ describe("AgentFlowView", () => {
     const [idle, busy] = paths.slice(-2);
     expect(idle.getAttribute("data-state")).toBe("own");
     expect(busy.getAttribute("data-state")).toBe("busy");
+  });
+
+  it("卡栏自己滚动时连线跟着重算：线不能停在滚动前的位置", () => {
+    // jsdom 没有布局：按 data-flow-node 造一套会随「滚动」整体上移的盒子。
+    // 滚动只作用于卡那一层——滚的是卡栏，画布与节点本身不动。
+    let shift = 0;
+    const bands: Record<string, [number, number]> = {
+      discussion: [40, 80],
+      lead: [40, 80],
+      "agent:writer": [40, 80],
+      unassigned: [120, 160],
+      // 卡栏的可见范围：落在这条带子外的卡不画线
+      "lane:clip": [200, 500],
+    };
+    const spy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) {
+        const stage = this.classList.contains("phi-flow-stage");
+        const key = this.getAttribute("data-flow-node") ?? "";
+        let top = 0;
+        let bottom = 0;
+        if (stage) {
+          bottom = 600;
+        } else if (key.startsWith("card:")) {
+          // 卡按任务号往下排，整栏滚动 shift 像素：卡上移、框不动。
+          top = 210 + Number(key.split("-").pop()) * 20 - shift;
+          bottom = top + 16;
+        } else {
+          [top, bottom] = bands[key] ?? [0, 0];
+        }
+        const left = stage ? 0 : 560;
+        const right = stage ? 800 : 640;
+        return {
+          left,
+          right,
+          top,
+          bottom,
+          width: right - left,
+          height: bottom - top,
+          x: left,
+          y: top,
+          toJSON: () => ({}),
+        } as DOMRect;
+      });
+
+    try {
+      renderView({
+        tasks: Array.from({ length: 7 }, (_, index) =>
+          card({
+            id: `TASK-${index + 1}`,
+            title: `第 ${index + 1} 件`,
+            assignees: ["writer"],
+          }),
+        ),
+      });
+
+      const ownPaths = () =>
+        [
+          ...document.querySelectorAll(
+            '.agent-flow-wires path[data-state="own"]',
+          ),
+        ];
+      // 七张卡都在可见范围里：一人一根
+      expect(ownPaths()).toHaveLength(7);
+      const before = ownPaths().map((path) => path.getAttribute("d"));
+
+      // 卡栏滚了一格：第一张已经滚出可见范围，其余几张整体上移
+      shift = 40;
+      fireEvent.scroll(
+        document.querySelector('.agent-lane-cards[data-scroll="true"]')!,
+      );
+
+      // 滚出去的那张不再连线，剩下的线落在新位置上
+      expect(ownPaths()).toHaveLength(6);
+      expect(ownPaths().map((path) => path.getAttribute("d"))).not.toEqual(
+        before.slice(1),
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("连线按语义分开画：一条旁路、每个智能体一条分派边", () => {

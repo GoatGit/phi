@@ -232,13 +232,31 @@ impl RouterAgent {
         if self.harness().chars().count() > AGENT_HARNESS_LIMIT {
             return Err("agent-harness-too-large".into());
         }
-        // 只允许不改变执行权限、配置文件或启动命令的 CLI 选项。
+        // 允许列表是前端 `agentArguments.ts` 的镜像：界面上能点的，这里必须收；
+        // 不在这里的写法，保存时就拒掉，不留「填得进去、跑起来才炸」的口子。
+        //
+        // 审批类开关（`--dangerously-skip-permissions` 等）也在列表里：它们是人在界面上
+        // 明确点的一项，不是 phi 悄悄改的默认值。沙箱、并发、超时这些 phi 自己的边界
+        // 一项都没放开——沙箱类只收了更严格的那一档（`--sandbox read-only`）。
         let mut args = self.arguments.iter().map(String::as_str);
         while let Some(flag) = args.next() {
             match (app.as_str(), flag) {
-                ("claude", "--verbose") | ("codex", "--ephemeral") => (),
+                ("claude", "--verbose")
+                | ("claude", "--strict-mcp-config")
+                | ("claude", "--dangerously-skip-permissions")
+                | ("codex", "--ephemeral")
+                | ("codex", "--ignore-user-config")
+                | ("codex", "--ignore-rules")
+                | ("codex", "--dangerously-bypass-approvals-and-sandbox")
+                | ("gemini", "--sandbox")
+                | ("gemini", "--skip-trust")
+                | ("gemini", "--yolo")
+                | ("opencode", "--pure")
+                | ("opencode", "--auto") => (),
                 ("claude", "--effort")
                     if matches!(args.next(), Some("low" | "medium" | "high")) => {}
+                // 只放开更严格的那一档：写边界与网络策略仍按 phi 派发时的设定。
+                ("codex", "--sandbox") if matches!(args.next(), Some("read-only")) => {}
                 _ => return Err(format!("unsupported-agent-argument: {flag}")),
             }
         }
@@ -259,12 +277,25 @@ impl RouterAgent {
         let available = crate::mode::stack::worker_models(db, &app).map_err(|e| e.to_string())?;
         model_ready(&app, &self.model, &available)
     }
-    pub fn launch_arguments(&self, file: &str) -> String {
+    /// 交给 CLI 的完整参数。`session` 是这张卡要续接的 CLI 会话 id：
+    /// 只有支持按 id 续接的应用才会被翻译成参数，其余情况由派发前的那道检查拦住。
+    pub fn launch_arguments(&self, file: &str, session: Option<&str>) -> String {
         let mut args = self.arguments.clone();
         if !self.model.is_empty() {
             args.extend(["--model".into(), self.model.clone()]);
         }
-        crate::terminal::worker_arguments(&self.app_id, &args, &self.task_prompt(file))
+        let resume: Vec<String> = session
+            .and_then(|id| crate::terminal::resume_arguments(&self.app_id, id))
+            .unwrap_or_default();
+        crate::terminal::worker_arguments(&self.app_id, &args, &resume, &self.task_prompt(file))
+    }
+
+    /// 这张卡选的会话能不能在这个应用上续接。派发前先问一遍，别到 CLI 那一层才失败。
+    pub fn can_resume(&self, session: Option<&str>) -> bool {
+        match session {
+            None => true,
+            Some(id) => crate::terminal::resume_arguments(&self.app_id, id).is_some(),
+        }
     }
 }
 

@@ -446,9 +446,19 @@ export function AgentFlowView({
         .querySelectorAll("[data-flow-node]")
         .forEach((node) => observer.observe(node));
     }
+    // 卡多时那一栏在自己的框里滚：卡换了位置，线必须跟着重算，否则线还贴在
+    // 滚动前的那几个点上（滚出去的那几张甚至会留下一根伸到空处的毛刺）。
+    // 滚动事件不冒泡，所以在画布上用捕获接住所有内层滚动；画布之外那种横向滚
+    // 动会连 svg 一起移动，相对位置不变，不需要处理。
+    const onScroll = () => measure();
+    stage.addEventListener("scroll", onScroll, {
+      passive: true,
+      capture: true,
+    });
     window.addEventListener("resize", measure);
     return () => {
       observer?.disconnect();
+      stage.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", measure);
     };
     // 卡的增减、聚焦栏的切换、讨论栏的展开都会改变节点高度：量完后连线才贴边。
@@ -639,6 +649,18 @@ export function AgentFlowView({
                     {scheduleLabel(t, task.schedule) ? (
                       <span className="rounded-full bg-subtle px-1.5 py-[1px]">
                         {scheduleLabel(t, task.schedule)}
+                      </span>
+                    ) : null}
+                    {/* 这张卡会接着某段对话干：不写出来，人就不知道它为什么
+                        不像别的卡那样从零开始。 */}
+                    {task.session ? (
+                      <span
+                        className="rounded-full bg-subtle px-1.5 py-[1px]"
+                        title={t("tasks.session.cardBadgeTitle", {
+                          id: task.session,
+                        })}
+                      >
+                        {t("tasks.session.cardBadge")}
                       </span>
                     ) : null}
                   </span>

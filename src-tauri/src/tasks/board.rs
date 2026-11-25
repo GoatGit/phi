@@ -95,6 +95,7 @@ mod tests {
             title: id.into(),
             status: status.into(),
             assignees: Vec::new(),
+            session: None,
             priority: priority.map(|value| value.to_string()),
             labels: Vec::new(),
             dependencies: Vec::new(),

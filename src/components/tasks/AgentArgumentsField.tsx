@@ -148,42 +148,46 @@ export function AgentArgumentsField({
                 {t("tasks.router.agentArgumentsNone")}
               </p>
             ) : (
-              groups.map((group) => {
-                const left = group.options.filter(
-                  (option) => !picks.includes(option),
-                );
-                // 全加过了就不再摆一个空标题：下拉里只剩「自定义」也不算坏。
-                if (left.length === 0) return null;
-                return (
-                  <div key={group.titleKey} className="flex flex-col">
-                    <span className="px-1.5 pb-0.5 pt-1 text-[10px] leading-4 text-fg-3">
-                      {t(group.titleKey)}
-                    </span>
-                    {left.map((option) => {
-                      const text = option.tokens.join(" ");
-                      return (
-                        <button
-                          key={text}
-                          type="button"
-                          aria-label={text}
-                          onClick={() => add(option.tokens)}
-                          className={cn(
-                            "flex flex-col items-start gap-0.5 rounded-control px-1.5 py-1 text-start transition-colors",
-                            "hover:bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
-                          )}
-                        >
-                          <span className="font-mono text-[11px] leading-4 text-fg-1">
-                            {text}
-                          </span>
-                          <span className="text-[11px] leading-relaxed text-fg-3">
-                            {t(option.hintKey)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })
+              // 一组一组的开关摊开后会比一屏高：让这一层自己滚，别把「自定义参数」
+              // 顶出弹层。分组标题跟着滚，滚到哪组就看哪组。
+              <div className="flex max-h-[280px] flex-col overflow-y-auto scroll-implicit">
+                {groups.map((group) => {
+                  const left = group.options.filter(
+                    (option) => !picks.includes(option),
+                  );
+                  // 全加过了就不再摆一个空标题：下拉里只剩「自定义」也不算坏。
+                  if (left.length === 0) return null;
+                  return (
+                    <div key={group.titleKey} className="flex flex-col">
+                      <span className="px-1.5 pb-0.5 pt-1 text-[10px] leading-4 text-fg-3">
+                        {t(group.titleKey)}
+                      </span>
+                      {left.map((option) => {
+                        const text = option.tokens.join(" ");
+                        return (
+                          <button
+                            key={text}
+                            type="button"
+                            aria-label={text}
+                            onClick={() => add(option.tokens)}
+                            className={cn(
+                              "flex flex-col items-start gap-0.5 rounded-control px-1.5 py-1 text-start transition-colors",
+                              "hover:bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                            )}
+                          >
+                            <span className="font-mono text-[11px] leading-4 text-fg-1">
+                              {text}
+                            </span>
+                            <span className="text-[11px] leading-relaxed text-fg-3">
+                              {t(option.hintKey)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
             )}
             <button
               type="button"
@@ -199,8 +203,8 @@ export function AgentArgumentsField({
             >
               {t("tasks.router.agentArgumentsCustom")}
             </button>
-            {/* 审批模式与会话续接由 phi 在派发时定，这一句已经写在字段下面；
-                下拉里不再重复一遍。 */}
+            {/* 「会话续接」不在这一份清单里：选哪一次对话是每张卡的事，
+                入口在卡片详情；这里的开关只影响 CLI 自己的行为。 */}
           </PopoverContent>
         </Popover>
       </div>

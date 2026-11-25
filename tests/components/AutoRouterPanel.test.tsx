@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import i18n from "i18next";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -302,6 +302,31 @@ describe("AutoRouterPanel — 智能体", () => {
     );
     const saved = onSave.mock.calls[0][0];
     expect(saved.agents[0].arguments).toEqual(["--verbose"]);
+  });
+
+  it("参数多了以后下拉自己滚，审批类开关单独成组", async () => {
+    renderAgents({ ...settings, agents: [], workerApps: [] });
+    const user = await openPanel();
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentAdd }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: zh.tasks.router.agentArgumentsAdd }),
+    );
+
+    // 组标题与它下面的选项放在同一个可滚动的容器里：清单再长也顶不掉「自定义参数」。
+    const groupTitle = screen.getByText(
+      zh.tasks.router.agentArgumentGroupPermission,
+    );
+    const scroller = groupTitle.closest(".overflow-y-auto");
+    expect(scroller).not.toBeNull();
+    expect(scroller?.className).toContain("max-h-");
+    // 放开审批这一项必须在，且就在这一组里：点它之前人能看到它的说明。
+    expect(
+      within(scroller as HTMLElement).getByRole("button", {
+        name: "--dangerously-skip-permissions",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("列表之外的写法走自定义输入：原文照存，两个 token 不会被吞", async () => {

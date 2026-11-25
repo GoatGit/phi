@@ -217,6 +217,7 @@ mod tests {
             schedule: None,
             assignees: Vec::new(),
             labels: Vec::new(),
+            session: None,
             run: None,
         }
     }

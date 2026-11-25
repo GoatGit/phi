@@ -9,10 +9,15 @@
  * 改这个文件必须同步改 `src-tauri/src/super_agent/agents.rs` 的允许列表；
  * 反过来加后端项时也要在这里补一条，否则那一项只能靠自定义输入手打。
  *
- * 为什么列得这么少：审批模式、沙箱、会话续接都被有意排除在外——审批由 phi 在派发时
- * 按应用自动设定（claude `acceptEdits`、codex `workspace-write`、gemini `auto_edit`），
- * 会话则是每次派发新起一个并带上本次任务说明，`--continue` / `--resume` 会把上一张卡
- * 的上下文带进这张卡。这两类都不是「多一个开关」的量级，不该混在智能体定义里。
+ * 三条边界：
+ * 1. 带取值的只放「取值是可枚举的几个」的（`--effort high`）。一人一值的
+ *    （`--add-dir ./x`、`--fallback-model`）不走这里——它们的值属于这台机器的路径或
+ *    模型，不是「多一个开关」。
+ * 2. 审批类开关（`--dangerously-skip-permissions`、`--yolo`、`--auto`…）单独成组，
+ *    提示里写清「等于放开审批」。它们不改 phi 自己的边界（沙箱、并发、超时），改的是
+ *    CLI 在无人值守时还会不会停下来问人——这一项必须是人自己点的。
+ * 3. 会话续接不在这里：选哪一个会话是每张卡的事，入口在卡片详情的「续接会话」，
+ *    派发时由 phi 翻译成各应用自己的 resume 参数（id 先校验）。
  */
 
 export interface AgentArgumentOption {
@@ -35,6 +40,10 @@ const CLAUDE_GROUPS: AgentArgumentGroup[] = [
         tokens: ["--verbose"],
         hintKey: "tasks.router.agentArgumentVerbose",
       },
+      {
+        tokens: ["--strict-mcp-config"],
+        hintKey: "tasks.router.agentArgumentStrictMcp",
+      },
     ],
   },
   {
@@ -54,6 +63,15 @@ const CLAUDE_GROUPS: AgentArgumentGroup[] = [
       },
     ],
   },
+  {
+    titleKey: "tasks.router.agentArgumentGroupPermission",
+    options: [
+      {
+        tokens: ["--dangerously-skip-permissions"],
+        hintKey: "tasks.router.agentArgumentSkipPermissions",
+      },
+    ],
+  },
 ];
 
 const CODEX_GROUPS: AgentArgumentGroup[] = [
@@ -66,6 +84,83 @@ const CODEX_GROUPS: AgentArgumentGroup[] = [
       },
     ],
   },
+  {
+    titleKey: "tasks.router.agentArgumentGroupConfig",
+    options: [
+      {
+        tokens: ["--ignore-user-config"],
+        hintKey: "tasks.router.agentArgumentIgnoreUserConfig",
+      },
+      {
+        tokens: ["--ignore-rules"],
+        hintKey: "tasks.router.agentArgumentIgnoreRules",
+      },
+    ],
+  },
+  {
+    titleKey: "tasks.router.agentArgumentGroupSandbox",
+    options: [
+      {
+        tokens: ["--sandbox", "read-only"],
+        hintKey: "tasks.router.agentArgumentSandboxReadOnly",
+      },
+    ],
+  },
+  {
+    titleKey: "tasks.router.agentArgumentGroupPermission",
+    options: [
+      {
+        tokens: ["--dangerously-bypass-approvals-and-sandbox"],
+        hintKey: "tasks.router.agentArgumentBypassSandbox",
+      },
+    ],
+  },
+];
+
+const GEMINI_GROUPS: AgentArgumentGroup[] = [
+  {
+    titleKey: "tasks.router.agentArgumentGroupSandbox",
+    options: [
+      {
+        tokens: ["--sandbox"],
+        hintKey: "tasks.router.agentArgumentGeminiSandbox",
+      },
+      {
+        tokens: ["--skip-trust"],
+        hintKey: "tasks.router.agentArgumentSkipTrust",
+      },
+    ],
+  },
+  {
+    titleKey: "tasks.router.agentArgumentGroupPermission",
+    options: [
+      {
+        tokens: ["--yolo"],
+        hintKey: "tasks.router.agentArgumentYolo",
+      },
+    ],
+  },
+];
+
+const OPENCODE_GROUPS: AgentArgumentGroup[] = [
+  {
+    titleKey: "tasks.router.agentArgumentGroupPlugin",
+    options: [
+      {
+        tokens: ["--pure"],
+        hintKey: "tasks.router.agentArgumentPure",
+      },
+    ],
+  },
+  {
+    titleKey: "tasks.router.agentArgumentGroupPermission",
+    options: [
+      {
+        tokens: ["--auto"],
+        hintKey: "tasks.router.agentArgumentAuto",
+      },
+    ],
+  },
 ];
 
 /** 某个应用能追加的参数。没有可选参数的应用返回空数组，界面据此换成一句说明。 */
@@ -75,6 +170,10 @@ export function agentArgumentGroups(appId: string): AgentArgumentGroup[] {
       return CLAUDE_GROUPS;
     case "codex":
       return CODEX_GROUPS;
+    case "gemini":
+      return GEMINI_GROUPS;
+    case "opencode":
+      return OPENCODE_GROUPS;
     default:
       return [];
   }

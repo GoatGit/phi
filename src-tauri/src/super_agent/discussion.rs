@@ -295,6 +295,7 @@ mod tests {
                 title: "看板改版".into(),
                 status: "To Do".into(),
                 assignees: Vec::new(),
+                session: None,
                 priority: None,
                 labels: Vec::new(),
                 dependencies: Vec::new(),

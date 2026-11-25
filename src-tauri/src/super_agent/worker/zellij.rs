@@ -222,7 +222,9 @@ impl WorkerRuntime for ZellijWorkers {
         let session_id = uuid::Uuid::new_v4().to_string();
         let journal = crate::exit_hook::journal_path();
         // 与托管终端同一句话、同一份参数：两条入口不能各说一套。
-        let arguments = spec.agent.launch_arguments(&spec.file);
+        let arguments = spec
+            .agent
+            .launch_arguments(&spec.file, spec.session.as_deref());
         let launch = crate::terminal::prepare_worker(
             &spec.app_id,
             &spec.root,

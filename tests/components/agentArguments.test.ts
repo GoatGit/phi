@@ -10,18 +10,50 @@ import {
 const claude = agentArgumentOptions("claude");
 
 describe("agentArguments", () => {
-  it("按应用列参数：claude 有输出与思考强度，codex 只有会话开关", () => {
+  it("按应用列参数：每个能派发的应用都有一份清单", () => {
     expect(claude.map((option) => option.tokens.join(" "))).toEqual([
       "--verbose",
+      "--strict-mcp-config",
       "--effort low",
       "--effort medium",
       "--effort high",
+      "--dangerously-skip-permissions",
     ]);
     expect(
       agentArgumentOptions("codex").map((option) => option.tokens.join(" ")),
-    ).toEqual(["--ephemeral"]);
+    ).toEqual([
+      "--ephemeral",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--sandbox read-only",
+      "--dangerously-bypass-approvals-and-sandbox",
+    ]);
+    expect(
+      agentArgumentOptions("gemini").map((option) => option.tokens.join(" ")),
+    ).toEqual(["--sandbox", "--skip-trust", "--yolo"]);
+    expect(
+      agentArgumentOptions("opencode").map((option) => option.tokens.join(" ")),
+    ).toEqual(["--pure", "--auto"]);
     // 没有允许项的应用要给一个空列表，界面据此换成说明，而不是摆一个空下拉。
-    expect(agentArgumentGroups("gemini")).toEqual([]);
+    expect(agentArgumentGroups("pi")).toEqual([]);
+  });
+
+  it("审批类开关单独成组：放开审批这件事要看得见", () => {
+    const groups = agentArgumentGroups("claude");
+    const approval = groups.find(
+      (group) => group.titleKey === "tasks.router.agentArgumentGroupPermission",
+    );
+    expect(approval?.options.map((option) => option.tokens[0])).toEqual([
+      "--dangerously-skip-permissions",
+    ]);
+    // 同一个名单里的每一项都要有说明，不能只摆一串 token 让人猜。
+    for (const group of groups) {
+      for (const option of group.options) {
+        expect(option.hintKey.startsWith("tasks.router.agentArgument")).toBe(
+          true,
+        );
+      }
+    }
   });
 
   it("带取值的参数整体认出来，取值不会被当成残留", () => {

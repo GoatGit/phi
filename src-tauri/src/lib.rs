@@ -1473,6 +1473,7 @@ pub fn run() {
             tasks::commands::task_create,
             tasks::commands::task_set_status,
             tasks::commands::task_set_schedule,
+            tasks::commands::task_set_session,
             tasks::discussion::task_discussion_update,
             tasks::discussion::task_discussion_say,
             tasks::commands::task_reveal_artifact,

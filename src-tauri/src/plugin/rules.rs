@@ -178,8 +178,10 @@ fn mask_value(value: &mut Value, rule: &CompiledRule, hits: &mut usize) {
         Some(pattern) => {
             let count = pattern.find_iter(text).count();
             if count > 0 {
+                // 替换文本是字面量：插件写 `$5` 时应当出现 `$5`，而不是被当成第 5 个
+                // 捕获组（不存在就展开成空串，等于把命中内容悄悄删掉）。
                 *text = pattern
-                    .replace_all(text, rule.replacement.as_str())
+                    .replace_all(text, regex::NoExpand(&rule.replacement))
                     .into_owned();
                 *hits += count;
             }
@@ -259,6 +261,16 @@ mod tests {
             .err()
             .expect("invalid regex is rejected");
         assert!(err.contains("第 0 条"), "{err}");
+    }
+
+    #[test]
+    fn replacement_text_is_literal_even_with_dollar_signs() {
+        let compiled = rules(json!([{
+            "op":"mask","path":"price","pattern":"\\d+","replacement":"$5"
+        }]));
+        let mut body = json!({"price":"cost 123"});
+        assert_eq!(compiled.apply(&mut body), 1);
+        assert_eq!(body, json!({"price":"cost $5"}));
     }
 
     #[test]
