@@ -37,13 +37,45 @@ ZIG_SHA = {
 }
 
 
+# ziglang.org 的带宽会长时间掉到几十 KB/s，46MB 的 zig 工具链按单次 180 秒
+# 整包下载必然超时。改成「断点续传 + 总预算」：每次尝试接着上次的字节往下拉，
+# 只要总带宽能把整包拉完就能成功，中途断几次都不影响。
+DOWNLOAD_BUDGET_SECONDS = 15 * 60
+DOWNLOAD_ATTEMPT_SECONDS = 240
+DOWNLOAD_ATTEMPTS = 8
+DOWNLOAD_RETRY_DELAY_SECONDS = 3
+DOWNLOAD_MIN_ATTEMPT_SECONDS = 30
+
+
 def download(url, path, checksum):
-    if not path.exists():
-        partial = path.with_suffix(".download")
-        subprocess.run(["curl", "--fail", "--location", "--retry", "3", "--max-time", "180", "--output", str(partial), url], check=True)
-        partial.replace(path)
-    if hashlib.sha256(path.read_bytes()).hexdigest() != checksum:
+    """下载并校验固定内容；中断的进度留在 .download 里，下一轮接着传。"""
+    if path.exists():
+        if hashlib.sha256(path.read_bytes()).hexdigest() == checksum:
+            return
         raise RuntimeError(f"Checksum mismatch: {path}; remove this download and retry")
+
+    partial = path.with_suffix(".download")
+    deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        remaining = deadline - time.monotonic()
+        if remaining < DOWNLOAD_MIN_ATTEMPT_SECONDS:
+            break
+        timeout = min(DOWNLOAD_ATTEMPT_SECONDS, int(remaining))
+        command = ["curl", "--fail", "--location", "--max-time", str(timeout), "--output", str(partial)]
+        if partial.exists() and partial.stat().st_size > 0:
+            command[1:1] = ["--continue-at", "-"]
+            print(f"Resuming {path.name} at {partial.stat().st_size} bytes")
+        command.append(url)
+        result = subprocess.run(command)
+        if partial.exists() and hashlib.sha256(partial.read_bytes()).hexdigest() == checksum:
+            partial.replace(path)
+            return
+        if attempt == DOWNLOAD_ATTEMPTS:
+            break
+        print(f"Download attempt {attempt}/{DOWNLOAD_ATTEMPTS} of {path.name} failed with exit {result.returncode}; retrying")
+        time.sleep(DOWNLOAD_RETRY_DELAY_SECONDS)
+
+    raise RuntimeError(f"Download failed: {url}; partial download kept at {partial}")
 
 
 # Zig resolves Ghostty's git dependencies while building. codeberg.org

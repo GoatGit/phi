@@ -1,11 +1,14 @@
 import contextlib
+import hashlib
 import importlib.util
 import io
 import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -159,6 +162,96 @@ class GhosttyBuildTests(unittest.TestCase):
                 self.run_build("print('x'*300000); print('compile error'); raise SystemExit(2)", directory)
             self.assertLessEqual(len(error.exception.output), 128 * 1024)
             self.assertIn("compile error", error.exception.output)
+
+
+class _ResumableHandler(BaseHTTPRequestHandler):
+    """支持 Range 的下载源：第一次只发一半就断开连接，模拟中途掉线。"""
+
+    payload = b""
+    ranges = []
+    truncate_first = True
+
+    def do_GET(self):
+        range_header = self.headers.get("Range")
+        type(self).ranges.append(range_header)
+        start = int(range_header.split("=", 1)[1].split("-", 1)[0]) if range_header else 0
+        body = type(self).payload[start:]
+        self.send_response(206 if start else 200)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Accept-Ranges", "bytes")
+        if start:
+            self.send_header("Content-Range", f"bytes {start}-{len(type(self).payload) - 1}/{len(type(self).payload)}")
+        self.end_headers()
+        if type(self).truncate_first:
+            type(self).truncate_first = False
+            self.wfile.write(body[: len(body) // 2])
+            self.wfile.flush()
+            self.close_connection = True
+            return
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+class DownloadTests(unittest.TestCase):
+    def setUp(self):
+        _ResumableHandler.ranges = []
+        _ResumableHandler.truncate_first = True
+
+    def test_download_resumes_from_the_partial_file(self):
+        payload = b"payload" * (32 * 1024)
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "zig.tar.xz"
+            calls = []
+
+            def fake_run(command, **kwargs):
+                output = Path(command[command.index("--output") + 1])
+                calls.append(list(command))
+                start = output.stat().st_size if "--continue-at" in command and output.exists() else 0
+                if not start:
+                    output.write_bytes(b"")
+                chunk = payload[start : start + 100 * 1024]
+                with open(output, "ab") as handle:
+                    handle.write(chunk)
+                done = start + len(chunk) == len(payload)
+                return subprocess.CompletedProcess(command, 0 if done else 28)
+
+            with patch.object(ghostty.subprocess, "run", fake_run), patch.object(ghostty, "DOWNLOAD_RETRY_DELAY_SECONDS", 0):
+                ghostty.download("https://example.invalid/zig.tar.xz", target, hashlib.sha256(payload).hexdigest())
+
+            self.assertEqual(target.read_bytes(), payload)
+            self.assertGreaterEqual(len(calls), 2)
+            self.assertNotIn("--continue-at", calls[0])
+            self.assertIn("--continue-at", calls[1])
+            self.assertFalse(target.with_suffix(".download").exists())
+
+    def test_download_resumes_a_truncated_http_transfer(self):
+        _ResumableHandler.payload = b"ghostty" * (64 * 1024)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _ResumableHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "ghostty.tar.gz"
+                url = f"http://127.0.0.1:{server.server_port}/ghostty.tar.gz"
+                with patch.object(ghostty, "DOWNLOAD_RETRY_DELAY_SECONDS", 0):
+                    ghostty.download(url, target, hashlib.sha256(_ResumableHandler.payload).hexdigest())
+                self.assertEqual(target.read_bytes(), _ResumableHandler.payload)
+                self.assertGreaterEqual(len(_ResumableHandler.ranges), 2)
+                self.assertIsNone(_ResumableHandler.ranges[0])
+                self.assertIn("bytes=", _ResumableHandler.ranges[1])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_download_rejects_a_corrupt_cached_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "zig.tar.xz"
+            target.write_bytes(b"not the pinned archive")
+            with self.assertRaises(RuntimeError):
+                ghostty.download("https://example.invalid/zig.tar.xz", target, hashlib.sha256(b"other").hexdigest())
 
 
 if __name__ == "__main__":
