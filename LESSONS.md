@@ -115,6 +115,22 @@
   `human` 232.5,69→266.5,69、`run` 461.5,69→495.5,69、`idle` →495.5,143、`off` →495.5,213、
   `run` 768.5,69→808.5,95、`own` →808.5,161。
 
+### CI 作业被取消且没有日志时，先当基建故障处理（Seen 1×）
+
+- **规则**：作业状态是 `cancelled`、`gh run view --job` 又拿不到任何日志时，先直接
+  `gh run rerun --failed`，不要改代码找原因；判断依据是「有没有日志」「是不是同一时间窗
+  集中发生」，而不是失败信号本身。
+- **为什么**：没有日志说明作业根本没在 runner 上跑起来（runner 被回收，或排到一半被取消），
+  这种情形下改代码不会改变任何结果，下一轮照样被取消——很容易把基建抖动误读成「我的修复
+  没生效」，然后在一个不存在的问题上反复改。反过来，日志停在某一步（比如 CodeQL 的
+  `Uploading results`）说明作业真跑到了那一步，那是另一类问题，要看具体报错而不是重跑。
+- **证据**：2026-11-25 v1.3.0 发版，Release 工作流 `45658354344` 的
+  `Build macOS binary (aarch64-apple-darwin)`（job `139361327430`）从 16:51:22Z 开始、
+  17:06:28Z 变成 cancelled，`gh run view --job --log` 返回 `log not found`，同一轮
+  ubuntu / windows 四个作业全部成功，`Bundle macOS release` 与 `Publish GitHub Release`
+  因被跳过而没发出版；`gh run rerun --failed` 后 attempt 2 全绿并正常发布。同一时间窗
+  合并后的主干 CI `45658297055` 的 macOS 作业同样被取消，rerun 后转绿。
+
 ## 做对了
 
 ### 用真实 TCP 连接验证协议升级（2026-11-08）
